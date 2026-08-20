@@ -1,27 +1,30 @@
-using LabManagement.API.Data;
-using LabManagement.API.DTOs;
-using LabManagement.API.Models;
+using HealthBridge.Api.Data;
+using HealthBridge.Api.DTOs.Lab;
+using HealthBridge.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-namespace LabManagement.API.Controllers;
+namespace HealthBridge.Api.Controllers;
 
 [ApiController]
 [Route("api/lab/tests")]
 public class LabTestsController : ControllerBase
 {
-    private readonly AppDbContext _db;
+    private readonly ApplicationDbContext _db;
 
-    public LabTestsController(AppDbContext db)
+    public LabTestsController(ApplicationDbContext db)
     {
         _db = db;
     }
 
-    // GET /api/lab/tests — Get all active tests (with optional search)
+    // GET /api/lab/tests — Get all active/inactive tests
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<LabTestDto>>> GetAll([FromQuery] string? search, [FromQuery] string? category)
+    public async Task<ActionResult<IEnumerable<LabTestResponse>>> GetAll([FromQuery] string? search, [FromQuery] string? category, [FromQuery] bool includeInactive = false)
     {
-        var query = _db.LabTests.Where(t => t.IsActive).AsQueryable();
+        var query = _db.LabTests.AsQueryable();
+
+        if (!includeInactive)
+            query = query.Where(t => t.IsActive);
 
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(t => t.Name.ToLower().Contains(search.ToLower()) ||
@@ -37,7 +40,7 @@ public class LabTestsController : ControllerBase
 
     // GET /api/lab/tests/{id} — Get single test
     [HttpGet("{id:guid}")]
-    public async Task<ActionResult<LabTestDto>> GetById(Guid id)
+    public async Task<ActionResult<LabTestResponse>> GetById(Guid id)
     {
         var test = await _db.LabTests.FindAsync(id);
         if (test == null || !test.IsActive) return NotFound();
@@ -59,7 +62,7 @@ public class LabTestsController : ControllerBase
 
     // POST /api/lab/tests — Create a new test (Lab Admin only)
     [HttpPost]
-    public async Task<ActionResult<LabTestDto>> Create([FromBody] CreateLabTestDto dto)
+    public async Task<ActionResult<LabTestResponse>> Create([FromBody] CreateLabTestRequest dto)
     {
         var test = new LabTest
         {
@@ -78,7 +81,7 @@ public class LabTestsController : ControllerBase
 
     // PUT /api/lab/tests/{id} — Update test
     [HttpPut("{id:guid}")]
-    public async Task<ActionResult<LabTestDto>> Update(Guid id, [FromBody] UpdateLabTestDto dto)
+    public async Task<ActionResult<LabTestResponse>> Update(Guid id, [FromBody] UpdateLabTestRequest dto)
     {
         var test = await _db.LabTests.FindAsync(id);
         if (test == null) return NotFound();
@@ -106,7 +109,7 @@ public class LabTestsController : ControllerBase
         return NoContent();
     }
 
-    private static LabTestDto MapToDto(LabTest t) => new()
+    private static LabTestResponse MapToDto(LabTest t) => new()
     {
         Id = t.Id,
         Name = t.Name,

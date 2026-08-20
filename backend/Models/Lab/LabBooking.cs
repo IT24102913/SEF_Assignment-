@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace LabManagement.API.Models;
+namespace HealthBridge.Api.Models;
 
 public enum BookingStatus
 {
@@ -31,7 +31,7 @@ public class LabBooking
     public Guid Id { get; set; } = Guid.NewGuid();
 
     [Required]
-    public Guid PatientId { get; set; }
+    public int PatientId { get; set; }
 
     [Required]
     public string PatientName { get; set; } = string.Empty;
