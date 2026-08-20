@@ -1,4 +1,4 @@
-namespace LabManagement.API.Models;
+namespace HealthBridge.Api.Models;
 
 public class LabTimeSlot
 {

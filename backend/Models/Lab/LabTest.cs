@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace LabManagement.API.Models;
+namespace HealthBridge.Api.Models;
 
 public class LabTest
 {
