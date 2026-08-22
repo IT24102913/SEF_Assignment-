@@ -3,34 +3,47 @@
 :root {
   --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   
-  /* Aegis Health Theme Colors */
-  --sidebar-bg: #111827;
-  --sidebar-hover: #1f2937;
-  --sidebar-active: #2563eb;
-  --sidebar-text: #9ca3af;
+  /* Health Bridge Teal Theme */
+  --primary:        #0d7c6b;
+  --primary-dark:   #095e51;
+  --primary-darker: #074840;
+  --primary-light:  #e6f5f2;
+  --primary-mid:    #b2ddd6;
+
+  --sidebar-bg:          #095e51;
+  --sidebar-hover:       #0d7c6b;
+  --sidebar-active:      #0d7c6b;
+  --sidebar-text:        #a8d5ce;
   --sidebar-text-active: #ffffff;
+  --sidebar-border:      rgba(255,255,255,0.08);
   
-  --bg-main: #f8fafc;
-  --header-bg: #ffffff;
-  --card-bg: #ffffff;
+  --bg-main:    #f2faf8;
+  --header-bg:  #ffffff;
+  --card-bg:    #ffffff;
   
-  --text-dark: #0f172a;
-  --text-muted: #64748b;
+  --text-dark:  #0d2b27;
+  --text-muted: #4d7a73;
   
-  --border-light: #e2e8f0;
+  --border-light: #cce8e3;
   
   /* Module Accent Colors */
-  --blue-bg: #eff6ff;
-  --blue-icon: #3b82f6;
+  --teal-bg:   #e6f5f2;
+  --teal-icon: #0d7c6b;
+
+  --green-bg:  #f0fdf4;
+  --green-icon:#16a34a;
   
-  --green-bg: #f0fdf4;
-  --green-icon: #22c55e;
+  --purple-bg:  #faf5ff;
+  --purple-icon:#9333ea;
   
-  --purple-bg: #faf5ff;
-  --purple-icon: #a855f7;
-  
-  --orange-bg: #fff7ed;
-  --orange-icon: #f97316;
+  --amber-bg:   #fffbeb;
+  --amber-icon: #d97706;
+
+  /* Keep legacy names mapped to new palette so nothing breaks */
+  --blue-bg:   var(--teal-bg);
+  --blue-icon: var(--teal-icon);
+  --orange-bg:   var(--amber-bg);
+  --orange-icon: var(--amber-icon);
 }
 
 * {
@@ -226,14 +239,14 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #0d7c6b 0%, #095e51 100%);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 12px rgba(13, 124, 107, 0.3);
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 6px 18px rgba(13, 124, 107, 0.4);
 }
 
 .btn-secondary {

@@ -13,8 +13,8 @@ export default function RoleSelector({ onLogin }) {
       title: 'Consultant (Doctor)',
       description: 'Diagnosis, consultation notes, test ordering & prescription authoring.',
       icon: Stethoscope,
-      accentColor: '#2563eb',
-      bgColor: '#eff6ff',
+      accentColor: '#0d7c6b',
+      bgColor: '#e6f5f2',
       defaultId: 'DOC-101'
     },
     {
@@ -71,10 +71,10 @@ export default function RoleSelector({ onLogin }) {
   return (
     <div style={{ maxWidth: '840px', margin: '40px auto', padding: '0 20px' }}>
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>
-          Hospital Staff & Admin Portal
+        <h1 style={{ fontSize: '2rem', fontWeight: 800, color: '#0d2b27', marginBottom: '8px' }}>
+          Health Bridge Staff & Admin Portal
         </h1>
-        <p style={{ color: '#64748b', fontSize: '1rem' }}>
+        <p style={{ color: '#4d7a73', fontSize: '1rem' }}>
           Select your authorized staff role and sign in with your credentials.
         </p>
       </div>

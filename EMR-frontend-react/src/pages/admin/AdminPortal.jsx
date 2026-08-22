@@ -26,7 +26,7 @@ export default function AdminPortal() {
     <div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }}>
       {/* Top Staff Navigation Header */}
       <header style={{
-        backgroundColor: '#111827',
+        backgroundColor: '#095e51',
         color: '#ffffff',
         padding: '16px 32px',
         display: 'flex',
@@ -50,17 +50,17 @@ export default function AdminPortal() {
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Aegis Hospital Staff Portal</h2>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Health Bridge Staff Portal</h2>
               <span style={{ fontSize: '0.75rem', backgroundColor: staffSession.accentColor, color: '#ffffff', fontWeight: 700, padding: '2px 10px', borderRadius: '12px' }}>
                 {staffSession.role.toUpperCase()}
               </span>
             </div>
-            <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Staff ID: <strong>{staffSession.staffId}</strong></span>
+            <span style={{ fontSize: '0.8rem', color: '#a8d5ce' }}>Staff ID: <strong>{staffSession.staffId}</strong></span>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link to="/emr/overview" style={{ color: '#38bdf8', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>
+          <Link to="/emr/overview" style={{ color: '#b2ddd6', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>
             View Patient Portal →
           </Link>
 
@@ -70,9 +70,9 @@ export default function AdminPortal() {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              backgroundColor: '#1f2937',
-              color: '#f3f4f6',
-              border: '1px solid #374151',
+              backgroundColor: 'rgba(255,255,255,0.12)',
+              color: '#ffffff',
+              border: '1px solid rgba(255,255,255,0.2)',
               padding: '8px 16px',
               borderRadius: '10px',
               cursor: 'pointer',
