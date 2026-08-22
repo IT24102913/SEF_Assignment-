@@ -70,7 +70,7 @@ export default function AdminPortalDashboard({ staffSession }) {
           <ShieldAlert size={24} />
         </div>
         <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>Super Admin Management Suite</h2>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>Admin Management Suite</h2>
           <p style={{ color: '#475569', fontSize: '0.9rem' }}>
             Logged in as <strong>{staffSession.staffId}</strong> • Full CRUD system privileges over Consultation Notes, Lab Reports & Pharmacy Records.
           </p>

@@ -9,7 +9,6 @@ import {
   Calendar, 
   Settings, 
   LogOut, 
-  Search, 
   Bell, 
   Activity 
 } from 'lucide-react';
@@ -157,22 +156,7 @@ export default function EmrLayout() {
       {/* ─── Main Panel ─────────────────────────────────────────────── */}
       <div className="emr-main">
         {/* Top Bar */}
-        <header className="emr-header">
-          {/* Search */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '10px',
-            backgroundColor: T.searchBg,
-            border: `1px solid ${T.headerBorder}`,
-            padding: '10px 16px', borderRadius: '24px', width: '360px'
-          }}>
-            <Search size={18} color="#4d7a73" />
-            <input
-              type="text"
-              placeholder="Search patients, records, or labs..."
-              style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%', fontSize: '0.9rem', color: '#0d2b27' }}
-            />
-          </div>
-
+        <header className="emr-header" style={{ justifyContent: 'flex-end' }}>
           {/* Right: Bell + Profile */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
 

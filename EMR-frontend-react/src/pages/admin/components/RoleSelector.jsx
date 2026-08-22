@@ -11,7 +11,6 @@ export default function RoleSelector({ onLogin }) {
     {
       id: 'Consultant',
       title: 'Consultant (Doctor)',
-      description: 'Diagnosis, consultation notes, test ordering & prescription authoring.',
       icon: Stethoscope,
       accentColor: '#0d7c6b',
       bgColor: '#e6f5f2',
@@ -19,8 +18,7 @@ export default function RoleSelector({ onLogin }) {
     },
     {
       id: 'Laboratorian',
-      title: 'Laboratorian (Lab Tech)',
-      description: 'Upload lab report results, titles, dates & status updates.',
+      title: 'Laboratorian',
       icon: Microscope,
       accentColor: '#16a34a',
       bgColor: '#f0fdf4',
@@ -29,7 +27,6 @@ export default function RoleSelector({ onLogin }) {
     {
       id: 'Pharmacist',
       title: 'Pharmacist',
-      description: 'Dispense medications, pricing, dosage instructions & auto-status.',
       icon: Pill,
       accentColor: '#9333ea',
       bgColor: '#faf5ff',
@@ -37,8 +34,7 @@ export default function RoleSelector({ onLogin }) {
     },
     {
       id: 'Admin',
-      title: 'Super Admin',
-      description: 'Full CRUD management over all medical records, lab reports & staff data.',
+      title: 'Admin',
       icon: ShieldAlert,
       accentColor: '#ea580c',
       bgColor: '#fff7ed',
@@ -83,8 +79,8 @@ export default function RoleSelector({ onLogin }) {
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(2, 1fr)',
-        gap: '20px',
-        marginBottom: '36px'
+        gap: '18px',
+        marginBottom: '32px'
       }}>
         {roles.map((r) => {
           const Icon = r.icon;
@@ -97,40 +93,41 @@ export default function RoleSelector({ onLogin }) {
                 backgroundColor: isSelected ? r.bgColor : '#ffffff',
                 border: isSelected ? `2.5px solid ${r.accentColor}` : '2px solid #e2e8f0',
                 borderRadius: '16px',
-                padding: '24px',
+                padding: '18px 22px',
                 cursor: 'pointer',
                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                 boxShadow: isSelected ? `0 8px 20px -4px ${r.accentColor}25` : '0 4px 6px -1px rgba(0,0,0,0.03)',
                 display: 'flex',
                 gap: '16px',
-                alignItems: 'flex-start'
+                alignItems: 'center',
+                justifyContent: 'space-between'
               }}
             >
-              <div style={{
-                width: '46px',
-                height: '46px',
-                borderRadius: '12px',
-                backgroundColor: isSelected ? r.accentColor : r.bgColor,
-                color: isSelected ? '#ffffff' : r.accentColor,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
-              }}>
-                <Icon size={24} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  backgroundColor: isSelected ? r.accentColor : r.bgColor,
+                  color: isSelected ? '#ffffff' : r.accentColor,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}>
+                  <Icon size={22} />
+                </div>
+
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0d2b27', margin: 0 }}>
+                  {r.title}
+                </h3>
               </div>
 
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>{r.title}</h3>
-                  {isSelected && (
-                    <span style={{ fontSize: '0.72rem', backgroundColor: r.accentColor, color: '#fff', fontWeight: 600, padding: '2px 8px', borderRadius: '10px' }}>
-                      ACTIVE
-                    </span>
-                  )}
-                </div>
-                <p style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.45 }}>{r.description}</p>
-              </div>
+              {isSelected && (
+                <span style={{ fontSize: '0.72rem', backgroundColor: r.accentColor, color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '10px' }}>
+                  ACTIVE
+                </span>
+              )}
             </div>
           );
         })}
