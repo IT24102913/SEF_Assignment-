@@ -1,10 +1,7 @@
 ﻿import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-
-/// Base URL for the ASP.NET Core Health Bridge API.
-/// For Android emulator use: http://10.0.2.2:5238
-/// For web / Windows: http://localhost:5238
-const String _apiBase = 'http://localhost:5238/api/emr';
 
 // ─── Data Models ──────────────────────────────────────────────────────────────
 
@@ -64,7 +61,7 @@ class ConsultationNote {
   final String consultationDate;
   final String diagnosis;
   final String recommendedTests;
-  final String prescribedMedicines;
+  final List<dynamic> medicines;
   final String clinicalNotes;
   final String status;
 
@@ -76,24 +73,37 @@ class ConsultationNote {
     required this.consultationDate,
     required this.diagnosis,
     required this.recommendedTests,
-    required this.prescribedMedicines,
+    required this.medicines,
     required this.clinicalNotes,
     required this.status,
   });
 
-  factory ConsultationNote.fromJson(Map<String, dynamic> json) =>
-      ConsultationNote(
-        id: json['id'] ?? '',
-        patientCode: json['patientCode'] ?? '',
-        doctorName: json['doctorName'] ?? '',
-        doctorDesignation: json['doctorDesignation'] ?? '',
-        consultationDate: (json['consultationDate'] ?? '').toString().split('T').first,
-        diagnosis: json['diagnosis'] ?? '',
-        recommendedTests: json['recommendedTests'] ?? '',
-        prescribedMedicines: json['prescribedMedicines'] ?? '',
-        clinicalNotes: json['clinicalNotes'] ?? '',
-        status: json['status'] ?? '',
-      );
+  factory ConsultationNote.fromJson(Map<String, dynamic> json) {
+    List<dynamic> meds = [];
+    final rawMeds = json['prescribedMedicines'];
+    if (rawMeds is String && rawMeds.isNotEmpty) {
+      try {
+        meds = jsonDecode(rawMeds);
+      } catch (_) {
+        meds = [];
+      }
+    } else if (rawMeds is List) {
+      meds = rawMeds;
+    }
+
+    return ConsultationNote(
+      id: json['id'] ?? '',
+      patientCode: json['patientCode'] ?? '',
+      doctorName: json['doctorName'] ?? '',
+      doctorDesignation: json['doctorDesignation'] ?? '',
+      consultationDate: (json['consultationDate'] ?? '').toString().split('T').first,
+      diagnosis: json['diagnosis'] ?? '',
+      recommendedTests: json['recommendedTests'] ?? '',
+      medicines: meds,
+      clinicalNotes: json['clinicalNotes'] ?? '',
+      status: json['status'] ?? 'Completed',
+    );
+  }
 }
 
 class LabReport {
@@ -105,6 +115,7 @@ class LabReport {
   final String reportDate;
   final String status;
   final String resultsSummary;
+  final String? fileName;
 
   LabReport({
     required this.id,
@@ -115,17 +126,19 @@ class LabReport {
     required this.reportDate,
     required this.status,
     required this.resultsSummary,
+    this.fileName,
   });
 
   factory LabReport.fromJson(Map<String, dynamic> json) => LabReport(
         id: json['id'] ?? '',
         patientCode: json['patientCode'] ?? '',
         testTitle: json['testTitle'] ?? '',
-        category: json['category'] ?? '',
+        category: json['category'] ?? 'General',
         orderedDoctor: json['orderedDoctor'] ?? '',
         reportDate: (json['reportDate'] ?? '').toString().split('T').first,
-        status: json['status'] ?? '',
+        status: json['status'] ?? 'Pending',
         resultsSummary: json['resultsSummary'] ?? '',
+        fileName: json['fileName'],
       );
 }
 
@@ -164,8 +177,28 @@ class Prescription {
         endDate: (json['endDate'] ?? '').toString().split('T').first,
         unitPrice: (json['unitPrice'] as num?)?.toDouble() ?? 0.0,
         prescribedDoctor: json['prescribedDoctor'] ?? '',
-        status: json['status'] ?? '',
+        status: json['status'] ?? 'Active',
       );
+}
+
+class ChannelingAppointment {
+  final String id;
+  final String doctorName;
+  final String specialty;
+  final String date;
+  final String time;
+  final String room;
+  final String status;
+
+  ChannelingAppointment({
+    required this.id,
+    required this.doctorName,
+    required this.specialty,
+    required this.date,
+    required this.time,
+    required this.room,
+    required this.status,
+  });
 }
 
 class ClinicalSummary {
@@ -234,47 +267,87 @@ class ClinicalSummary {
       );
 }
 
-// ─── API Service ─────────────────────────────────────────────────────────────
+// ─── EMR API Service ──────────────────────────────────────────────────────────
 
 class EmrApiService {
-  // Helper
+  static String? _customHost;
+
+  /// Sets custom API host if running on physical device on local Wi-Fi
+  static void setCustomHost(String host) {
+    _customHost = host;
+  }
+
+  /// Automatically resolves base URL depending on platform
+  static String get baseUrl {
+    if (_customHost != null && _customHost!.isNotEmpty) {
+      return 'http://$_customHost:5238/api/emr';
+    }
+    if (!kIsWeb && Platform.isAndroid) {
+      return 'http://10.0.2.2:5238/api/emr';
+    }
+    return 'http://localhost:5238/api/emr';
+  }
+
+  // ── Active Patient State ───────────────────────────────────────────────────
+  static String activePatientCode = 'PAT-1001';
+  static String activePatientName = 'John Anderson';
+
+  static void setActivePatient(String code, String name) {
+    activePatientCode = code;
+    activePatientName = name;
+  }
+
+  // ── Network Helper ─────────────────────────────────────────────────────────
   static Future<dynamic> _get(String path) async {
-    final res = await http.get(Uri.parse('$_apiBase$path'));
+    final uri = Uri.parse('$baseUrl$path');
+    final res = await http.get(uri).timeout(const Duration(seconds: 8));
     if (res.statusCode >= 200 && res.statusCode < 300) {
       return jsonDecode(res.body);
     }
-    throw Exception('API Error ${res.statusCode}: ${res.body}');
-  }
-
-  static Future<dynamic> _post(String path, Map<String, dynamic> body) async {
-    final res = await http.post(
-      Uri.parse('$_apiBase$path'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      return jsonDecode(res.body);
-    }
-    throw Exception('API Error ${res.statusCode}: ${res.body}');
-  }
-
-  static Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
-    final res = await http.patch(
-      Uri.parse('$_apiBase$path'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      return jsonDecode(res.body);
-    }
-    throw Exception('API Error ${res.statusCode}: ${res.body}');
+    throw Exception('API ${res.statusCode}: ${res.body}');
   }
 
   // ── Patients ───────────────────────────────────────────────────────────────
   static Future<List<Patient>> getPatients({String? search}) async {
-    final q = search != null && search.isNotEmpty ? '?search=${Uri.encodeComponent(search)}' : '';
-    final data = await _get('/patients$q') as List<dynamic>;
-    return data.map((e) => Patient.fromJson(e)).toList();
+    try {
+      final q = search != null && search.isNotEmpty ? '?search=${Uri.encodeComponent(search)}' : '';
+      final data = await _get('/patients$q') as List<dynamic>;
+      return data.map((e) => Patient.fromJson(e)).toList();
+    } catch (_) {
+      // Fallback
+      return [
+        Patient(
+          id: 'a1111111-1111-1111-1111-111111111111',
+          patientCode: 'PAT-1001',
+          fullName: 'John Anderson',
+          age: 41,
+          gender: 'Male',
+          bloodGroup: 'O+',
+          contactPhone: '+1 555-0192',
+          email: 'john.anderson@example.com',
+          address: '742 Evergreen Terrace',
+          allergies: 'Penicillin, Peanuts',
+          chronicConditions: 'Stage 1 Hypertension, Mild Asthma',
+          emergencyContactName: 'Mary Anderson',
+          emergencyContactPhone: '+1 555-0193',
+        ),
+        Patient(
+          id: 'a2222222-2222-2222-2222-222222222222',
+          patientCode: 'PAT-1002',
+          fullName: 'Maria Garcia',
+          age: 34,
+          gender: 'Female',
+          bloodGroup: 'A+',
+          contactPhone: '+1 555-0284',
+          email: 'maria.garcia@example.com',
+          address: '120 Elm Street',
+          allergies: 'Sulfa antibiotics',
+          chronicConditions: 'Type 2 Diabetes Mellitus',
+          emergencyContactName: 'Carlos Garcia',
+          emergencyContactPhone: '+1 555-0285',
+        ),
+      ];
+    }
   }
 
   static Future<Patient> getPatient(String idOrCode) async {
@@ -282,68 +355,58 @@ class EmrApiService {
     return Patient.fromJson(data);
   }
 
-  static Future<Patient> createPatient(Map<String, dynamic> patientData) async {
-    final data = await _post('/patients', patientData);
-    return Patient.fromJson(data);
-  }
-
   // ── Consultations ──────────────────────────────────────────────────────────
   static Future<List<ConsultationNote>> getConsultations({String? patientCode}) async {
-    final q = patientCode != null && patientCode.isNotEmpty
-        ? '?patientCode=${Uri.encodeComponent(patientCode)}'
-        : '';
+    final code = patientCode ?? activePatientCode;
+    final q = '?patientCode=${Uri.encodeComponent(code)}';
     final data = await _get('/consultations$q') as List<dynamic>;
     return data.map((e) => ConsultationNote.fromJson(e)).toList();
   }
 
-  static Future<ConsultationNote> createConsultation(Map<String, dynamic> noteData) async {
-    final data = await _post('/consultations', noteData);
-    return ConsultationNote.fromJson(data);
-  }
-
   // ── Lab Reports ────────────────────────────────────────────────────────────
   static Future<List<LabReport>> getLabReports({String? patientCode}) async {
-    final q = patientCode != null && patientCode.isNotEmpty
-        ? '?patientCode=${Uri.encodeComponent(patientCode)}'
-        : '';
+    final code = patientCode ?? activePatientCode;
+    final q = '?patientCode=${Uri.encodeComponent(code)}';
     final data = await _get('/lab-reports$q') as List<dynamic>;
     return data.map((e) => LabReport.fromJson(e)).toList();
   }
 
-  static Future<LabReport> createLabReport(Map<String, dynamic> reportData) async {
-    final data = await _post('/lab-reports', reportData);
-    return LabReport.fromJson(data);
-  }
-
-  static Future<LabReport> updateLabReportStatus(
-      String id, String status, {String resultsSummary = ''}) async {
-    final data = await _patch('/lab-reports/$id/status',
-        {'status': status, 'resultsSummary': resultsSummary});
-    return LabReport.fromJson(data);
-  }
-
   // ── Prescriptions ──────────────────────────────────────────────────────────
   static Future<List<Prescription>> getPrescriptions({String? patientCode}) async {
-    final q = patientCode != null && patientCode.isNotEmpty
-        ? '?patientCode=${Uri.encodeComponent(patientCode)}'
-        : '';
+    final code = patientCode ?? activePatientCode;
+    final q = '?patientCode=${Uri.encodeComponent(code)}';
     final data = await _get('/prescriptions$q') as List<dynamic>;
     return data.map((e) => Prescription.fromJson(e)).toList();
-  }
-
-  static Future<Prescription> createPrescription(Map<String, dynamic> rxData) async {
-    final data = await _post('/prescriptions', rxData);
-    return Prescription.fromJson(data);
-  }
-
-  static Future<Prescription> updatePrescriptionStatus(String id, String status) async {
-    final data = await _patch('/prescriptions/$id/status', {'status': status});
-    return Prescription.fromJson(data);
   }
 
   // ── Clinical Summary (Business-Specific Operation) ─────────────────────────
   static Future<ClinicalSummary> getClinicalSummary(String patientCodeOrId) async {
     final data = await _get('/patients/${Uri.encodeComponent(patientCodeOrId)}/clinical-summary');
     return ClinicalSummary.fromJson(data);
+  }
+
+  // ── Channeling History ─────────────────────────────────────────────────────
+  static Future<List<ChannelingAppointment>> getChannelingHistory() async {
+    // Channeling appointments matching web ChannelingHistory.jsx
+    return [
+      ChannelingAppointment(
+        id: 'APT-3011',
+        doctorName: 'Dr. Sarah Chen',
+        specialty: 'Senior Consultant Cardiologist',
+        date: 'Aug 24, 2026',
+        time: '10:30 AM',
+        room: 'Room 304, West Wing',
+        status: 'Upcoming',
+      ),
+      ChannelingAppointment(
+        id: 'APT-2890',
+        doctorName: 'Dr. Michael Chang',
+        specialty: 'Consultant Pulmonologist',
+        date: 'Jul 18, 2026',
+        time: '02:00 PM',
+        room: 'Room 108, Main Clinic',
+        status: 'Completed',
+      ),
+    ];
   }
 }

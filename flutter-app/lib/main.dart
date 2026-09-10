@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'pharmacy_store_page.dart';
 import 'screens/emr/emr_patient_screen.dart';
+import 'screens/emr/customer_main_container.dart';
+import 'utils/theme.dart';
 
 void main() {
   runApp(const HealthBridgeApp());
@@ -9,24 +11,26 @@ void main() {
 class HealthBridgeApp extends StatelessWidget {
   const HealthBridgeApp({super.key});
 
-  static const Color primaryGreenBlue = Color(0xFF009688);
-  static const Color darkGreenBlue = Color(0xFF00695C);
-  static const Color lightBg = Color(0xFFE0F2F1);
+  static const Color primaryGreenBlue = HealthBridgeTheme.primaryTeal;
+  static const Color darkGreenBlue = HealthBridgeTheme.accentTeal;
+  static const Color lightBg = HealthBridgeTheme.lightBg;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Health Bridge Pvt',
+      title: 'Health Bridge EMR',
       theme: ThemeData(
-        primaryColor: primaryGreenBlue,
+        primaryColor: HealthBridgeTheme.primaryTeal,
+        scaffoldBackgroundColor: HealthBridgeTheme.lightBg,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: primaryGreenBlue,
-          primary: primaryGreenBlue,
+          seedColor: HealthBridgeTheme.primaryTeal,
+          primary: HealthBridgeTheme.primaryTeal,
+          surface: Colors.white,
         ),
         useMaterial3: true,
       ),
-      home: const HomePage(),
+      home: const CustomerMainContainer(),
     );
   }
 }
