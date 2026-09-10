@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'pharmacy_store_page.dart'; // Import the newly created store page
+import 'pharmacy_store_page.dart';
+import 'screens/emr/emr_patient_screen.dart';
 
 void main() {
   runApp(const HealthBridgeApp());
@@ -288,10 +289,18 @@ class _OriginalServicesSection extends StatelessWidget {
               imagePath: 'assets/images/medi1.webp',
             ),
           ),
-          const OriginalServiceCard(
-            title: 'Medical Records',
-            subtitle: 'View your health records securely.',
-            imagePath: 'assets/images/report1.webp',
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const EmrPatientScreen(patientCode: 'PAT-1001')),
+              );
+            },
+            child: const OriginalServiceCard(
+              title: 'Medical Records',
+              subtitle: 'View your health records securely.',
+              imagePath: 'assets/images/report1.webp',
+            ),
           ),
           const OriginalServiceCard(
             title: 'Lab Tests & Reports',
@@ -413,10 +422,18 @@ class _ProfessionalServicesSection extends StatelessWidget {
               headerColor: Color(0xFFD32F2F),
             ),
           ),
-          const ProfessionalServiceCard(
-            title: 'Medical Records',
-            imagePath: 'assets/images/rep.avif',
-            headerColor: Color(0xFF00897B),
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const EmrPatientScreen(patientCode: 'PAT-1001')),
+              );
+            },
+            child: const ProfessionalServiceCard(
+              title: 'Medical Records',
+              imagePath: 'assets/images/rep.avif',
+              headerColor: Color(0xFF00897B),
+            ),
           ),
           const ProfessionalServiceCard(
             title: 'Lab Tests & Reports',

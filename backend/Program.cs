@@ -1,6 +1,7 @@
 using LabManagement.API.Agents;
 using LabManagement.API.Data;
 using LabManagement.API.Services;
+using LabManagement.API.Services.EMR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -33,6 +34,7 @@ builder.Services.AddAuthorization();
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IEMRService, EMRService>();
 builder.Services.AddScoped<PrescriptionValidatorAgent>();
 builder.Services.AddHttpClient("GeminiClient");
 
@@ -46,7 +48,7 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "Lab Management API", Version = "v1", Description = "SE3090 Assignment - Laboratory Management Component (Student D)" });
+    c.SwaggerDoc("v1", new() { Title = "Health Bridge Hospital Management & EMR API", Version = "v1", Description = "SE3090 Assignment - Integrated Hospital Management & EMR Component" });
     // Add JWT auth to Swagger
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
