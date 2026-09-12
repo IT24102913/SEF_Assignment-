@@ -1,4 +1,4 @@
-﻿using LabManagement.API.Data;
+using LabManagement.API.Data;
 using LabManagement.API.DTOs.EMR;
 using LabManagement.API.Models.EMR;
 using Microsoft.EntityFrameworkCore;
@@ -86,18 +86,35 @@ public class EMRService : IEMRService
         var patient = await _db.Patients.FindAsync(id);
         if (patient == null) return null;
 
-        patient.FullName = dto.FullName;
-        patient.ContactPhone = dto.ContactPhone;
-        patient.Email = dto.Email;
-        patient.Address = dto.Address;
-        patient.EmergencyContactName = dto.EmergencyContactName;
-        patient.EmergencyContactPhone = dto.EmergencyContactPhone;
-        patient.Allergies = dto.Allergies;
-        patient.ChronicConditions = dto.ChronicConditions;
-        patient.UpdatedAt = DateTime.UtcNow;
-
+        ApplyPatientUpdates(patient, dto);
         await _db.SaveChangesAsync();
         return MapPatientToDto(patient);
+    }
+
+    public async Task<PatientDto?> UpdatePatientByCodeAsync(string patientCode, UpdatePatientDto dto)
+    {
+        var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+        if (patient == null) return null;
+
+        ApplyPatientUpdates(patient, dto);
+        await _db.SaveChangesAsync();
+        return MapPatientToDto(patient);
+    }
+
+    private static void ApplyPatientUpdates(Patient patient, UpdatePatientDto dto)
+    {
+        if (!string.IsNullOrWhiteSpace(dto.FullName)) patient.FullName = dto.FullName;
+        if (dto.DateOfBirth.HasValue) patient.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
+        if (!string.IsNullOrWhiteSpace(dto.Gender)) patient.Gender = dto.Gender;
+        if (!string.IsNullOrWhiteSpace(dto.BloodGroup)) patient.BloodGroup = dto.BloodGroup;
+        if (dto.ContactPhone != null) patient.ContactPhone = dto.ContactPhone;
+        if (!string.IsNullOrWhiteSpace(dto.Email)) patient.Email = dto.Email;
+        if (dto.Address != null) patient.Address = dto.Address;
+        if (dto.EmergencyContactName != null) patient.EmergencyContactName = dto.EmergencyContactName;
+        if (dto.EmergencyContactPhone != null) patient.EmergencyContactPhone = dto.EmergencyContactPhone;
+        if (dto.Allergies != null) patient.Allergies = dto.Allergies;
+        if (dto.ChronicConditions != null) patient.ChronicConditions = dto.ChronicConditions;
+        patient.UpdatedAt = DateTime.UtcNow;
     }
 
     // ─── Consultation Notes ───────────────────────────────────────────────────
@@ -438,6 +455,66 @@ public class EMRService : IEMRService
             ClinicalAlerts = alerts,
             OverallAssessment = overallAssessment,
             GeneratedAt = DateTime.UtcNow
+        };
+    }
+
+    // ─── Channeling Appointments ──────────────────────────────────────────────
+
+    public async Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null)
+    {
+        var query = _db.ChannelingAppointments.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(patientCode))
+        {
+            query = query.Where(a => a.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+        }
+
+        var list = await query.OrderByDescending(a => a.AppointmentDate).ToListAsync();
+        return list.Select(a => new ChannelingAppointmentDto
+        {
+            Id = a.Id,
+            AppointmentCode = a.AppointmentCode,
+            PatientCode = a.PatientCode,
+            DoctorName = a.DoctorName,
+            Specialty = a.Specialty,
+            AppointmentDate = a.AppointmentDate,
+            Room = a.Room,
+            Status = a.Status
+        });
+    }
+
+    public async Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto)
+    {
+        var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == dto.PatientCode.Trim().ToUpper());
+        var count = await _db.ChannelingAppointments.CountAsync();
+        var code = $"APT-{3000 + count + 1}";
+
+        var appointment = new ChannelingAppointment
+        {
+            AppointmentCode = code,
+            PatientId = patient?.Id ?? Guid.Empty,
+            PatientCode = dto.PatientCode.ToUpper().Trim(),
+            DoctorName = dto.DoctorName,
+            Specialty = dto.Specialty,
+            AppointmentDate = DateTime.SpecifyKind(dto.AppointmentDate, DateTimeKind.Utc),
+            Room = dto.Room,
+            Status = dto.Status,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _db.ChannelingAppointments.Add(appointment);
+        await _db.SaveChangesAsync();
+
+        return new ChannelingAppointmentDto
+        {
+            Id = appointment.Id,
+            AppointmentCode = appointment.AppointmentCode,
+            PatientCode = appointment.PatientCode,
+            DoctorName = appointment.DoctorName,
+            Specialty = appointment.Specialty,
+            AppointmentDate = appointment.AppointmentDate,
+            Room = appointment.Room,
+            Status = appointment.Status
         };
     }
 

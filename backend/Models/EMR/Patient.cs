@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 
 namespace LabManagement.API.Models.EMR;
 
@@ -29,4 +29,7 @@ public class Patient
     
     [JsonIgnore]
     public ICollection<Prescription> Prescriptions { get; set; } = new List<Prescription>();
+
+    [JsonIgnore]
+    public ICollection<ChannelingAppointment> ChannelingAppointments { get; set; } = new List<ChannelingAppointment>();
 }

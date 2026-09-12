@@ -6,8 +6,8 @@ export default function ConsultationNotes() {
   const [notes, setNotes] = useState([]);
   const [expanded, setExpanded] = useState(null);
 
-  // Hard-coded to patient PAT-1001 (John Anderson) — connected to shared store
-  const PATIENT_ID = 'PAT-1001';
+  const storedUser = JSON.parse(localStorage.getItem('hb_user') || '{}');
+  const PATIENT_ID = storedUser.patientCode || 'PAT-1001';
 
   useEffect(() => {
     setNotes(emrStore.getConsultations(PATIENT_ID));
@@ -15,7 +15,7 @@ export default function ConsultationNotes() {
       setNotes(emrStore.getConsultations(PATIENT_ID));
     });
     return unsubscribe;
-  }, []);
+  }, [PATIENT_ID]);
 
   return (
     <div>

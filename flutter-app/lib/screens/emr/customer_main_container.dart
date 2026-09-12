@@ -1,6 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 import '../../utils/theme.dart';
+import '../auth/login_screen.dart';
+import 'customer_profile_screen.dart';
 import 'customer_overview_screen.dart';
 import 'customer_consultations_screen.dart';
 import 'customer_lab_reports_screen.dart';
@@ -22,25 +24,20 @@ class CustomerMainContainer extends StatefulWidget {
 
 class _CustomerMainContainerState extends State<CustomerMainContainer> {
   late int _currentIndex;
-  List<Patient> _patients = [];
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialTabIndex;
-    _loadPatients();
-  }
-
-  Future<void> _loadPatients() async {
-    final list = await EmrApiService.getPatients();
-    if (mounted) {
-      setState(() => _patients = list);
+    if (AuthState.patientCode != null && AuthState.patientCode!.isNotEmpty) {
+      EmrApiService.setActivePatient(AuthState.patientCode!, AuthState.name ?? 'Patient');
     }
   }
 
   void _onSelectTab(int index) {
     setState(() => _currentIndex = index);
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -99,46 +96,119 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
           ],
         ),
         actions: [
-          // Patient Switcher
-          PopupMenuButton<Patient>(
-            tooltip: 'Switch Patient',
-            icon: const Icon(Icons.people_alt_outlined, color: Colors.white),
-            onSelected: (patient) {
-              setState(() {
-                EmrApiService.setActivePatient(patient.patientCode, patient.fullName);
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Switched to ${patient.fullName} (${patient.patientCode})'),
-                  backgroundColor: HealthBridgeTheme.accentTeal,
-                  duration: const Duration(seconds: 2),
+          // ── User Account Popup (replaces patient switcher)
+          PopupMenuButton<String>(
+            tooltip: 'My Profile & Account',
+            offset: const Offset(0, 48),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            icon: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 1.5),
+              ),
+              child: Center(
+                child: Text(
+                  AuthState.initials,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 14),
                 ),
-              );
-            },
-            itemBuilder: (context) {
-              return _patients.map((p) {
-                final isSelected = p.patientCode == EmrApiService.activePatientCode;
-                return PopupMenuItem<Patient>(
-                  value: p,
-                  child: Row(
-                    children: [
-                      Icon(
-                        isSelected ? Icons.check_circle : Icons.person_outline,
-                        size: 18,
-                        color: isSelected ? HealthBridgeTheme.primaryTeal : Colors.grey,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '${p.fullName} (${p.patientCode})',
-                        style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? HealthBridgeTheme.primaryTeal : HealthBridgeTheme.textPrimary,
+              ),
+            ),
+            itemBuilder: (context) => [
+              // User info header (tappable to view profile)
+              PopupMenuItem<String>(
+                value: 'profile',
+                height: 68,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38, height: 38,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [HealthBridgeTheme.primaryTeal, HealthBridgeTheme.accentTeal],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
+                        shape: BoxShape.circle,
                       ),
-                    ],
-                  ),
+                      child: Center(
+                        child: Text(AuthState.initials,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            AuthState.name ?? 'Patient',
+                            style: const TextStyle(color: HealthBridgeTheme.textPrimary, fontWeight: FontWeight.w700, fontSize: 14),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'ID: ${AuthState.patientCode ?? EmrApiService.activePatientCode}',
+                            style: const TextStyle(color: HealthBridgeTheme.textSecondary, fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.badge_outlined, size: 18, color: HealthBridgeTheme.accentTeal),
+                    SizedBox(width: 10),
+                    Text('Patient Medical Profile', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'login',
+                child: Row(
+                  children: [
+                    Icon(Icons.switch_account_outlined, size: 18, color: HealthBridgeTheme.textSecondary),
+                    SizedBox(width: 10),
+                    Text('Switch Account / Login', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13.5)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 18, color: Color(0xFFDC2626)),
+                    SizedBox(width: 10),
+                    Text('Logout', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w600, fontSize: 13.5)),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (value) {
+              if (value == 'profile') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const CustomerProfileScreen()),
                 );
-              }).toList();
+              } else if (value == 'login') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              } else if (value == 'logout') {
+                AuthState.clear();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (_) => false,
+                );
+              }
             },
           ),
 

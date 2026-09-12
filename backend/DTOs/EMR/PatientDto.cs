@@ -1,4 +1,4 @@
-﻿namespace LabManagement.API.DTOs.EMR;
+namespace LabManagement.API.DTOs.EMR;
 
 public class PatientDto
 {
@@ -39,6 +39,9 @@ public class CreatePatientDto
 public class UpdatePatientDto
 {
     public string FullName { get; set; } = string.Empty;
+    public DateTime? DateOfBirth { get; set; }
+    public string? Gender { get; set; }
+    public string? BloodGroup { get; set; }
     public string ContactPhone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;

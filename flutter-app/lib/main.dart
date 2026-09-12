@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'pharmacy_store_page.dart';
+import 'screens/auth/login_screen.dart';
 import 'screens/emr/emr_patient_screen.dart';
 import 'screens/emr/customer_main_container.dart';
 import 'utils/theme.dart';
@@ -30,7 +31,12 @@ class HealthBridgeApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const CustomerMainContainer(),
+      // ── App starts at Login; after auth it navigates to /home
+      initialRoute: '/login',
+      routes: {
+        '/login': (_) => const LoginScreen(),
+        '/home':  (_) => const CustomerMainContainer(),
+      },
     );
   }
 }

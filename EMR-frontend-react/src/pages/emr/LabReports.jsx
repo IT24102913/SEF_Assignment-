@@ -10,7 +10,8 @@ const statusConfig = {
 
 export default function LabReports() {
   const [reports, setReports] = useState([]);
-  const PATIENT_ID = 'PAT-1001';
+  const storedUser = JSON.parse(localStorage.getItem('hb_user') || '{}');
+  const PATIENT_ID = storedUser.patientCode || 'PAT-1001';
 
   useEffect(() => {
     setReports(emrStore.getLabReports(PATIENT_ID));
@@ -18,7 +19,7 @@ export default function LabReports() {
       setReports(emrStore.getLabReports(PATIENT_ID));
     });
     return unsubscribe;
-  }, []);
+  }, [PATIENT_ID]);
 
   return (
     <div>

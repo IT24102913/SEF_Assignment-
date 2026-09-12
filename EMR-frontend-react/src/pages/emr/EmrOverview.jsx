@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
 
 export default function EmrOverview() {
+  const storedUser = JSON.parse(localStorage.getItem('hb_user') || '{}');
+  const userName = storedUser.name || 'Patient';
+
   const cards = [
     {
       title: 'Consultation Notes',
@@ -43,7 +46,7 @@ export default function EmrOverview() {
       {/* Welcome Banner */}
       <div style={{ marginBottom: '28px' }}>
         <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-          Welcome back, John!
+          Welcome back, {userName}!
         </h1>
         <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
           Here's your health overview at a glance.

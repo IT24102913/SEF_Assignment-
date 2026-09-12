@@ -1,6 +1,7 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 import '../../utils/theme.dart';
+import '../auth/login_screen.dart';
 import 'customer_health_passport_dialog.dart';
 
 class CustomerOverviewScreen extends StatelessWidget {
@@ -34,7 +35,7 @@ class CustomerOverviewScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Welcome back, ${EmrApiService.activePatientName.split(" ").first}!',
+                        'Welcome back, ${((AuthState.name?.isNotEmpty ?? false) ? AuthState.name! : EmrApiService.activePatientName).trim().split(" ").first}!',
                         style: const TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,

@@ -36,6 +36,37 @@ export default function EmrLayout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef(null);
 
+  // Logged-in user from localStorage
+  const storedUser = JSON.parse(localStorage.getItem('hb_user') || '{}');
+  const userName   = storedUser.name  || 'Patient';
+  const patientCode = storedUser.patientCode || 'PAT-1001';
+
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => {
+    if (patientCode === 'PAT-1001') {
+      setNotifications([
+        { id: 1, title: 'Lab Report Ready',        message: 'Complete Blood Count (CBC) test results uploaded.',     time: '5 mins ago',  unread: true },
+        { id: 2, title: 'Prescription Refilled',   message: 'Amoxicillin 500mg processed by Central Pharmacy.',     time: '1 hour ago',  unread: true },
+        { id: 3, title: 'Appointment Confirmed',   message: 'Session with Dr. Sarah Jenkins confirmed for Aug 24.', time: '3 hours ago', unread: false },
+        { id: 4, title: 'Consultation Note Added', message: 'Dr. Sarah Chen added notes for Stage 1 Hypertension.',  time: '1 day ago',   unread: false },
+        { id: 5, title: 'Security Alert',          message: 'Successful portal login from Chrome on Windows.',       time: '2 days ago',  unread: false },
+      ]);
+    } else {
+      setNotifications([
+        { id: 'welcome',     title: `Welcome, ${userName}!`,     message: `Your Health Bridge medical records under ID ${patientCode} are now initialized.`, time: 'Just now',  unread: true },
+        { id: 'profile-tip', title: 'Complete Medical Profile',  message: 'Click your profile to add blood group, allergies, and emergency contacts.',       time: '10m ago',   unread: true },
+        { id: 'sec-notice',  title: 'Portal Security Active',   message: 'Your personal health data is encrypted and isolated to your account.',              time: 'Today',     unread: false },
+      ]);
+    }
+  }, [patientCode, userName]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('hb_token');
+    localStorage.removeItem('hb_user');
+    navigate('/login', { replace: true });
+  };
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (notificationRef.current && !notificationRef.current.contains(event.target)) {
@@ -52,14 +83,6 @@ export default function EmrLayout() {
     { name: 'Lab Reports',        path: '/emr/lab-reports',        icon: Microscope },
     { name: 'Pharmacy',           path: '/emr/pharmacy',           icon: Pill },
     { name: 'Channeling History', path: '/emr/channeling-history', icon: Calendar },
-  ];
-
-  const recentNotifications = [
-    { id: 1, title: 'Lab Report Ready',        message: 'Complete Blood Count (CBC) test results uploaded.',     time: '5 mins ago',  unread: true },
-    { id: 2, title: 'Prescription Refilled',   message: 'Amoxicillin 500mg processed by Central Pharmacy.',     time: '1 hour ago',  unread: true },
-    { id: 3, title: 'Appointment Confirmed',   message: 'Session with Dr. Sarah Jenkins confirmed for Aug 24.', time: '3 hours ago', unread: false },
-    { id: 4, title: 'Consultation Note Added', message: 'Dr. Michael Chang added notes for seasonal allergies.', time: '1 day ago',   unread: false },
-    { id: 5, title: 'Security Alert',          message: 'Successful portal login from Chrome on Windows.',       time: '2 days ago',  unread: false },
   ];
 
   return (
@@ -141,11 +164,12 @@ export default function EmrLayout() {
             Settings
           </button>
 
-          <button onClick={() => navigate('/')} style={{
+          <button onClick={handleLogout} style={{
             display: 'flex', alignItems: 'center', gap: '14px',
             padding: '11px 16px', borderRadius: '10px',
-            color: T.sidebarText, backgroundColor: 'transparent',
-            border: 'none', cursor: 'pointer', fontSize: '0.92rem'
+            color: '#fca5a5', backgroundColor: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.15)',
+            cursor: 'pointer', fontSize: '0.92rem', fontWeight: 600,
           }}>
             <LogOut size={19} />
             Logout
@@ -189,12 +213,12 @@ export default function EmrLayout() {
                   <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.accentBg}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0d2b27' }}>Notifications</span>
                     <span style={{ fontSize: '0.75rem', backgroundColor: T.notifBadgeBg, color: T.notifBadgeTxt, fontWeight: 700, padding: '3px 10px', borderRadius: '12px' }}>
-                      5 Recent
+                      {notifications.length} Alerts
                     </span>
                   </div>
 
                   <div style={{ maxHeight: '310px', overflowY: 'auto' }}>
-                    {recentNotifications.map((n) => (
+                    {notifications.map((n) => (
                       <div key={n.id} style={{
                         padding: '12px 18px', borderBottom: `1px solid ${T.accentLight}`,
                         fontSize: '0.85rem',
@@ -235,13 +259,18 @@ export default function EmrLayout() {
               textDecoration: 'none', color: 'inherit',
               padding: '4px 8px', borderRadius: '8px', transition: 'background-color 0.2s'
             }}>
-              <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100"
-                alt="John Anderson"
-                style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: `2px solid ${T.headerBorder}` }}
-              />
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '50%',
+                background: 'linear-gradient(135deg, #095e51, #0d7c6b)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                border: `2px solid ${T.headerBorder}`,
+                color: '#ffffff', fontWeight: 700, fontSize: '1rem',
+                flexShrink: 0,
+              }}>
+                {userName.charAt(0).toUpperCase()}
+              </div>
               <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#0d2b27' }}>John Anderson</div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#0d2b27' }}>{userName}</div>
                 <div style={{ fontSize: '0.78rem', color: '#4d7a73' }}>Patient</div>
               </div>
             </Link>

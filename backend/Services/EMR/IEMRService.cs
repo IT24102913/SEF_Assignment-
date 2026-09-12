@@ -1,4 +1,4 @@
-﻿using LabManagement.API.DTOs.EMR;
+using LabManagement.API.DTOs.EMR;
 
 namespace LabManagement.API.Services.EMR;
 
@@ -10,6 +10,7 @@ public interface IEMRService
     Task<PatientDto?> GetPatientByCodeAsync(string code);
     Task<PatientDto> CreatePatientAsync(CreatePatientDto dto);
     Task<PatientDto?> UpdatePatientAsync(Guid id, UpdatePatientDto dto);
+    Task<PatientDto?> UpdatePatientByCodeAsync(string patientCode, UpdatePatientDto dto);
 
     // Consultation Notes
     Task<IEnumerable<ConsultationNoteDto>> GetConsultationsAsync(string? patientCode = null);
@@ -30,6 +31,10 @@ public interface IEMRService
     Task<PrescriptionDto> CreatePrescriptionAsync(CreatePrescriptionDto dto);
     Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto);
     Task<bool> DeletePrescriptionAsync(Guid id);
+
+    // Channeling Appointments
+    Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null);
+    Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto);
 
     // Business-Specific Operation
     Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId);

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -19,6 +19,7 @@ class Patient {
   final String chronicConditions;
   final String emergencyContactName;
   final String emergencyContactPhone;
+  final DateTime? dateOfBirth;
 
   Patient({
     required this.id,
@@ -34,6 +35,7 @@ class Patient {
     required this.chronicConditions,
     required this.emergencyContactName,
     required this.emergencyContactPhone,
+    this.dateOfBirth,
   });
 
   factory Patient.fromJson(Map<String, dynamic> json) => Patient(
@@ -50,6 +52,7 @@ class Patient {
         chronicConditions: json['chronicConditions'] ?? '',
         emergencyContactName: json['emergencyContactName'] ?? '',
         emergencyContactPhone: json['emergencyContactPhone'] ?? '',
+        dateOfBirth: json['dateOfBirth'] != null ? DateTime.tryParse(json['dateOfBirth'].toString()) : null,
       );
 }
 
@@ -199,6 +202,16 @@ class ChannelingAppointment {
     required this.room,
     required this.status,
   });
+
+  factory ChannelingAppointment.fromJson(Map<String, dynamic> json) => ChannelingAppointment(
+        id: json['appointmentCode'] ?? json['id'] ?? '',
+        doctorName: json['doctorName'] ?? '',
+        specialty: json['specialty'] ?? '',
+        date: json['formattedDate'] ?? json['date'] ?? '',
+        time: json['formattedTime'] ?? json['time'] ?? '',
+        room: json['room'] ?? '',
+        status: json['status'] ?? 'Upcoming',
+      );
 }
 
 class ClinicalSummary {
@@ -385,28 +398,52 @@ class EmrApiService {
     return ClinicalSummary.fromJson(data);
   }
 
+  // ── Patient Profile Update ────────────────────────────────────────────────
+  static Future<Patient> updatePatientProfile(String patientCode, Map<String, dynamic> body) async {
+    final uri = Uri.parse('$baseUrl/patients/code/${Uri.encodeComponent(patientCode)}');
+    final res = await http.put(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    ).timeout(const Duration(seconds: 10));
+
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return Patient.fromJson(jsonDecode(res.body));
+    }
+    throw Exception('Failed to update patient profile: ${res.statusCode} ${res.body}');
+  }
+
   // ── Channeling History ─────────────────────────────────────────────────────
-  static Future<List<ChannelingAppointment>> getChannelingHistory() async {
-    // Channeling appointments matching web ChannelingHistory.jsx
-    return [
-      ChannelingAppointment(
-        id: 'APT-3011',
-        doctorName: 'Dr. Sarah Chen',
-        specialty: 'Senior Consultant Cardiologist',
-        date: 'Aug 24, 2026',
-        time: '10:30 AM',
-        room: 'Room 304, West Wing',
-        status: 'Upcoming',
-      ),
-      ChannelingAppointment(
-        id: 'APT-2890',
-        doctorName: 'Dr. Michael Chang',
-        specialty: 'Consultant Pulmonologist',
-        date: 'Jul 18, 2026',
-        time: '02:00 PM',
-        room: 'Room 108, Main Clinic',
-        status: 'Completed',
-      ),
-    ];
+  static Future<List<ChannelingAppointment>> getChannelingHistory({String? patientCode}) async {
+    final code = patientCode ?? activePatientCode;
+    try {
+      final q = '?patientCode=${Uri.encodeComponent(code)}';
+      final data = await _get('/channeling-appointments$q') as List<dynamic>;
+      return data.map((e) => ChannelingAppointment.fromJson(e)).toList();
+    } catch (_) {
+      if (code == 'PAT-1001') {
+        return [
+          ChannelingAppointment(
+            id: 'APT-3011',
+            doctorName: 'Dr. Sarah Jenkins',
+            specialty: 'Cardiologist',
+            date: 'Aug 24, 2026',
+            time: '10:30 AM',
+            room: 'Room 304, West Wing',
+            status: 'Upcoming',
+          ),
+          ChannelingAppointment(
+            id: 'APT-2890',
+            doctorName: 'Dr. Michael Chang',
+            specialty: 'General Practitioner',
+            date: 'Jul 22, 2026',
+            time: '02:00 PM',
+            room: 'Room 108, Main Clinic',
+            status: 'Completed',
+          ),
+        ];
+      }
+      return [];
+    }
   }
 }

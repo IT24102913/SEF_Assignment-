@@ -1,4 +1,4 @@
-﻿using LabManagement.API.DTOs.EMR;
+using LabManagement.API.DTOs.EMR;
 using LabManagement.API.Services.EMR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -76,6 +76,19 @@ public class EMRController : ControllerBase
         var updated = await _emrService.UpdatePatientAsync(id, dto);
         if (updated == null)
             return NotFound(new { message = $"Patient with ID {id} not found." });
+
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// Update existing patient record by PatientCode
+    /// </summary>
+    [HttpPut("patients/code/{patientCode}")]
+    public async Task<ActionResult<PatientDto>> UpdatePatientByCode(string patientCode, [FromBody] UpdatePatientDto dto)
+    {
+        var updated = await _emrService.UpdatePatientByCodeAsync(patientCode, dto);
+        if (updated == null)
+            return NotFound(new { message = $"Patient with code '{patientCode}' not found." });
 
         return Ok(updated);
     }
@@ -302,6 +315,33 @@ public class EMRController : ControllerBase
             return NotFound(new { message = $"Patient '{idOrCode}' not found." });
 
         return Ok(summary);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CHANNELING APPOINTMENTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Get channeling appointments, optionally filtered by patient code
+    /// </summary>
+    [HttpGet("channeling-appointments")]
+    public async Task<ActionResult<IEnumerable<ChannelingAppointmentDto>>> GetChannelingAppointments([FromQuery] string? patientCode)
+    {
+        var list = await _emrService.GetChannelingAppointmentsAsync(patientCode);
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Book a new channeling appointment
+    /// </summary>
+    [HttpPost("channeling-appointments")]
+    public async Task<ActionResult<ChannelingAppointmentDto>> CreateChannelingAppointment([FromBody] CreateChannelingAppointmentDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.PatientCode))
+            return BadRequest(new { message = "PatientCode is required." });
+
+        var created = await _emrService.CreateChannelingAppointmentAsync(dto);
+        return Ok(created);
     }
 }
 

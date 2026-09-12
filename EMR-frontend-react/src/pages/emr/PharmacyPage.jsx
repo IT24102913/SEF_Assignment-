@@ -10,7 +10,8 @@ const statusConfig = {
 
 export default function PharmacyPage() {
   const [prescriptions, setPrescriptions] = useState([]);
-  const PATIENT_ID = 'PAT-1001';
+  const storedUser = JSON.parse(localStorage.getItem('hb_user') || '{}');
+  const PATIENT_ID = storedUser.patientCode || 'PAT-1001';
 
   useEffect(() => {
     setPrescriptions(emrStore.getPrescriptions(PATIENT_ID));
@@ -18,7 +19,7 @@ export default function PharmacyPage() {
       setPrescriptions(emrStore.getPrescriptions(PATIENT_ID));
     });
     return unsubscribe;
-  }, []);
+  }, [PATIENT_ID]);
 
   const active = prescriptions.filter(rx => rx.status === 'Active');
   const completed = prescriptions.filter(rx => rx.status !== 'Active');

@@ -1,4 +1,4 @@
-﻿using LabManagement.API.Models;
+using LabManagement.API.Models;
 using LabManagement.API.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 
@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<ConsultationNote> ConsultationNotes { get; set; }
     public DbSet<LabReport> LabReports { get; set; }
     public DbSet<Prescription> Prescriptions { get; set; }
+    public DbSet<ChannelingAppointment> ChannelingAppointments { get; set; }
     public DbSet<EMRAuditLog> EMRAuditLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -60,6 +61,7 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => e.PatientCode);
             entity.Property(e => e.Email).IsRequired();
             entity.Property(e => e.Name).IsRequired();
         });
@@ -116,6 +118,19 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.PatientId);
             entity.HasIndex(e => e.PatientCode);
             entity.HasIndex(e => e.Status);
+        });
+
+        // ChannelingAppointment configuration
+        modelBuilder.Entity<ChannelingAppointment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Patient)
+                  .WithMany(p => p.ChannelingAppointments)
+                  .HasForeignKey(e => e.PatientId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => e.PatientId);
+            entity.HasIndex(e => e.PatientCode);
+            entity.HasIndex(e => e.AppointmentDate);
         });
 
         // EMRAuditLog configuration
@@ -341,6 +356,36 @@ public class AppDbContext : DbContext
                 Status = "Completed",
                 CreatedAt = new DateTime(2026, 6, 1, 15, 0, 0, DateTimeKind.Utc),
                 UpdatedAt = new DateTime(2026, 6, 8, 15, 0, 0, DateTimeKind.Utc)
+            }
+        );
+
+        // Seed Channeling Appointments for PAT-1001
+        modelBuilder.Entity<ChannelingAppointment>().HasData(
+            new ChannelingAppointment
+            {
+                Id = Guid.Parse("e1111111-1111-1111-1111-111111111111"),
+                AppointmentCode = "APT-3011",
+                PatientId = patient1Id,
+                PatientCode = "PAT-1001",
+                DoctorName = "Dr. Sarah Jenkins",
+                Specialty = "Cardiologist",
+                AppointmentDate = new DateTime(2026, 8, 24, 10, 30, 0, DateTimeKind.Utc),
+                Room = "Room 304, West Wing",
+                Status = "Upcoming",
+                CreatedAt = new DateTime(2026, 8, 1, 10, 0, 0, DateTimeKind.Utc)
+            },
+            new ChannelingAppointment
+            {
+                Id = Guid.Parse("e2222222-2222-2222-2222-222222222222"),
+                AppointmentCode = "APT-2890",
+                PatientId = patient1Id,
+                PatientCode = "PAT-1001",
+                DoctorName = "Dr. Michael Chang",
+                Specialty = "General Practitioner",
+                AppointmentDate = new DateTime(2026, 7, 22, 14, 0, 0, DateTimeKind.Utc),
+                Room = "Room 108, Main Clinic",
+                Status = "Completed",
+                CreatedAt = new DateTime(2026, 7, 10, 14, 0, 0, DateTimeKind.Utc)
             }
         );
     }
