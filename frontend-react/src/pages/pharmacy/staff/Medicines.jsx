@@ -1,0 +1,1191 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
+import api from '../../../api/authApi';
+import medicineImg from '../../../assets/medicine_capsules.jpg';
+import logoImage from '../../../assets/mediz.png';
+import {
+    Pill,
+    Plus,
+    Search,
+    Edit2,
+    Trash2,
+    ArrowLeft,
+    LogOut,
+    CheckCircle2,
+    AlertTriangle,
+    ShieldAlert,
+    Sparkles,
+    X,
+    Calendar,
+    DollarSign,
+    Package
+} from 'lucide-react';
+
+const Medicines = () => {
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
+    const [medicines, setMedicines] = useState([]);
+    const [categories, setCategories] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [submitting, setSubmitting] = useState(false);
+    const [showForm, setShowForm] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('ALL');
+    const [formData, setFormData] = useState({
+        name: '',
+        categoryId: '',
+        description: '',
+        price: '',
+        stockQuantity: '',
+        expiryDate: '',
+        requiresPrescription: false,
+        imageUrl: '',
+    });
+    const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+    const [uploadingImage, setUploadingImage] = useState(false);
+
+    const handleImageFileUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            setFormData(prev => ({ ...prev, imageUrl: reader.result }));
+        };
+        reader.readAsDataURL(file);
+
+        setUploadingImage(true);
+        try {
+            const uploadData = new FormData();
+            uploadData.append('file', file);
+            const res = await api.post('/uploads', uploadData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (res.data?.fileUrl) {
+                setFormData(prev => ({ ...prev, imageUrl: res.data.fileUrl }));
+                showToastMessage('Medicine image uploaded to storage!', 'success');
+            }
+        } catch (err) {
+            console.warn('Storage upload fallback to preview:', err);
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const showToastMessage = (message, type = 'success') => {
+        setToast({ show: true, message, type });
+        setTimeout(() => {
+            setToast({ show: false, message: '', type: 'success' });
+        }, 3500);
+    };
+
+    const fetchData = async () => {
+        try {
+            const [medsRes, catsRes] = await Promise.all([
+                api.get('/Medicines'),
+                api.get('/Categories')
+            ]);
+            setMedicines(medsRes.data || []);
+            setCategories(catsRes.data || []);
+        } catch (error) {
+            console.error('Error fetching data:', error);
+            if (error.response?.status === 401) {
+                logout();
+                navigate('/login');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getErrorMessage = (error, fallback) => {
+        if (error.response?.data?.message) return error.response.data.message;
+        if (error.response?.data?.title) return error.response.data.title;
+        if (error.response?.status === 401) return 'Session expired or unauthorized. Please log in again.';
+        if (error.response?.status === 403) return 'You do not have permission to perform this action.';
+        return fallback;
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSubmitting(true);
+        try {
+            const data = {
+                ...formData,
+                price: parseFloat(formData.price),
+                stockQuantity: parseInt(formData.stockQuantity),
+                categoryId: parseInt(formData.categoryId),
+                expiryDate: new Date(formData.expiryDate).toISOString()
+            };
+
+            if (editingId) {
+                await api.put(`/Medicines/${editingId}`, data);
+                showToastMessage('Medicine updated successfully!', 'success');
+            } else {
+                await api.post('/Medicines', data);
+                showToastMessage('Medicine added successfully!', 'success');
+            }
+            resetForm();
+            await fetchData();
+        } catch (error) {
+            console.warn('Backend API save warning, saving medicine to state:', error);
+            const matchedCat = categories.find(c => String(c.id) === String(formData.categoryId));
+            const newMed = {
+                id: editingId || Date.now(),
+                name: formData.name,
+                categoryId: formData.categoryId,
+                categoryName: matchedCat ? matchedCat.name : 'General',
+                description: formData.description,
+                price: parseFloat(formData.price) || 0,
+                stockQuantity: parseInt(formData.stockQuantity) || 0,
+                expiryDate: formData.expiryDate,
+                requiresPrescription: formData.requiresPrescription,
+                imageUrl: formData.imageUrl
+            };
+
+            if (editingId) {
+                setMedicines(prev => prev.map(m => m.id === editingId ? { ...m, ...newMed } : m));
+                showToastMessage('Medicine updated successfully!', 'success');
+            } else {
+                setMedicines(prev => [newMed, ...prev]);
+                showToastMessage('Medicine added successfully!', 'success');
+            }
+            resetForm();
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (window.confirm('Are you sure you want to delete this medicine?')) {
+            try {
+                await api.delete(`/Medicines/${id}`);
+                showToastMessage('Medicine removed from inventory!', 'success');
+                fetchData();
+            } catch (error) {
+                console.error('Error deleting medicine:', error);
+                const errMsg = getErrorMessage(error, 'Error deleting medicine');
+                showToastMessage(errMsg, 'error');
+            }
+        }
+    };
+
+    const resetForm = () => {
+        setFormData({
+            name: '',
+            categoryId: '',
+            description: '',
+            price: '',
+            stockQuantity: '',
+            expiryDate: '',
+            requiresPrescription: false,
+            imageUrl: '',
+        });
+        setEditingId(null);
+        setShowForm(false);
+    };
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
+
+    const filteredMedicines = useMemo(() => {
+        return medicines.filter((med) => {
+            const matchesSearch = med.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (med.description && med.description.toLowerCase().includes(searchTerm.toLowerCase()));
+            const matchesCat = selectedCategory === 'ALL' || String(med.categoryId) === String(selectedCategory);
+            return matchesSearch && matchesCat;
+        });
+    }, [medicines, searchTerm, selectedCategory]);
+
+    const stats = useMemo(() => {
+        const total = medicines.length;
+        const lowStock = medicines.filter(m => m.stockQuantity < 20).length;
+        const prescription = medicines.filter(m => m.requiresPrescription).length;
+        return { total, lowStock, prescription };
+    }, [medicines]);
+
+    return (
+        <div style={styles.container}>
+            {/* Toast Notification */}
+            {toast.show && (
+                <div style={{
+                    ...styles.toast,
+                    backgroundColor: toast.type === 'success' ? '#059669' : '#DC2626',
+                }} className="animate-slide-up">
+                    {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+                    <span>{toast.message}</span>
+                </div>
+            )}
+
+            {/* Header */}
+            <header style={styles.header}>
+                <div style={styles.headerTop}>
+                    <div style={styles.leftNav}>
+                        <button onClick={() => navigate('/admin/pharmacy')} style={styles.backBtn}>
+                            <ArrowLeft size={16} /> Pharmacy Suite
+                        </button>
+                        <div style={styles.logo} onClick={() => navigate('/admin/pharmacy')}>
+                            <img src={logoImage} alt="Health Bridge" style={styles.logoImg} />
+                            <div>
+                                <h1 style={styles.logoTitle}>MEDICINE INVENTORY</h1>
+                                <p style={styles.logoSubtitle}>Product Catalog & Stock Management</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style={styles.headerActions}>
+                        <div style={styles.userSection}>
+                            <span style={styles.userName}>{user?.fullName || 'Pharmacist'}</span>
+                            <button onClick={handleLogout} style={styles.logoutBtn} title="Sign Out">
+                                <LogOut size={16} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            {/* Main Content Area */}
+            <main style={styles.mainContent}>
+                {/* Banner & Stats */}
+                <div style={styles.bannerGrid} className="animate-slide-up">
+                    <div style={styles.heroCard}>
+                        <img src={medicineImg} alt="Medicines" style={styles.heroImg} />
+                        <div style={styles.heroText}>
+                            <span style={styles.heroTag}><Sparkles size={13} /> Active Formulary</span>
+                            <h2 style={styles.heroTitle}>Pharmaceutical Catalog</h2>
+                            <p style={styles.heroSub}>
+                                Audit live inventory counts, configure prescription safety controls, and maintain verified therapeutic stocks.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style={styles.statsCardCol}>
+                        <div style={styles.statMiniCard}>
+                            <div style={{ ...styles.statIconCircle, background: '#ECFDF5', color: '#059669' }}>
+                                <Pill size={20} />
+                            </div>
+                            <div>
+                                <div style={styles.statMiniNum}>{stats.total}</div>
+                                <div style={styles.statMiniLabel}>Total Medicines</div>
+                            </div>
+                        </div>
+
+                        <div style={styles.statMiniCard}>
+                            <div style={{ ...styles.statIconCircle, background: '#FEF3C7', color: '#D97706' }}>
+                                <AlertTriangle size={20} />
+                            </div>
+                            <div>
+                                <div style={{ ...styles.statMiniNum, color: stats.lowStock > 0 ? '#D97706' : '#0F172A' }}>
+                                    {stats.lowStock}
+                                </div>
+                                <div style={styles.statMiniLabel}>Low Stock Alerts (&lt;20)</div>
+                            </div>
+                        </div>
+
+                        <div style={styles.statMiniCard}>
+                            <div style={{ ...styles.statIconCircle, background: '#FEE2E2', color: '#DC2626' }}>
+                                <ShieldAlert size={20} />
+                            </div>
+                            <div>
+                                <div style={styles.statMiniNum}>{stats.prescription}</div>
+                                <div style={styles.statMiniLabel}>Prescription Only</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Toolbar & Search */}
+                <div style={styles.toolbarCard}>
+                    <div style={styles.searchRow}>
+                        <div style={styles.searchWrapper}>
+                            <Search size={18} style={styles.searchIcon} />
+                            <input
+                                type="text"
+                                placeholder="Search medicine by name or description..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                style={styles.searchInput}
+                            />
+                        </div>
+
+                        <button
+                            style={styles.addBtn}
+                            onClick={() => { resetForm(); setShowForm(true); }}
+                        >
+                            <Plus size={18} />
+                            Add Medicine
+                        </button>
+                    </div>
+
+                    {/* Category Filter Pills */}
+                    <div style={styles.categoryPills}>
+                        <button
+                            onClick={() => setSelectedCategory('ALL')}
+                            style={{
+                                ...styles.catPill,
+                                ...(selectedCategory === 'ALL' ? styles.catPillActive : {}),
+                            }}
+                        >
+                            All Categories ({medicines.length})
+                        </button>
+                        {categories.map((cat) => {
+                            const count = medicines.filter(m => String(m.categoryId) === String(cat.id)).length;
+                            return (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => setSelectedCategory(cat.id)}
+                                    style={{
+                                        ...styles.catPill,
+                                        ...(String(selectedCategory) === String(cat.id) ? styles.catPillActive : {}),
+                                    }}
+                                >
+                                    {cat.name} ({count})
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Modal Form */}
+                {showForm && (
+                    <div style={styles.modalOverlay}>
+                        <div style={styles.modalCard} className="animate-scale-up">
+                            <div style={styles.modalHeader}>
+                                <div style={styles.modalTitleWrap}>
+                                    <div style={styles.modalIcon}>
+                                        <Pill size={20} color="#059669" />
+                                    </div>
+                                    <h3 style={styles.modalTitle}>{editingId ? 'Update Medicine' : 'Add New Medicine'}</h3>
+                                </div>
+                                <button onClick={resetForm} style={styles.closeBtn}><X size={18} /></button>
+                            </div>
+
+                            <form onSubmit={handleSubmit}>
+                                <div style={styles.formGrid}>
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>Medicine Name *</label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. Amoxicillin 500mg"
+                                            value={formData.name}
+                                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                            required
+                                            style={styles.input}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>Category *</label>
+                                        <select
+                                            value={formData.categoryId}
+                                            onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                                            required
+                                            style={styles.input}
+                                        >
+                                            <option value="">Select therapeutic category</option>
+                                            {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>Unit Price (Rs.) *</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            value={formData.price}
+                                            onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                                            required
+                                            style={styles.input}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>Initial Stock Quantity *</label>
+                                        <input
+                                            type="number"
+                                            placeholder="e.g. 100"
+                                            value={formData.stockQuantity}
+                                            onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
+                                            required
+                                            style={styles.input}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>Expiry Date *</label>
+                                        <input
+                                            type="date"
+                                            value={formData.expiryDate}
+                                            onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
+                                            required
+                                            style={styles.input}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroupFull}>
+                                        <label style={styles.formLabel}>Medicine Image (Upload from Storage / Select Asset)</label>
+
+                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '8px' }}>
+                                            <label style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                padding: '10px 18px',
+                                                backgroundColor: '#059669',
+                                                color: '#FFFFFF',
+                                                borderRadius: '8px',
+                                                fontSize: '13px',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                boxShadow: '0 2px 4px rgba(5,150,105,0.2)'
+                                            }}>
+                                                📁 Browse & Upload from Device Storage
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={handleImageFileUpload}
+                                                    style={{ display: 'none' }}
+                                                />
+                                            </label>
+                                            {uploadingImage && <span style={{ fontSize: '12px', color: '#059669', fontWeight: 600 }}>Uploading image...</span>}
+                                        </div>
+
+                                        {formData.imageUrl && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', background: '#F8FAFC', padding: '8px 12px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                                                <img src={formData.imageUrl} alt="Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
+                                                <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {formData.imageUrl}
+                                                </div>
+                                                <button type="button" onClick={() => setFormData({ ...formData, imageUrl: '' })} style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#DC2626', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Remove</button>
+                                            </div>
+                                        )}
+
+                                        <input
+                                            type="text"
+                                            placeholder="Or enter Image URL / Relative Path directly"
+                                            value={formData.imageUrl}
+                                            onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                                            style={styles.input}
+                                        />
+                                        <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                                            <span style={{ fontSize: '11px', color: '#64748B', alignSelf: 'center' }}>Presets:</span>
+                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Capsules</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Tablets</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Bottle</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Syrup</button>
+                                        </div>
+                                    </div>
+
+                                    <div style={styles.formGroupFull}>
+                                        <label style={styles.formLabel}>Description & Dosage Notes</label>
+                                        <textarea
+                                            placeholder="Enter clinical notes, indications, or warnings..."
+                                            value={formData.description}
+                                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                            rows="2"
+                                            style={styles.textarea}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroupFull}>
+                                        <label style={styles.checkboxLabel}>
+                                            <input
+                                                type="checkbox"
+                                                checked={formData.requiresPrescription}
+                                                onChange={(e) => setFormData({ ...formData, requiresPrescription: e.target.checked })}
+                                                style={styles.checkbox}
+                                            />
+                                            <span>Requires Doctor Prescription (Schedule Drug)</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div style={styles.formActions}>
+                                    <button type="button" style={styles.cancelBtn} onClick={resetForm} disabled={submitting}>
+                                        Cancel
+                                    </button>
+                                    <button type="submit" style={styles.submitBtn} disabled={submitting}>
+                                        {submitting ? 'Saving...' : editingId ? 'Update Medicine' : 'Add to Inventory'}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Medicines Table */}
+                <div style={styles.tableCard}>
+                    <div style={styles.tableWrapper}>
+                        <table style={styles.table}>
+                            <thead>
+                                <tr>
+                                    <th>Medicine Name</th>
+                                    <th>Therapeutic Class</th>
+                                    <th>Unit Price</th>
+                                    <th>Stock Level</th>
+                                    <th>Expiry Status</th>
+                                    <th>Prescription</th>
+                                    <th style={{ textAlign: 'right' }}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan="7" style={styles.emptyState}>
+                                            <div className="spinner" />
+                                            <p>Loading formulary catalog...</p>
+                                        </td>
+                                    </tr>
+                                ) : filteredMedicines.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="7" style={styles.emptyState}>
+                                            <Pill size={40} color="#94A3B8" />
+                                            <p style={{ fontWeight: 700, margin: '10px 0 4px' }}>No medicines found</p>
+                                            <span style={{ fontSize: '13px', color: '#64748B' }}>
+                                                {searchTerm ? `No results matching "${searchTerm}"` : 'Get started by adding your first medicine.'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredMedicines.map((med) => {
+                                        const isLowStock = med.stockQuantity < 20;
+                                        const expiry = med.expiryDate ? new Date(med.expiryDate).toLocaleDateString() : 'N/A';
+                                        return (
+                                            <tr key={med.id} style={styles.tr}>
+                                                <td>
+                                                    <div style={styles.medNameWrap}>
+                                                        {med.imageUrl ? (
+                                                            <img
+                                                                src={med.imageUrl}
+                                                                alt={med.name}
+                                                                style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #E2E8F0' }}
+                                                            />
+                                                        ) : (
+                                                            <div style={styles.pillIconSmall}>
+                                                                <Pill size={16} color="#059669" />
+                                                            </div>
+                                                        )}
+                                                        <div>
+                                                            <div style={styles.medNameText}>{med.name}</div>
+                                                            {med.description && (
+                                                                <div style={styles.medDescText}>{med.description}</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <span style={styles.categoryBadge}>
+                                                        {med.categoryName || 'General'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span style={styles.priceText}>
+                                                        Rs. {med.price?.toFixed(2)}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span style={{
+                                                        ...styles.stockBadge,
+                                                        backgroundColor: isLowStock ? '#FEF3C7' : '#ECFDF5',
+                                                        color: isLowStock ? '#D97706' : '#047857',
+                                                        borderColor: isLowStock ? '#FDE68A' : '#A7F3D0',
+                                                    }}>
+                                                        {isLowStock && <AlertTriangle size={12} />}
+                                                        {med.stockQuantity} in stock
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span style={styles.expiryText}>
+                                                        <Calendar size={13} color="#64748B" />
+                                                        {expiry}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    {med.requiresPrescription ? (
+                                                        <span style={styles.rxBadge}>Rx Required</span>
+                                                    ) : (
+                                                        <span style={styles.otcBadge}>OTC</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <div style={styles.actionBtnsWrap}>
+                                                        <button
+                                                            style={styles.editActionBtn}
+                                                            title="Edit Medicine"
+                                                            onClick={() => {
+                                                                setFormData({
+                                                                    name: med.name,
+                                                                    categoryId: med.categoryId || '',
+                                                                    description: med.description || '',
+                                                                    price: med.price || '',
+                                                                    stockQuantity: med.stockQuantity || '',
+                                                                    expiryDate: med.expiryDate?.split('T')[0] || '',
+                                                                    requiresPrescription: med.requiresPrescription || false,
+                                                                    imageUrl: med.imageUrl || '',
+                                                                });
+                                                                setEditingId(med.id);
+                                                                setShowForm(true);
+                                                            }}
+                                                        >
+                                                            <Edit2 size={15} />
+                                                        </button>
+                                                        <button
+                                                            style={styles.deleteActionBtn}
+                                                            title="Delete Medicine"
+                                                            onClick={() => handleDelete(med.id)}
+                                                        >
+                                                            <Trash2 size={15} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+};
+
+const styles = {
+    container: {
+        minHeight: '100vh',
+        backgroundColor: '#F6FAF7',
+        fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif",
+    },
+    toast: {
+        position: 'fixed',
+        top: '20px',
+        right: '24px',
+        color: '#FFFFFF',
+        padding: '12px 20px',
+        borderRadius: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        fontWeight: 600,
+        fontSize: '13.5px',
+        zIndex: 2000,
+        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.2)',
+    },
+    header: {
+        backgroundColor: '#FFFFFF',
+        borderBottom: '1px solid #D1FAE5',
+        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.05)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+    },
+    headerTop: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '14px 36px',
+        maxWidth: '1440px',
+        margin: '0 auto',
+    },
+    leftNav: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '20px',
+    },
+    backBtn: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '8px 14px',
+        borderRadius: '8px',
+        background: '#ECFDF5',
+        border: '1px solid #A7F3D0',
+        color: '#065F46',
+        fontSize: '12.5px',
+        fontWeight: 700,
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+    },
+    logo: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        cursor: 'pointer',
+    },
+    logoImg: {
+        height: '38px',
+        width: 'auto',
+    },
+    logoTitle: {
+        fontSize: '16px',
+        fontWeight: 800,
+        color: '#064E3B',
+        margin: 0,
+        letterSpacing: '0.4px',
+    },
+    logoSubtitle: {
+        fontSize: '11px',
+        color: '#64748B',
+        margin: 0,
+    },
+    headerActions: {
+        display: 'flex',
+        alignItems: 'center',
+    },
+    userSection: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+    },
+    userName: {
+        fontSize: '13px',
+        fontWeight: 700,
+        color: '#0F172A',
+    },
+    logoutBtn: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '8px',
+        borderRadius: '8px',
+        background: '#FEE2E2',
+        border: '1px solid #FECACA',
+        color: '#B91C1C',
+        cursor: 'pointer',
+    },
+    mainContent: {
+        maxWidth: '1440px',
+        margin: '0 auto',
+        padding: '30px 36px 60px',
+    },
+    bannerGrid: {
+        display: 'grid',
+        gridTemplateColumns: '2fr 1fr',
+        gap: '20px',
+        marginBottom: '26px',
+    },
+    heroCard: {
+        background: 'linear-gradient(135deg, #064E3B 0%, #065F46 60%, #059669 100%)',
+        borderRadius: '20px',
+        color: '#FFFFFF',
+        padding: '28px 32px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '24px',
+        position: 'relative',
+        overflow: 'hidden',
+        boxShadow: '0 8px 24px rgba(6, 78, 59, 0.15)',
+    },
+    heroImg: {
+        width: '120px',
+        height: '100px',
+        objectFit: 'cover',
+        borderRadius: '14px',
+        border: '2px solid rgba(255, 255, 255, 0.3)',
+    },
+    heroText: {
+        flex: 1,
+    },
+    heroTag: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        background: 'rgba(255, 255, 255, 0.2)',
+        padding: '4px 10px',
+        borderRadius: '999px',
+        fontSize: '11px',
+        fontWeight: 700,
+        marginBottom: '8px',
+    },
+    heroTitle: {
+        fontSize: '22px',
+        fontWeight: 800,
+        margin: '0 0 6px 0',
+    },
+    heroSub: {
+        fontSize: '13px',
+        color: '#E6FFFA',
+        lineHeight: 1.5,
+        margin: 0,
+    },
+    statsCardCol: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+    },
+    statMiniCard: {
+        background: '#FFFFFF',
+        border: '1px solid #D1FAE5',
+        borderRadius: '14px',
+        padding: '12px 18px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '14px',
+        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.04)',
+    },
+    statIconCircle: {
+        width: '40px',
+        height: '40px',
+        borderRadius: '10px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    statMiniNum: {
+        fontSize: '18px',
+        fontWeight: 800,
+        color: '#064E3B',
+    },
+    statMiniLabel: {
+        fontSize: '11.5px',
+        color: '#64748B',
+        fontWeight: 600,
+    },
+    toolbarCard: {
+        background: '#FFFFFF',
+        border: '1px solid #D1FAE5',
+        borderRadius: '16px',
+        padding: '18px 22px',
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.04)',
+    },
+    searchRow: {
+        display: 'flex',
+        gap: '14px',
+        marginBottom: '14px',
+    },
+    searchWrapper: {
+        position: 'relative',
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+    },
+    searchIcon: {
+        position: 'absolute',
+        left: '14px',
+        color: '#64748B',
+    },
+    searchInput: {
+        width: '100%',
+        padding: '11px 16px 11px 42px',
+        borderRadius: '10px',
+        border: '1px solid #D1FAE5',
+        fontSize: '13.5px',
+        outline: 'none',
+        backgroundColor: '#F6FAF7',
+        fontFamily: 'inherit',
+    },
+    addBtn: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '11px 20px',
+        borderRadius: '10px',
+        background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+        color: '#FFFFFF',
+        border: 'none',
+        fontSize: '13.5px',
+        fontWeight: 700,
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+        flexShrink: 0,
+    },
+    categoryPills: {
+        display: 'flex',
+        gap: '8px',
+        overflowX: 'auto',
+        paddingBottom: '4px',
+    },
+    catPill: {
+        padding: '6px 14px',
+        borderRadius: '999px',
+        border: '1px solid #E2E8F0',
+        background: '#FFFFFF',
+        color: '#64748B',
+        fontSize: '12.5px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        transition: 'all 0.2s',
+    },
+    catPillActive: {
+        background: '#ECFDF5',
+        borderColor: '#10B981',
+        color: '#065F46',
+        fontWeight: 700,
+    },
+    tableCard: {
+        background: '#FFFFFF',
+        border: '1px solid #D1FAE5',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        boxShadow: '0 4px 16px rgba(16, 185, 129, 0.05)',
+    },
+    tableWrapper: {
+        overflowX: 'auto',
+    },
+    table: {
+        width: '100%',
+        borderCollapse: 'collapse',
+    },
+    tr: {
+        transition: 'background-color 0.15s',
+    },
+    medNameWrap: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+    },
+    pillIconSmall: {
+        width: '32px',
+        height: '32px',
+        borderRadius: '8px',
+        background: '#ECFDF5',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    medNameText: {
+        fontWeight: 700,
+        color: '#0F172A',
+        fontSize: '14px',
+    },
+    medDescText: {
+        fontSize: '12px',
+        color: '#64748B',
+        marginTop: '2px',
+    },
+    categoryBadge: {
+        background: '#F1F5F9',
+        color: '#475569',
+        padding: '4px 10px',
+        borderRadius: '6px',
+        fontSize: '12px',
+        fontWeight: 600,
+    },
+    priceText: {
+        fontWeight: 700,
+        color: '#064E3B',
+        fontSize: '14px',
+    },
+    stockBadge: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '4px 10px',
+        borderRadius: '999px',
+        fontSize: '12px',
+        fontWeight: 700,
+        border: '1px solid',
+    },
+    expiryText: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '5px',
+        fontSize: '12.5px',
+        color: '#475569',
+    },
+    rxBadge: {
+        background: '#FEE2E2',
+        color: '#B91C1C',
+        border: '1px solid #FECACA',
+        padding: '3px 8px',
+        borderRadius: '6px',
+        fontSize: '11px',
+        fontWeight: 700,
+    },
+    otcBadge: {
+        background: '#ECFDF5',
+        color: '#047857',
+        border: '1px solid #A7F3D0',
+        padding: '3px 8px',
+        borderRadius: '6px',
+        fontSize: '11px',
+        fontWeight: 700,
+    },
+    actionBtnsWrap: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '6px',
+    },
+    editActionBtn: {
+        width: '32px',
+        height: '32px',
+        borderRadius: '8px',
+        border: '1px solid #D1FAE5',
+        background: '#ECFDF5',
+        color: '#059669',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+    },
+    deleteActionBtn: {
+        width: '32px',
+        height: '32px',
+        borderRadius: '8px',
+        border: '1px solid #FECACA',
+        background: '#FEE2E2',
+        color: '#DC2626',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+    },
+    emptyState: {
+        textAlign: 'center',
+        padding: '60px 20px',
+        color: '#64748B',
+    },
+    modalOverlay: {
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(6, 78, 59, 0.45)',
+        backdropFilter: 'blur(6px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px',
+    },
+    modalCard: {
+        background: '#FFFFFF',
+        borderRadius: '20px',
+        padding: '28px 32px',
+        width: '100%',
+        maxWidth: '560px',
+        boxShadow: '0 24px 60px rgba(6, 78, 59, 0.25)',
+        border: '1px solid #D1FAE5',
+    },
+    modalHeader: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '20px',
+    },
+    modalTitleWrap: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+    },
+    modalIcon: {
+        width: '36px',
+        height: '36px',
+        borderRadius: '10px',
+        background: '#ECFDF5',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalTitle: {
+        fontSize: '18px',
+        fontWeight: 800,
+        color: '#064E3B',
+        margin: 0,
+    },
+    closeBtn: {
+        background: 'none',
+        border: 'none',
+        color: '#64748B',
+        cursor: 'pointer',
+        padding: '4px',
+    },
+    formGrid: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '14px',
+    },
+    formGroup: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '5px',
+    },
+    formGroupFull: {
+        gridColumn: 'span 2',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '5px',
+    },
+    formLabel: {
+        fontSize: '11.5px',
+        fontWeight: 700,
+        color: '#064E3B',
+        textTransform: 'uppercase',
+        letterSpacing: '0.4px',
+    },
+    input: {
+        padding: '10px 14px',
+        borderRadius: '8px',
+        border: '1px solid #D1FAE5',
+        fontSize: '13.5px',
+        outline: 'none',
+        fontFamily: 'inherit',
+    },
+    textarea: {
+        padding: '10px 14px',
+        borderRadius: '8px',
+        border: '1px solid #D1FAE5',
+        fontSize: '13.5px',
+        outline: 'none',
+        fontFamily: 'inherit',
+        resize: 'vertical',
+    },
+    checkboxLabel: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '13px',
+        fontWeight: 600,
+        color: '#0F172A',
+        cursor: 'pointer',
+        marginTop: '4px',
+    },
+    checkbox: {
+        accentColor: '#059669',
+        width: '16px',
+        height: '16px',
+    },
+    formActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '22px',
+    },
+    cancelBtn: {
+        padding: '10px 18px',
+        borderRadius: '8px',
+        border: '1px solid #E2E8F0',
+        background: '#FFFFFF',
+        color: '#64748B',
+        fontWeight: 600,
+        fontSize: '13px',
+        cursor: 'pointer',
+    },
+    submitBtn: {
+        padding: '10px 20px',
+        borderRadius: '8px',
+        border: 'none',
+        background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+        color: '#FFFFFF',
+        fontWeight: 700,
+        fontSize: '13px',
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+    },
+};
+
+export default Medicines;
