@@ -1,4 +1,5 @@
 using HealthBridge.Api.Agents;
+using HealthBridge.Api.Agents.Lab;
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.Lab;
 using HealthBridge.Api.Models;
@@ -14,26 +15,46 @@ public class LabBookingsController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
     private readonly IEmailService _emailService;
-    private readonly PrescriptionValidatorAgent _aiAgent;
+    private readonly LabAgentOrchestrator _agentOrchestrator;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<LabBookingsController> _logger;
 
-    public LabBookingsController(ApplicationDbContext db, IEmailService emailService, PrescriptionValidatorAgent aiAgent, IServiceScopeFactory scopeFactory, ILogger<LabBookingsController> logger)
+    public LabBookingsController(ApplicationDbContext db, IEmailService emailService, LabAgentOrchestrator agentOrchestrator, IServiceScopeFactory scopeFactory, ILogger<LabBookingsController> logger)
     {
         _db = db;
         _emailService = emailService;
-        _aiAgent = aiAgent;
+        _agentOrchestrator = agentOrchestrator;
         _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
-    // GET /api/lab/bookings/my?patientId={id} — Patient's own bookings
+    // GET /api/lab/bookings/my?patientId={id}&email={email} — Patient's own bookings
     [HttpGet("my")]
-    public async Task<ActionResult<IEnumerable<LabBookingResponse>>> GetMyBookings([FromQuery] int patientId)
+    public async Task<ActionResult<IEnumerable<LabBookingResponse>>> GetMyBookings([FromQuery] int? patientId, [FromQuery] string? email)
     {
-        var bookings = await _db.LabBookings
+        var query = _db.LabBookings
             .Include(b => b.LabTest)
-            .Where(b => b.PatientId == patientId)
+            .AsQueryable();
+
+        if (patientId.HasValue && patientId.Value > 0)
+        {
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                var lowerEmail = email.Trim().ToLower();
+                query = query.Where(b => b.PatientId == patientId.Value || b.PatientEmail.ToLower() == lowerEmail);
+            }
+            else
+            {
+                query = query.Where(b => b.PatientId == patientId.Value);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(email))
+        {
+            var lowerEmail = email.Trim().ToLower();
+            query = query.Where(b => b.PatientEmail.ToLower() == lowerEmail);
+        }
+
+        var bookings = await query
             .OrderByDescending(b => b.CreatedAt)
             .ToListAsync();
 
@@ -80,7 +101,7 @@ public class LabBookingsController : ControllerBase
             TimeSlot = dto.TimeSlot,
             Status = test.IsRestricted
                 ? BookingStatus.PendingPrescriptionUpload
-                : BookingStatus.PendingLabApproval,
+                : BookingStatus.Confirmed,
             AIVerification = test.IsRestricted
                 ? AIVerificationResult.Pending
                 : AIVerificationResult.NotRequired
@@ -92,6 +113,19 @@ public class LabBookingsController : ControllerBase
         slot.CurrentBookings++;
 
         await _db.SaveChangesAsync();
+
+        // Run multi-agent orchestrator for non-restricted bookings right away
+        if (!test.IsRestricted)
+        {
+            try
+            {
+                await _agentOrchestrator.ProcessBookingWorkflowAsync(_db, booking.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not run agent orchestrator for booking {BookingId}", booking.Id);
+            }
+        }
 
         // Send immediate "booking received" acknowledgement email (background / resilient)
         try
@@ -112,7 +146,7 @@ public class LabBookingsController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = booking.Id }, MapToDto(booking));
     }
 
-    // POST /api/lab/bookings/{id}/prescription — Upload prescription and trigger AI
+    // POST /api/lab/bookings/{id}/prescription — Upload prescription and trigger AI Multi-Agent Workflow
     [HttpPost("{id:guid}/prescription")]
     public async Task<ActionResult<LabBookingResponse>> UploadPrescription(Guid id, [FromBody] UploadPrescriptionRequest dto)
     {
@@ -128,11 +162,8 @@ public class LabBookingsController : ControllerBase
         booking.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Trigger AI Validation Agent asynchronously with its own scope
-        // (the request-scoped DbContext will be disposed after this endpoint returns)
+        // Trigger AI Multi-Agent Orchestrator asynchronously with scoped DbContext
         var bookingId = booking.Id;
-        var testName = booking.LabTest.Name;
-        var imageUrl = dto.PrescriptionImageUrl;
 
         _ = Task.Run(async () =>
         {
@@ -140,31 +171,14 @@ public class LabBookingsController : ControllerBase
             {
                 using var scope = _scopeFactory.CreateScope();
                 var scopedDb = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var scopedAgent = scope.ServiceProvider.GetRequiredService<PrescriptionValidatorAgent>();
+                var scopedOrchestrator = scope.ServiceProvider.GetRequiredService<LabAgentOrchestrator>();
 
-                var result = await scopedAgent.ValidatePrescriptionAsync(imageUrl, testName);
-
-                var bgBooking = await scopedDb.LabBookings.FindAsync(bookingId);
-                if (bgBooking == null) return;
-
-                bgBooking.AIVerification = result.Status == "PRE_APPROVED"
-                    ? AIVerificationResult.PreApproved
-                    : AIVerificationResult.Flagged;
-                bgBooking.AIVerificationNotes = $"{result.Notes} | Extracted: {string.Join(", ", result.ExtractedTests)}";
-                bgBooking.AIConfidenceScore = result.Confidence;
-                bgBooking.AIExtractedDoctorName = result.DoctorName;
-                if (DateOnly.TryParse(result.PrescriptionDate, out var pd))
-                    bgBooking.AIPrescriptionDate = pd;
-
-                bgBooking.Status = BookingStatus.PendingLabApproval;
-                bgBooking.UpdatedAt = DateTime.UtcNow;
-                await scopedDb.SaveChangesAsync();
-
-                _logger.LogInformation("[AI Agent] Background validation complete for booking {BookingId}. Status: {Status}", bookingId, result.Status);
+                await scopedOrchestrator.ProcessBookingWorkflowAsync(scopedDb, bookingId);
+                _logger.LogInformation("[LabAgentOrchestrator] Multi-agent processing complete for booking {BookingId}", bookingId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[AI Agent] Background validation failed for booking {BookingId}", bookingId);
+                _logger.LogError(ex, "[LabAgentOrchestrator] Multi-agent processing failed for booking {BookingId}", bookingId);
             }
         });
 
@@ -282,6 +296,17 @@ public class LabBookingsController : ControllerBase
         TechnicianNotes = b.TechnicianNotes,
         ResultFileUrl = b.ResultFileUrl,
         ResultsUploadedAt = b.ResultsUploadedAt,
+        QueueToken = b.QueueToken,
+        PriorityTier = b.PriorityTier,
+        EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
+        EstimatedWaitMinutes = b.EstimatedWaitMinutes,
+        AssignedChairNo = b.AssignedChairNo,
+        AgentWorkflowStateJson = b.AgentWorkflowStateJson,
+        PaymentStatus = b.PaymentStatus.ToString(),
+        PaymentMethod = b.PaymentMethod,
+        ReceiptNumber = b.ReceiptNumber,
+        AmountPaid = b.AmountPaid,
+        PaidAt = b.PaidAt,
         CreatedAt = b.CreatedAt,
         UpdatedAt = b.UpdatedAt
     };

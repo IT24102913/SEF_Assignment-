@@ -19,6 +19,17 @@ public class LabBookingResponse
     public string? TechnicianNotes { get; set; }
     public string? ResultFileUrl { get; set; }
     public DateTime? ResultsUploadedAt { get; set; }
+    public string? QueueToken { get; set; }
+    public string? PriorityTier { get; set; }
+    public int EstimatedServiceDurationMinutes { get; set; }
+    public int EstimatedWaitMinutes { get; set; }
+    public int AssignedChairNo { get; set; }
+    public string? AgentWorkflowStateJson { get; set; }
+    public string PaymentStatus { get; set; } = "Unpaid";
+    public string? PaymentMethod { get; set; }
+    public string? ReceiptNumber { get; set; }
+    public decimal AmountPaid { get; set; }
+    public DateTime? PaidAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

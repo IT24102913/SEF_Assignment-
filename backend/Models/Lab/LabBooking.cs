@@ -69,6 +69,21 @@ public class LabBooking
     public string? ResultFileUrl { get; set; }
     public DateTime? ResultsUploadedAt { get; set; }
 
+    // Smart Queue & Agentic AI Workflow State
+    public string? QueueToken { get; set; }
+    public string? PriorityTier { get; set; }
+    public int EstimatedServiceDurationMinutes { get; set; } = 10;
+    public int EstimatedWaitMinutes { get; set; } = 0;
+    public int AssignedChairNo { get; set; } = 1;
+    public string? AgentWorkflowStateJson { get; set; }
+
+    // Centralized Payment Fields
+    public PaymentStatus PaymentStatus { get; set; } = PaymentStatus.Unpaid;
+    public string? PaymentMethod { get; set; }
+    public string? ReceiptNumber { get; set; }
+    public decimal AmountPaid { get; set; } = 0;
+    public DateTime? PaidAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }
