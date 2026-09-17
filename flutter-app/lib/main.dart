@@ -5,7 +5,7 @@ void main() {
   runApp(const HealthBridgeApp());
 }
 
-class HealthBridgeApp extends StatelessWidget {
+class  extends StatelessWidget {
   const HealthBridgeApp({super.key});
 
   static const Color primaryGreenBlue = Color(0xFF009688);
