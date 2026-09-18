@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/lab_api_service.dart';
+import '../../services/auth_service.dart';
 import '../../utils/theme.dart';
 import 'test_detail_screen.dart';
 import 'booking_screen.dart';
@@ -224,13 +225,62 @@ class _TestCatalogueScreenState extends State<TestCatalogueScreen> {
                         ),
                       ),
                       ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => BookingScreen(tests: _selectedTests),
-                            ),
-                          );
+                        onPressed: () async {
+                          final user = await AuthService.getUser();
+                          if (user != null) {
+                            if (!context.mounted) return;
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => BookingScreen(tests: _selectedTests),
+                              ),
+                            );
+                          } else {
+                            if (!context.mounted) return;
+                            showDialog(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                                title: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: kPrimary.withValues(alpha: 0.1),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(Icons.lock_outline, color: kPrimary, size: 22),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    const Text('Login Required', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                content: const Text(
+                                  'You must be logged in as a patient to schedule appointment slots and book laboratory tests. Would you like to sign in now?',
+                                  style: TextStyle(fontSize: 14, color: kTextMuted, height: 1.5),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Cancel', style: TextStyle(color: kTextMuted, fontWeight: FontWeight.bold)),
+                                  ),
+                                  ElevatedButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      Navigator.pushNamed(context, '/login');
+                                    },
+                                    icon: const Icon(Icons.login, size: 16),
+                                    label: const Text('Sign In / Register'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: kPrimary,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.arrow_forward, size: 16),
                         label: const Text('Proceed to Book'),

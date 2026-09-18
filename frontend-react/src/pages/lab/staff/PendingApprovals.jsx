@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { getPendingBookings, approveBooking, rejectBooking } from '../../api/labApi';
-import LabLayout from '../../components/LabLayout';
+import { getPendingBookings, approveBooking, rejectBooking } from '../../../api/labApi';
+import LabLayout from '../../../components/LabLayout';
 import toast from 'react-hot-toast';
 import { CheckCircle, XCircle, Eye, Brain, X } from 'lucide-react';
-import emptyImg from '../../assets/lab_empty_microscope.jpg';
+import emptyImg from '../../../assets/lab_empty_microscope.jpg';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -151,14 +151,44 @@ export default function PendingApprovals() {
                   </div>
                 ))}
             </div>
+            {selected.queueToken && (
+              <div style={{ marginTop: 12, padding: '10px 14px', background: 'var(--primary-light)', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--primary-dark)', fontWeight: 700 }}>AI Smart Queue Token</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--primary-dark)' }}>{selected.queueToken}</div>
+                </div>
+                <span className="badge badge-confirmed" style={{ fontSize: 12 }}>{selected.priorityTier || 'ROUTINE'}</span>
+              </div>
+            )}
+
             {selected.aiVerificationNotes && (
               <div className="ai-result-card" style={{ marginTop: 16 }}>
-                <h4><Brain size={12} style={{ display: 'inline' }} /> AI Analysis</h4>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                <h4><Brain size={14} style={{ display: 'inline', marginRight: 6 }} /> AI Multi-Agent Audit Trail</h4>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, marginTop: 4 }}>
                   <AIBadge ai={selected.aiVerification} score={selected.aiConfidenceScore} />
                 </div>
                 <p className="text-sm text-muted">{selected.aiVerificationNotes}</p>
-                {selected.aiExtractedDoctorName && <p className="text-sm" style={{ marginTop: 4 }}>Doctor: <strong>{selected.aiExtractedDoctorName}</strong></p>}
+                {selected.aiExtractedDoctorName && (
+                  <p className="text-sm" style={{ marginTop: 6, fontWeight: 500 }}>
+                    Extracted Doctor: <strong style={{ color: 'var(--primary-dark)' }}>{selected.aiExtractedDoctorName}</strong>
+                  </p>
+                )}
+                {selected.agentWorkflowStateJson && (() => {
+                  try {
+                    const state = JSON.parse(selected.agentWorkflowStateJson);
+                    return (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Workflow Execution Logs:</div>
+                        {state.stepLogs?.map((log, idx) => (
+                          <div key={idx} style={{ fontSize: 11, padding: '4px 8px', background: '#fff', borderRadius: 6, marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>✓ {log.stepName}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{(log.confidence * 100).toFixed(0)}% confidence</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  } catch { return null; }
+                })()}
               </div>
             )}
             <div className="flex gap-2 mt-4">
