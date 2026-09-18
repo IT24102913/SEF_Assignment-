@@ -1,0 +1,136 @@
+# ==============================================================================
+# Comprehensive .gitignore for Medix Healthcare System
+# Covering: .NET 8 Backend, React Vite Web Portal, Flutter Mobile App
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Operating System & Editor Files
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Visual Studio & VS Code
+.vs/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+*.user 
+*.suo
+*.userosscache
+*.sln.docstates
+
+# JetBrains / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# General Editor Backups
+*.swp
+*.swo
+*~
+*.bak
+
+# ------------------------------------------------------------------------------
+# 2. Environment Variables & Secrets (Keep Safe!)
+# ------------------------------------------------------------------------------
+*.env
+*.env.local
+*.env.*.local
+!.env.example
+appsettings.Development.json
+appsettings.Local.json
+appsettings.Production.json
+secrets.json
+
+# ------------------------------------------------------------------------------
+# 3. Logs & Diagnostics
+# ------------------------------------------------------------------------------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ------------------------------------------------------------------------------
+# 4. .NET 8 Web API Backend
+# ------------------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Tt]est[Rr]esults/
+[Bb]uild[Ll]og.*
+Generated_Code/
+*.visualstudio/
+_ReSharper*/
+*.PublishUrl
+
+# EF Core Migrations runtime artifacts
+*.db-shm
+*.db-wal
+
+# Uploaded patient media & documents
+backend/wwwroot/uploads/
+uploads/
+
+# ------------------------------------------------------------------------------
+# 5. Web Frontend (React + Vite)
+# ------------------------------------------------------------------------------
+node_modules/
+**/node_modules/
+dist/
+dist-ssr/
+*.local
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.turbo/
+build/
+
+# ------------------------------------------------------------------------------
+# 6. Flutter / Dart Mobile App
+# ------------------------------------------------------------------------------
+.dart_tool/
+**/.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+
+# Flutter build outputs
+flutter-app/build/
+**/build/
+/coverage/
+
+# Android Specific (Flutter)
+flutter-app/android/.gradle/
+flutter-app/android/local.properties
+flutter-app/android/app/debug/
+flutter-app/android/app/profile/
+flutter-app/android/app/release/
+*.apk
+*.aab
+*.ap_
+
+# iOS Specific (Flutter)
+flutter-app/ios/Pods/
+flutter-app/ios/.symlinks/
+flutter-app/ios/Flutter/Flutter.framework
+flutter-app/ios/Flutter/Flutter.podspec
+flutter-app/ios/Flutter/Generated.xcconfig
+flutter-app/ios/Flutter/app.flx
+flutter-app/ios/Flutter/ephemeral/
+*.ipa
+
+# Symbolication & Obfuscation
+app.*.symbols
+app.*.map.json
