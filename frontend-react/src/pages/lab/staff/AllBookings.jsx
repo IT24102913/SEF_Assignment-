@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
-import { getAllBookings, markCollected, updateBookingStatus, deleteBookingAdmin, approveBooking, uploadResult, uploadFile } from '../../api/labApi';
-import LabLayout from '../../components/LabLayout';
+import { getAllBookings, markCollected, updateBookingStatus, deleteBookingAdmin, approveBooking, uploadResult, uploadFile } from '../../../api/labApi';
+import LabLayout from '../../../components/LabLayout';
+import { useAuth } from '../../../context/AuthContext';
 import toast from 'react-hot-toast';
-import { FlaskConical, Search, RefreshCw, Microscope, FileText, Send, Check, Trash2, CheckCircle, Upload, X, FileUp, CheckCircle2, Link as LinkIcon } from 'lucide-react';
-import emptyImg from '../../assets/lab_empty_microscope.jpg';
+import { FlaskConical, Search, RefreshCw, Microscope, FileText, Send, Check, Trash2, CheckCircle, Upload, X, FileUp, CheckCircle2, Link as LinkIcon, ShieldCheck } from 'lucide-react';
+import emptyImg from '../../../assets/lab_empty_microscope.jpg';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -29,6 +30,9 @@ function StatusBadge({ status }) {
 }
 
 export default function AllBookings() {
+  const { user } = useAuth();
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
+
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
@@ -119,61 +123,54 @@ export default function AllBookings() {
 
   const filtered = bookings.filter(b =>
     b.patientName?.toLowerCase().includes(search.toLowerCase()) ||
-    b.labTest?.name?.toLowerCase().includes(search.toLowerCase())
+    b.labTest?.name?.toLowerCase().includes(search.toLowerCase()) ||
+    b.patientEmail?.toLowerCase().includes(search.toLowerCase())
   );
 
   const renderNextActionButton = (b) => {
     switch (b.status) {
       case 'PendingLabApproval':
-      case 'PendingAIVerification':
-      case 'PendingPrescriptionUpload':
         return (
-          <button className="btn btn-success btn-sm" onClick={() => handleApprove(b)} title="Approve & Confirm this Booking">
-            <CheckCircle size={14} /> Accept & Confirm
+          <button className="btn btn-success btn-sm" onClick={() => handleApprove(b)}>
+            <CheckCircle size={14} /> Approve
           </button>
         );
       case 'Confirmed':
         return (
           <button className="btn btn-primary btn-sm" onClick={() => handleCollected(b.id)}>
-            <FlaskConical size={14} /> Mark Collected
+            <FlaskConical size={14} /> Collect Sample
           </button>
         );
       case 'SampleCollected':
         return (
-          <div className="flex gap-1">
-            <button className="btn btn-primary btn-sm" onClick={() => handleStatusChange(b.id, 'TestingInProgress')}>
-              <Microscope size={14} /> Testing
-            </button>
-            <button 
-              className="btn btn-outline btn-sm" 
-              onClick={() => { 
-                setUploadModalBooking(b); 
-                setSelectedFile(null); 
-                setManualUrl(b.resultFileUrl || ''); 
-                setUseManualUrl(false);
-              }} 
-              title="Upload test report PDF"
-            >
-              <Upload size={14} /> Upload PDF
-            </button>
-          </div>
+          <button className="btn btn-secondary btn-sm" onClick={() => handleStatusChange(b.id, 'TestingInProgress')}>
+            <Microscope size={14} /> Start Analysis
+          </button>
         );
       case 'TestingInProgress':
         return (
-          <div className="flex gap-1">
-            <button 
-              className="btn btn-primary btn-sm" 
-              onClick={() => { 
-                setUploadModalBooking(b); 
-                setSelectedFile(null); 
-                setManualUrl(b.resultFileUrl || ''); 
-                setUseManualUrl(false);
-              }} 
-              style={{ background: '#059669', color: '#fff' }}
-            >
-              <Upload size={14} /> Upload PDF Report
-            </button>
-          </div>
+          <button 
+            className="btn btn-warning btn-sm" 
+            style={{ background: '#D97706', color: '#fff' }}
+            onClick={() => handleStatusChange(b.id, 'ResultVerification')}
+          >
+            <CheckCircle2 size={14} /> Assays Done • Verify
+          </button>
+        );
+      case 'ResultVerification':
+        return (
+          <button 
+            className="btn btn-primary btn-sm" 
+            style={{ background: '#059669', color: '#fff' }}
+            onClick={() => { 
+              setUploadModalBooking(b); 
+              setSelectedFile(null); 
+              setManualUrl(''); 
+              setUseManualUrl(false);
+            }}
+          >
+            <Upload size={14} /> Upload PDF Results
+          </button>
         );
       case 'ResultsReady':
         return (
@@ -207,7 +204,10 @@ export default function AllBookings() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to completely delete this booking?')) return;
+    if (!isAdmin) {
+      return toast.error('Unauthorized: Only administrators can delete clinical bookings.');
+    }
+    if (!window.confirm('Are you sure you want to completely delete this booking from the database? This action is irreversible.')) return;
     try {
       await deleteBookingAdmin(id);
       toast.success('Booking deleted successfully');
@@ -217,9 +217,32 @@ export default function AllBookings() {
 
   return (
     <LabLayout>
-      <div className="page-header">
-        <h1 className="page-title">All Lab Bookings</h1>
-        <p className="page-subtitle">Complete booking lifecycle, prescription verification, specimen collection, and report delivery</p>
+      <div className="page-header flex items-center justify-between">
+        <div>
+          <h1 className="page-title">
+            {isAdmin ? 'All Lab Bookings (Audit Ledger)' : 'All Lab Bookings'}
+          </h1>
+          <p className="page-subtitle">
+            {isAdmin 
+              ? 'Administrator governance ledger: full audit trail, status overrides, and booking management'
+              : 'Complete booking lookup: search and verify patient diagnostic records across all stages'}
+          </p>
+        </div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          background: isAdmin ? '#FEF3C7' : '#ECFDF5',
+          border: `1px solid ${isAdmin ? '#FCD34D' : '#A7F3D0'}`,
+          padding: '6px 12px',
+          borderRadius: 8,
+          color: isAdmin ? '#92400E' : '#065F46',
+          fontSize: 12,
+          fontWeight: 700
+        }}>
+          <ShieldCheck size={14} color={isAdmin ? '#B45309' : '#059669'} />
+          <span>{isAdmin ? 'Admin Authority: Full Audit Controls' : 'Staff Mode: Read & Operational Access'}</span>
+        </div>
       </div>
 
       <div className="card animate-slide-up">
@@ -247,6 +270,7 @@ export default function AllBookings() {
                   <th>Patient</th>
                   <th>Test</th>
                   <th>Date & Time</th>
+                  <th>Payment</th>
                   <th>Status</th>
                   <th>Booked On</th>
                   <th>Actions</th>
@@ -267,14 +291,31 @@ export default function AllBookings() {
                       <div style={{ fontWeight: 600 }}>{b.bookingDate}</div>
                       <div className="text-muted text-sm">{b.timeSlot}</div>
                     </td>
+                    <td>
+                      {b.paymentStatus === 'PaidOnline' ? (
+                        <span className="badge" style={{ background: '#ECFDF5', color: '#065F46', border: '1px solid #A7F3D0', fontSize: 11, fontWeight: 700 }}>
+                          💳 Paid Online<br/><span style={{ fontSize: 10, fontWeight: 500 }}>LKR {b.amountPaid || b.labTest?.price}</span>
+                        </span>
+                      ) : b.paymentStatus === 'PaidAtCounter' ? (
+                        <span className="badge" style={{ background: '#ECFDF5', color: '#065F46', border: '1px solid #A7F3D0', fontSize: 11, fontWeight: 700 }}>
+                          🏥 Paid Counter<br/><span style={{ fontSize: 10, fontWeight: 500 }}>LKR {b.amountPaid || b.labTest?.price}</span>
+                        </span>
+                      ) : (
+                        <span className="badge" style={{ background: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A', fontSize: 11, fontWeight: 700 }}>
+                          ⚠️ Due LKR {b.labTest?.price}
+                        </span>
+                      )}
+                    </td>
                     <td><StatusBadge status={b.status} /></td>
                     <td className="text-muted text-sm">{new Date(b.createdAt).toLocaleDateString()}</td>
                     <td>
                       <div className="flex gap-2 items-center">
                         {renderNextActionButton(b)}
-                        <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDelete(b.id)} title="Delete Booking">
-                          <Trash2 size={15} />
-                        </button>
+                        {isAdmin && (
+                          <button className="btn btn-ghost btn-sm" style={{ color: '#ef4444' }} onClick={() => handleDelete(b.id)} title="Delete Booking (Admin Only)">
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

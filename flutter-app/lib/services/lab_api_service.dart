@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-import '../../utils/config.dart';
+import '../utils/config.dart';
 
 final String baseUrl = ApiConfig.labUrl;
 

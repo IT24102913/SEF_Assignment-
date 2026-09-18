@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { getStats } from '../../api/labApi';
-import LabLayout from '../../components/LabLayout';
+import { getStats } from '../../../api/labApi';
+import LabLayout from '../../../components/LabLayout';
 import { ClipboardList, CheckCircle, XCircle, FlaskConical, TestTube, Brain, Clock, Activity, Sparkles, ShieldCheck } from 'lucide-react';
-import labHeroBanner from '../../assets/lab_hero_banner.jpg';
-import labAiAnalysis from '../../assets/lab_ai_analysis.jpg';
+import labHeroBanner from '../../../assets/lab_hero_banner.jpg';
+import labAiAnalysis from '../../../assets/lab_ai_analysis.jpg';
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);

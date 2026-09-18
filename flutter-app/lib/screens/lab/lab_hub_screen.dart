@@ -18,6 +18,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
   int _resultsReadyCount = 0;
   List<LabBooking> _recentBookings = [];
   bool _loading = true;
+  bool _isLoggedIn = false;
   String _userName = 'Patient';
 
   @override
@@ -29,8 +30,27 @@ class _LabHubScreenState extends State<LabHubScreen> {
   Future<void> _loadData() async {
     try {
       final user = await AuthService.getUser();
-      if (user == null) return;
-      if (mounted) setState(() => _userName = user.name.split(' ').first);
+      final loggedIn = (user != null);
+      if (mounted) {
+        setState(() {
+          _isLoggedIn = loggedIn;
+          _userName = loggedIn ? user.name.split(' ').first : 'Guest';
+        });
+      }
+
+      if (!loggedIn) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _recentBookings = [];
+            _totalBookings = 0;
+            _pendingCount = 0;
+            _activeCount = 0;
+            _resultsReadyCount = 0;
+          });
+        }
+        return;
+      }
 
       final bookings = await LabApiService.getMyBookings(user.userId);
       if (mounted) {
@@ -58,6 +78,56 @@ class _LabHubScreenState extends State<LabHubScreen> {
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _requireLoginAction({required String featureName, required VoidCallback onAuthenticated}) {
+    if (_isLoggedIn) {
+      onAuthenticated();
+    } else {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: kPrimary.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.lock_outline, color: kPrimary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Text('Login Required', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Text(
+            'You need to be logged in to $featureName. Please sign in with your patient account or register to continue.',
+            style: const TextStyle(fontSize: 14, color: kTextMuted, height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: kTextMuted, fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pushNamed(context, '/login').then((_) => _loadData());
+              },
+              icon: const Icon(Icons.login, size: 16),
+              label: const Text('Log In / Register'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kPrimary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -104,7 +174,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: kPrimaryDark.withOpacity(0.3),
+                        color: kPrimaryDark.withValues(alpha: 0.3),
                         blurRadius: 16,
                         offset: const Offset(0, 6),
                       ),
@@ -119,9 +189,9 @@ class _LabHubScreenState extends State<LabHubScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
+                              color: Colors.white.withValues(alpha: 0.18),
                               borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: Colors.white.withOpacity(0.3)),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
                             ),
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
@@ -145,7 +215,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        'Hello, $_userName 👋',
+                        _isLoggedIn ? 'Hello, $_userName 👋' : 'Clinical Diagnostics & Labs 🔬',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 22,
@@ -155,126 +225,157 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Book lab tests, track sample analysis live, and download verified digital medical reports.',
+                        _isLoggedIn
+                            ? 'Book lab tests, track sample analysis live, and download verified digital medical reports.'
+                            : 'Explore 50+ accredited pathology & diagnostic tests with transparent pricing. Log in to book slots and access medical reports.',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 13,
                           height: 1.4,
                         ),
                       ),
+                      if (!_isLoggedIn) ...[
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => Navigator.pushNamed(context, '/catalogue'),
+                              icon: const Icon(Icons.search, size: 16, color: kPrimaryDark),
+                              label: const Text('Explore Lab Tests', style: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.bold, fontSize: 13)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            OutlinedButton.icon(
+                              onPressed: () => Navigator.pushNamed(context, '/login').then((_) => _loadData()),
+                              icon: const Icon(Icons.login, size: 16, color: Colors.white),
+                              label: const Text('Sign In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.white70),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
 
-              const SizedBox(height: 20),
-
-              // Summary Stats Counters
-              const Text(
-                'Diagnostic Overview',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kText),
-              ),
-              const SizedBox(height: 10),
-
-              _loading
-                  ? const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: kPrimary)))
-                  : Row(
-                      children: [
-                        _StatCard(
-                          count: _totalBookings,
-                          label: 'Total',
-                          color: kPrimary,
-                          icon: Icons.folder_outlined,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ALL')),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _StatCard(
-                          count: _pendingCount,
-                          label: 'Pending',
-                          color: kWarning,
-                          icon: Icons.hourglass_top_outlined,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _StatCard(
-                          count: _activeCount,
-                          label: 'Active',
-                          color: const Color(0xFF2563EB),
-                          icon: Icons.biotech_outlined,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _StatCard(
-                          count: _resultsReadyCount,
-                          label: 'Reports',
-                          color: const Color(0xFF10B981),
-                          icon: Icons.task_alt_outlined,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'RESULTS')),
-                          ),
-                        ),
-                      ],
-                    ),
-
-              // Live Tracking Card for active booking
-              if (latestActive != null) ...[
+              // Summary Stats Counters - ONLY VISIBLE FOR LOGGED IN PATIENTS
+              if (_isLoggedIn) ...[
                 const SizedBox(height: 20),
-                FadeSlideAnimation(
-                  child: AppCard(
-                    color: const Color(0xFFF8FAFC),
-                    border: Border.all(color: kPrimary.withOpacity(0.3), width: 1.2),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => BookingTrackingScreen(booking: latestActive)),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(colors: [kPrimary, Color(0xFF00BCD4)]),
-                            borderRadius: BorderRadius.circular(12),
+                const Text(
+                  'Diagnostic Overview',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kText),
+                ),
+                const SizedBox(height: 10),
+
+                _loading
+                    ? const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator(color: kPrimary)))
+                    : Row(
+                        children: [
+                          _StatCard(
+                            count: _totalBookings,
+                            label: 'Total',
+                            color: kPrimary,
+                            icon: Icons.folder_outlined,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ALL')),
+                            ),
                           ),
-                          child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Text('Active Test: ', style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600)),
-                                  Expanded(
-                                    child: Text(
-                                      latestActive.labTest?.name ?? 'Lab Test',
-                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
-                                      overflow: TextOverflow.ellipsis,
+                          const SizedBox(width: 8),
+                          _StatCard(
+                            count: _pendingCount,
+                            label: 'Pending',
+                            color: kWarning,
+                            icon: Icons.hourglass_top_outlined,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _StatCard(
+                            count: _activeCount,
+                            label: 'Active',
+                            color: const Color(0xFF2563EB),
+                            icon: Icons.biotech_outlined,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _StatCard(
+                            count: _resultsReadyCount,
+                            label: 'Reports',
+                            color: const Color(0xFF10B981),
+                            icon: Icons.task_alt_outlined,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'RESULTS')),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                // Live Tracking Card for active booking
+                if (latestActive != null) ...[
+                  const SizedBox(height: 20),
+                  FadeSlideAnimation(
+                    child: AppCard(
+                      color: const Color(0xFFF8FAFC),
+                      border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => BookingTrackingScreen(booking: latestActive)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [kPrimary, Color(0xFF00BCD4)]),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text('Active Test: ', style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600)),
+                                    Expanded(
+                                      child: Text(
+                                        latestActive.labTest?.name ?? 'Lab Test',
+                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              StatusBadge(status: latestActive.status),
-                            ],
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                StatusBadge(status: latestActive.status),
+                              ],
+                            ),
                           ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
-                      ],
+                          const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
+                        ],
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
 
               const SizedBox(height: 24),
@@ -286,50 +387,77 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
+              // 1. Explore Lab Tests (Available for EVERYONE, including non-logged-in users)
               _ActionCard(
-                icon: Icons.add_circle_outline,
-                title: 'Book Laboratory Test',
-                description: 'Browse 50+ clinical tests with transparent pricing.',
+                icon: Icons.manage_search_outlined,
+                title: 'Explore Lab Tests & Pricing',
+                description: 'Browse 50+ clinical diagnostics, fasting preparation rules & costs.',
                 gradient: const [Color(0xFF00897B), Color(0xFF26A69A)],
-                badgeText: 'Instant Booking',
+                badgeText: 'Open to All',
                 onTap: () => Navigator.pushNamed(context, '/catalogue'),
               ),
               const SizedBox(height: 12),
 
+              // 2. Book Laboratory Test (Requires logged-in user)
+              _ActionCard(
+                icon: Icons.add_circle_outline,
+                title: 'Book Laboratory Test',
+                description: 'Schedule a slot, upload doctor prescription, and reserve online.',
+                gradient: const [Color(0xFF0F766E), Color(0xFF14B8A6)],
+                badgeText: 'Instant Booking',
+                onTap: () => _requireLoginAction(
+                  featureName: 'book a laboratory test',
+                  onAuthenticated: () => Navigator.pushNamed(context, '/catalogue'),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // 3. Track Specimen & Status (Requires logged-in user)
               _ActionCard(
                 icon: Icons.track_changes_outlined,
                 title: 'Track Specimen & Status',
                 description: 'Follow sample collection, testing analysis, and report ETA.',
                 gradient: const [Color(0xFF1565C0), Color(0xFF3B82F6)],
-                badgeText: _activeCount > 0 ? '$_activeCount Active' : null,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
+                badgeText: (_isLoggedIn && _activeCount > 0) ? '$_activeCount Active' : null,
+                onTap: () => _requireLoginAction(
+                  featureName: 'track your specimen and test progress',
+                  onAuthenticated: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
 
+              // 4. Download Test Reports (Requires logged-in user)
               _ActionCard(
                 icon: Icons.file_download_done_outlined,
                 title: 'Download Test Reports',
                 description: 'View and download physician-verified PDF laboratory results.',
                 gradient: const [Color(0xFF059669), Color(0xFF10B981)],
-                badgeText: _resultsReadyCount > 0 ? '$_resultsReadyCount Ready' : null,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'RESULTS')),
+                badgeText: (_isLoggedIn && _resultsReadyCount > 0) ? '$_resultsReadyCount Ready' : null,
+                onTap: () => _requireLoginAction(
+                  featureName: 'download your medical test reports',
+                  onAuthenticated: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'RESULTS')),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
 
+              // 5. Full Booking History (Requires logged-in user)
               _ActionCard(
                 icon: Icons.receipt_long_outlined,
                 title: 'Full Booking History',
                 description: 'Past diagnostics, digital prescriptions, and 1-tap test reordering.',
                 gradient: const [Color(0xFFD97706), Color(0xFFF59E0B)],
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'HISTORY')),
+                onTap: () => _requireLoginAction(
+                  featureName: 'view your full lab test history',
+                  onAuthenticated: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'HISTORY')),
+                  ),
                 ),
               ),
 

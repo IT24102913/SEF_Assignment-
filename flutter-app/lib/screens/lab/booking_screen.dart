@@ -39,9 +39,27 @@ class _BookingScreenState extends State<BookingScreen> {
   @override
   void initState() {
     super.initState();
+    _checkAuth();
     // Default select tomorrow
     _selectedDate = DateTime.now().add(const Duration(days: 1));
     _fetchSlotsForDate(_selectedDate!);
+  }
+
+  Future<void> _checkAuth() async {
+    final user = await AuthService.getUser();
+    if (user == null && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please log in with your patient account to book lab tests.'),
+              backgroundColor: kPrimary,
+            ),
+          );
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+      });
+    }
   }
 
   @override
