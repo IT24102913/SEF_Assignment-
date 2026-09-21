@@ -23,10 +23,10 @@ class _BookingScreenState extends State<BookingScreen> {
 
   // Payment Selection
   String _paymentOption = 'OnlineCard'; // 'OnlineCard' or 'CounterCash'
-  final _cardHolderController = TextEditingController(text: 'John Doe');
-  final _cardNumberController = TextEditingController(text: '4242 4242 4242 4242');
-  final _expiryController = TextEditingController(text: '12/28');
-  final _cvvController = TextEditingController(text: '123');
+  final _cardHolderController = TextEditingController();
+  final _cardNumberController = TextEditingController();
+  final _expiryController = TextEditingController();
+  final _cvvController = TextEditingController();
   Map<String, dynamic>? _lastPaymentReceipt;
 
   final List<String> _defaultTimeSlots = [
@@ -164,13 +164,14 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Future<void> _confirmBooking() async {
+    if (_loading) return;
     if (_selectedDate == null) return _showError('Please select an appointment date');
     if (_selectedTime == null) return _showError('Please select a time slot');
     if (_requiresPrescription && _prescriptionImageUrl == null) {
       return _showError('One or more restricted tests require a doctor prescription document.');
     }
 
-    if (_paymentOption == 'OnlineCard') {
+    if (!_requiresPrescription && _paymentOption == 'OnlineCard') {
       final cardNo = _cardNumberController.text.replaceAll(' ', '').trim();
       if (cardNo.length < 12) {
         return _showError('Please enter a valid 16-digit card number.');
@@ -214,26 +215,28 @@ class _BookingScreenState extends State<BookingScreen> {
           booking = await LabApiService.uploadPrescription(booking.id, _prescriptionImageUrl!);
         }
 
-        // Process payment selection
-        if (_paymentOption == 'OnlineCard') {
-          try {
-            final receipt = await LabApiService.payBookingOnline(
-              bookingId: booking.id,
-              amount: test.price,
-              cardHolderName: _cardHolderController.text.trim(),
-              cardNumber: _cardNumberController.text.replaceAll(' ', '').trim(),
-              expiryDate: _expiryController.text.trim(),
-              cvv: _cvvController.text.trim(),
-              patientEmail: email,
-            );
-            _lastPaymentReceipt = receipt;
-          } catch (payErr) {
-            _showError('Payment notice: $payErr. Booking saved with counter payment.');
+        // Process payment selection ONLY for unrestricted tests
+        if (!_requiresPrescription) {
+          if (_paymentOption == 'OnlineCard') {
+            try {
+              final receipt = await LabApiService.payBookingOnline(
+                bookingId: booking.id,
+                amount: test.price,
+                cardHolderName: _cardHolderController.text.trim(),
+                cardNumber: _cardNumberController.text.replaceAll(' ', '').trim(),
+                expiryDate: _expiryController.text.trim(),
+                cvv: _cvvController.text.trim(),
+                patientEmail: email,
+              );
+              _lastPaymentReceipt = receipt;
+            } catch (payErr) {
+              _showError('Payment notice: $payErr. Booking saved with counter payment.');
+            }
+          } else {
+            try {
+              await LabApiService.selectPayAtCounter(booking.id);
+            } catch (_) {}
           }
-        } else {
-          try {
-            await LabApiService.selectPayAtCounter(booking.id);
-          } catch (_) {}
         }
 
         bookings.add(booking);
@@ -279,24 +282,52 @@ class _BookingScreenState extends State<BookingScreen> {
             Container(
               width: 64,
               height: 64,
-              decoration: const BoxDecoration(color: Color(0xFFD1FAE5), shape: BoxShape.circle),
-              child: const Icon(Icons.check_circle, color: kSuccess, size: 40),
+              decoration: BoxDecoration(
+                color: _requiresPrescription ? const Color(0xFFDBEAFE) : const Color(0xFFD1FAE5),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _requiresPrescription ? Icons.document_scanner_outlined : Icons.check_circle,
+                color: _requiresPrescription ? const Color(0xFF2563EB) : kSuccess,
+                size: 38,
+              ),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Appointments Scheduled!',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText),
+            Text(
+              _requiresPrescription ? 'Prescription Submitted!' : 'Appointments Scheduled!',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
               _requiresPrescription
-                  ? 'Your prescription has been submitted. Gemini Vision AI and our laboratory staff are reviewing it.'
+                  ? 'Your prescription has been submitted. Gemini Vision AI and our laboratory staff are reviewing it. Once verified, you will receive an email notification to choose your payment method and finalize your appointment.'
                   : 'Your bookings have been confirmed! Please proceed to the clinic at your scheduled appointment time.',
               style: const TextStyle(color: kTextMuted, fontSize: 13, height: 1.4),
               textAlign: TextAlign.center,
             ),
-            if (_paymentOption == 'OnlineCard' && _lastPaymentReceipt != null) ...[
+            if (_requiresPrescription) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.lock_clock, color: Color(0xFF2563EB), size: 16),
+                    SizedBox(width: 6),
+                    Text(
+                      'Pending Verification • Payment Deferred',
+                      style: TextStyle(color: Color(0xFF1E40AF), fontWeight: FontWeight.w800, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (_paymentOption == 'OnlineCard' && _lastPaymentReceipt != null) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -680,276 +711,371 @@ class _BookingScreenState extends State<BookingScreen> {
               const SizedBox(height: 24),
             ],
 
-            // Payment Method Selection
-            Text(
-              _requiresPrescription ? '4. Choose Payment Method' : '3. Choose Payment Method',
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: kText),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Pay online now with a card to pre-clear sample collection, or choose to pay at the counter on arrival.',
-              style: TextStyle(color: kTextMuted, fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-
-            // Payment Options Selector Row
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _paymentOption = 'OnlineCard'),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: _paymentOption == 'OnlineCard' ? const Color(0xFFEFF6FF) : Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: _paymentOption == 'OnlineCard' ? const Color(0xFF2563EB) : kBorder,
-                          width: _paymentOption == 'OnlineCard' ? 2 : 1,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Icon(
-                                Icons.credit_card,
-                                color: _paymentOption == 'OnlineCard' ? const Color(0xFF2563EB) : kTextMuted,
-                                size: 22,
-                              ),
-                              if (_paymentOption == 'OnlineCard')
-                                const Icon(Icons.check_circle, color: Color(0xFF2563EB), size: 18),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Pay Online',
-                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: kText),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Credit / Debit Card',
-                            style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _paymentOption = 'CounterCash'),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: _paymentOption == 'CounterCash' ? const Color(0xFFECFDF5) : Colors.white,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: _paymentOption == 'CounterCash' ? const Color(0xFF059669) : kBorder,
-                          width: _paymentOption == 'CounterCash' ? 2 : 1,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Icon(
-                                Icons.storefront,
-                                color: _paymentOption == 'CounterCash' ? const Color(0xFF059669) : kTextMuted,
-                                size: 22,
-                              ),
-                              if (_paymentOption == 'CounterCash')
-                                const Icon(Icons.check_circle, color: Color(0xFF059669), size: 18),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Pay at Counter',
-                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: kText),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Cash or POS on Arrival',
-                            style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-
-            // Online Card Form if selected
-            if (_paymentOption == 'OnlineCard') ...[
-              AppCard(
-                border: Border.all(color: const Color(0xFFBFDBFE)),
-                color: const Color(0xFFF0F7FF),
+            // Payment Selection vs Deferred Verification Notice
+            if (_requiresPrescription) ...[
+              Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F7FF),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFBFDBFE), width: 1.2),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.lock_outline, size: 14, color: Color(0xFF1E40AF)),
-                            SizedBox(width: 4),
-                            Text(
-                              'Instant Online Payment',
-                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: Color(0xFF1E40AF)),
-                            ),
-                          ],
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2563EB),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.verified_user_outlined, color: Colors.white, size: 20),
                         ),
-                        InkWell(
-                          onTap: () {
-                            setState(() {
-                              _cardHolderController.text = 'Dinith Gamage';
-                              _cardNumberController.text = '4242 4242 4242 4242';
-                              _expiryController.text = '08/29';
-                              _cvvController.text = '888';
-                            });
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFDBEAFE),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.auto_awesome, size: 12, color: Color(0xFF1E40AF)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Fill Demo Card',
-                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: Color(0xFF1E40AF)),
-                                ),
-                              ],
-                            ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Payment Deferred Pending Approval',
+                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Color(0xFF1E3A8A)),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'AI Verification & Clinical Review Required',
+                                style: TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w600),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-
-                    // Cardholder Name
-                    const Text('Cardholder Name', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _cardHolderController,
-                      decoration: InputDecoration(
-                        hintText: 'e.g. John Doe',
-                        prefixIcon: const Icon(Icons.person_outline, size: 18),
-                        filled: true,
-                        fillColor: Colors.white,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
-                      ),
+                    const Text(
+                      'Because this diagnostic test requires a doctor\'s prescription, upfront payment is not required at booking time. Our Gemini Vision AI and certified laboratory staff will review your uploaded prescription document.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.45),
                     ),
                     const SizedBox(height: 10),
-
-                    // Card Number
-                    const Text('Card Number', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
-                    const SizedBox(height: 4),
-                    TextField(
-                      controller: _cardNumberController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        hintText: '4242 •••• •••• 4242',
-                        prefixIcon: const Icon(Icons.payment, size: 18),
-                        filled: true,
-                        fillColor: Colors.white,
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFDBEAFE)),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Expiry and CVV Row
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Expiry (MM/YY)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: _expiryController,
-                                keyboardType: TextInputType.datetime,
-                                decoration: InputDecoration(
-                                  hintText: '12/28',
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
-                                ),
-                              ),
-                            ],
+                      child: const Row(
+                        children: [
+                          Icon(Icons.mark_email_read_outlined, size: 16, color: Color(0xFF2563EB)),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Once approved, you will receive an email and can select your payment method (Pay Online or Pay at Counter) directly in the app.',
+                              style: TextStyle(fontSize: 11.5, color: Color(0xFF1E40AF), fontWeight: FontWeight.w600),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('CVV', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: _cvvController,
-                                keyboardType: TextInputType.number,
-                                obscureText: true,
-                                decoration: InputDecoration(
-                                  hintText: '123',
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 20),
             ] else ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDF4),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFBBF7D0)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Color(0xFF059669), size: 18),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Your appointment will be confirmed immediately. You can pay at the laboratory reception counter via Cash or Card POS upon arrival.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF065F46), fontWeight: FontWeight.w600),
+              // Standard Payment Method Selection
+              const Text(
+                '3. Choose Payment Method',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: kText),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Pay online now with a card to pre-clear sample collection, or choose to pay at the counter on arrival.',
+                style: TextStyle(color: kTextMuted, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+
+              // Payment Options Selector Row
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _paymentOption = 'OnlineCard'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: _paymentOption == 'OnlineCard' ? const Color(0xFFEFF6FF) : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _paymentOption == 'OnlineCard' ? const Color(0xFF2563EB) : kBorder,
+                            width: _paymentOption == 'OnlineCard' ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Icon(
+                                  Icons.credit_card,
+                                  color: _paymentOption == 'OnlineCard' ? const Color(0xFF2563EB) : kTextMuted,
+                                  size: 22,
+                                ),
+                                if (_paymentOption == 'OnlineCard')
+                                  const Icon(Icons.check_circle, color: Color(0xFF2563EB), size: 18),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Pay Online',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: kText),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Credit / Debit Card',
+                              style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _paymentOption = 'CounterCash'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: _paymentOption == 'CounterCash' ? const Color(0xFFECFDF5) : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _paymentOption == 'CounterCash' ? const Color(0xFF059669) : kBorder,
+                            width: _paymentOption == 'CounterCash' ? 2 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Icon(
+                                  Icons.storefront,
+                                  color: _paymentOption == 'CounterCash' ? const Color(0xFF059669) : kTextMuted,
+                                  size: 22,
+                                ),
+                                if (_paymentOption == 'CounterCash')
+                                  const Icon(Icons.check_circle, color: Color(0xFF059669), size: 18),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Pay at Counter',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: kText),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'Cash or POS on Arrival',
+                              style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
+
+              const SizedBox(height: 14),
+
+              // Online Card Form if selected
+              if (_paymentOption == 'OnlineCard') ...[
+                AppCard(
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                  color: const Color(0xFFF0F7FF),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.lock_outline, size: 14, color: Color(0xFF1E40AF)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Instant Online Payment',
+                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: Color(0xFF1E40AF)),
+                              ),
+                            ],
+                          ),
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                _cardHolderController.text = 'Dinith Gamage';
+                                _cardNumberController.text = '4242 4242 4242 4242';
+                                _expiryController.text = '08/29';
+                                _cvvController.text = '888';
+                              });
+                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Row(
+                                    children: [
+                                      Icon(Icons.credit_card, color: Colors.white, size: 16),
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Demo card details filled. Tap "Confirm Lab Appointments" when ready.',
+                                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  backgroundColor: const Color(0xFF1E40AF),
+                                  duration: const Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDBEAFE),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.auto_awesome, size: 12, color: Color(0xFF1E40AF)),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Fill Demo Card',
+                                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: Color(0xFF1E40AF)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Cardholder Name
+                      const Text('Cardholder Name', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _cardHolderController,
+                        decoration: InputDecoration(
+                          hintText: 'e.g. John Doe',
+                          prefixIcon: const Icon(Icons.person_outline, size: 18),
+                          filled: true,
+                          fillColor: Colors.white,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Card Number
+                      const Text('Card Number', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _cardNumberController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          hintText: '4242 •••• •••• 4242',
+                          prefixIcon: const Icon(Icons.payment, size: 18),
+                          filled: true,
+                          fillColor: Colors.white,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Expiry and CVV Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Expiry (MM/YY)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
+                                const SizedBox(height: 4),
+                                TextField(
+                                  controller: _expiryController,
+                                  keyboardType: TextInputType.datetime,
+                                  decoration: InputDecoration(
+                                    hintText: '12/28',
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('CVV', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5, color: kText)),
+                                const SizedBox(height: 4),
+                                TextField(
+                                  controller: _cvvController,
+                                  keyboardType: TextInputType.number,
+                                  obscureText: true,
+                                  decoration: InputDecoration(
+                                    hintText: '123',
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Color(0xFF059669), size: 18),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Your appointment will be confirmed immediately. You can pay at the laboratory reception counter via Cash or Card POS upon arrival.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF065F46), fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
             ],
 
             // Summary & Confirmation
@@ -976,8 +1102,18 @@ class _BookingScreenState extends State<BookingScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total Amount Payable', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kText)),
-                      Text('LKR ${_totalPrice.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: kPrimaryDark)),
+                      Text(
+                        _requiresPrescription ? 'Amount Payable Now' : 'Total Amount Payable',
+                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kText),
+                      ),
+                      Text(
+                        _requiresPrescription ? 'LKR 0 (Deferred)' : 'LKR ${_totalPrice.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: _requiresPrescription ? 14 : 18,
+                          color: _requiresPrescription ? const Color(0xFF059669) : kPrimaryDark,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -997,7 +1133,11 @@ class _BookingScreenState extends State<BookingScreen> {
                         width: 20,
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                       )
-                    : const Text('Confirm Lab Appointments'),
+                    : Text(
+                        _requiresPrescription
+                            ? 'Submit for Prescription Verification'
+                            : 'Confirm Lab Appointments',
+                      ),
               ),
             ),
           ],

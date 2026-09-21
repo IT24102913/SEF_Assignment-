@@ -5,29 +5,46 @@ import { Toaster } from 'react-hot-toast';
 import Login from './pages/Login';
 import ProtectedRoute from './routes/ProtectedRoute';
 import AdminDashboard from './pages/admin/Dashboard';
+import PatientDashboard from './pages/patient/Dashboard';
 
-// ✅ Import Pharmacy Dashboard
-import PharmacyDashboard from './pages/admin/PharmacyDashboard';
+// ✅ Import Hospital Admin
+import Patients from './pages/admin/Patients';
 
-// ✅ Import Pharmacy Modules
-import Medicines from './pages/pharmacist/Medicines';
-import Categories from './pages/pharmacist/Categories';
-import Inventory from './pages/pharmacist/Inventory';
-import Sales from './pages/pharmacist/Sales';
-import AIForecast from './pages/pharmacist/AIForecast';
+// ✅ Import Pharmacy Module (Staff & Patient)
+import PharmacyDashboard from './pages/pharmacy/staff/PharmacyDashboard';
+import Medicines from './pages/pharmacy/staff/Medicines';
+import Categories from './pages/pharmacy/staff/Categories';
+import Inventory from './pages/pharmacy/staff/Inventory';
+import Sales from './pages/pharmacy/staff/Sales';
+import AIForecast from './pages/pharmacy/staff/AIForecast';
+import Orders from './pages/pharmacy/staff/Orders';
+import CustomerPharmacyStore from './pages/pharmacy/patient/CustomerPharmacyStore';
+
+// ✅ Import Doctor Appointments & Channeling Module
+import DoctorAppointmentsAdmin from './pages/appointments/staff/DoctorAppointmentsAdmin';
+import DoctorDashboard from './pages/appointments/staff/DoctorDashboard';
 
 // ✅ Import Laboratory Modules
-import AdminLabDashboard from './pages/laboratory/Dashboard';
-import LabPendingApprovals from './pages/laboratory/PendingApprovals';
-import LabAllBookings from './pages/laboratory/AllBookings';
-import LabTestCatalogue from './pages/laboratory/TestCatalogue';
-import LabUploadResults from './pages/laboratory/UploadResults';
-import LabPendingTests from './pages/laboratory/PendingTests';
+import AdminLabDashboard from './pages/lab/staff/Dashboard';
+import LabPendingApprovals from './pages/lab/staff/PendingApprovals';
+import LabAllBookings from './pages/lab/staff/AllBookings';
+import LabTestCatalogue from './pages/lab/staff/TestCatalogue';
+import LabUploadResults from './pages/lab/staff/UploadResults';
+import LabPendingTests from './pages/lab/staff/PendingTests';
+import CustomerLabHub from './pages/lab/patient/CustomerLabHub';
 
 // Placeholder Dashboards
-const PharmacistDashboard = () => <h2>Pharmacist Dashboard</h2>;
-const DoctorDashboard = () => <h2>Doctor Dashboard</h2>;
 const StaffDashboard = () => <h2>Staff Dashboard</h2>;
+
+// ✅ Import EMR (Electronic Medical Records) Module
+import EmrLayout from './components/layout/EmrLayout';
+import EmrOverview from './pages/emr/patient/EmrOverview';
+import ConsultationNotes from './pages/emr/patient/ConsultationNotes';
+import LabReports from './pages/emr/patient/LabReports';
+import Prescriptions from './pages/emr/patient/Prescriptions';
+import ChannelingHistory from './pages/emr/patient/ChannelingHistory';
+import HealthPassport from './pages/emr/patient/HealthPassport';
+import EmrStaffPortal from './pages/emr/staff/StaffPortal';
 
 const RoleRedirect = () => {
     const { user } = useAuth();
@@ -69,6 +86,13 @@ function App() {
                         </ProtectedRoute>
                     } />
 
+                    {/* ✅ Admin → Registered Customers / Patients Directory */}
+                    <Route path="/admin/patients" element={
+                        <ProtectedRoute allowedRoles={['Admin']}>
+                            <Patients />
+                        </ProtectedRoute>
+                    } />
+
                     {/* ============================================ */}
                     {/* PHARMACY MODULE ROUTES (Admin + Pharmacist) */}
                     {/* ============================================ */}
@@ -99,6 +123,30 @@ function App() {
                     <Route path="/pharmacist/ai-forecast" element={
                         <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
                             <AIForecast />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacist/orders" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacist/appointments" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <DoctorAppointmentsAdmin />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/admin/appointments" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <DoctorAppointmentsAdmin />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/admin/doctor" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <DoctorAppointmentsAdmin />
                         </ProtectedRoute>
                     } />
 
@@ -172,26 +220,73 @@ function App() {
                         </ProtectedRoute>
                     } />
 
+                    {/* Patient Laboratory Hub */}
+                    <Route path="/lab/hub" element={
+                        <ProtectedRoute allowedRoles={['Patient', 'Admin']}>
+                            <CustomerLabHub />
+                        </ProtectedRoute>
+                    } />
+                    <Route path="/laboratory/hub" element={
+                        <ProtectedRoute allowedRoles={['Patient', 'Admin']}>
+                            <CustomerLabHub />
+                        </ProtectedRoute>
+                    } />
+
                     {/* ============================================ */}
                     {/* OTHER ROLE DASHBOARDS */}
                     {/* ============================================ */}
                     <Route path="/pharmacist/dashboard" element={
-                        <ProtectedRoute allowedRoles={['Pharmacist']}>
-                            <PharmacistDashboard />
+                        <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                            <PharmacyDashboard />
+                        </ProtectedRoute>
+                    } />
+                    <Route path="/pharmacy/dashboard" element={
+                        <ProtectedRoute allowedRoles={['Pharmacist', 'Admin']}>
+                            <PharmacyDashboard />
+                        </ProtectedRoute>
+                    } />
+                    <Route path="/pharmacy/store" element={
+                        <ProtectedRoute allowedRoles={['Patient', 'Admin']}>
+                            <CustomerPharmacyStore />
                         </ProtectedRoute>
                     } />
 
                     <Route path="/doctor/dashboard" element={
-                        <ProtectedRoute allowedRoles={['Doctor']}>
+                        <ProtectedRoute allowedRoles={['Doctor', 'Admin']}>
                             <DoctorDashboard />
                         </ProtectedRoute>
                     } />
 
                     <Route path="/patient/dashboard" element={
                         <ProtectedRoute allowedRoles={['Patient']}>
-                            <AdminLabDashboard />
+                            <PatientDashboard />
                         </ProtectedRoute>
                     } />
+
+                    {/* ============================================ */}
+                    {/* EMR (ELECTRONIC MEDICAL RECORDS) MODULE */}
+                    {/* ============================================ */}
+                    <Route path="/emr" element={
+                        <ProtectedRoute allowedRoles={['Patient', 'Admin', 'Doctor']}>
+                            <EmrLayout />
+                        </ProtectedRoute>
+                    }>
+                        <Route index element={<Navigate to="/emr/overview" replace />} />
+                        <Route path="overview" element={<EmrOverview />} />
+                        <Route path="consultation-notes" element={<ConsultationNotes />} />
+                        <Route path="lab-reports" element={<LabReports />} />
+                        <Route path="pharmacy" element={<Prescriptions />} />
+                        <Route path="channeling-history" element={<ChannelingHistory />} />
+                        <Route path="profile" element={<HealthPassport />} />
+                        <Route path="notifications" element={
+                            <div style={{ padding: '12px' }}>
+                                <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>Notifications Center</h1>
+                                <p style={{ color: '#64748b' }}>All patient alerts, lab updates, and prescription notifications will appear here.</p>
+                            </div>
+                        } />
+                    </Route>
+                    <Route path="/emr/staff" element={<EmrStaffPortal />} />
+                    <Route path="/emr/admin" element={<EmrStaffPortal />} />
 
                     <Route path="/staff/dashboard" element={
                         <ProtectedRoute allowedRoles={['Staff']}>
