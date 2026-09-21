@@ -21,9 +21,8 @@ const validate = {
     confirmPassword: (v, pw) => v === pw ? '' : 'Passwords do not match.',
 };
 
-/* ─── Styles (defined FIRST so Field component can reference them) ── */
+/* ─── Styles ──────────────────────────────────────────────────── */
 const s = {
-    // Fixed background — does NOT move when card grows taller
     bgFixed: {
         position: 'fixed',
         inset: 0,
@@ -33,7 +32,6 @@ const s = {
         backgroundRepeat: 'no-repeat',
         zIndex: 0,
     },
-    // Scrollable overlay on top of fixed bg
     container: {
         position: 'relative',
         minHeight: '100vh',
@@ -171,7 +169,7 @@ const popupStyles = {
     },
 };
 
-/* ─── Field Component — TOP-LEVEL (never inside another component) ── */
+/* ─── Field Component ─────────────────────────────────────────── */
 const Field = ({ id, label, icon: Icon, type = 'text', value, onChange, onBlur, placeholder, error, touched: t }) => (
     <div style={s.inputGroup}>
         <label style={s.label} htmlFor={id}>{label}</label>
@@ -227,7 +225,7 @@ const SuccessPopup = ({ onClose }) => (
     </div>
 );
 
-/* ─── Password field with toggle (also TOP-LEVEL) ───────────── */
+/* ─── Password Field Component ────────────────────────────────── */
 const PasswordField = ({ id, label, value, onChange, onBlur, placeholder, error, touched: t, show, onToggle }) => (
     <div style={s.inputGroup}>
         <label style={s.label} htmlFor={id}>{label}</label>
