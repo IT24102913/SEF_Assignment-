@@ -1,5 +1,4 @@
 using System.Text.Json;
-using HealthBridge.Api.Agents.Lab.Tools;
 using HealthBridge.Api.Data;
 using HealthBridge.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +8,7 @@ namespace HealthBridge.Api.Agents.Lab;
 public class AgentWorkflowStepLog
 {
     public string StepName { get; set; } = string.Empty;
-    public string ToolName { get; set; } = string.Empty;
+    public string AgentName { get; set; } = string.Empty;
     public bool Success { get; set; }
     public double Confidence { get; set; }
     public string Message { get; set; } = string.Empty;
@@ -30,25 +29,30 @@ public class AgentWorkflowState
     public DateTime ProcessedAt { get; set; } = DateTime.UtcNow;
 }
 
+/// <summary>
+/// LabAgentOrchestrator — Multi-Agent Coordinator for Laboratory Management.
+/// 
+/// Coordinates:
+/// 1. PrescriptionVerificationAgent (Clinical Document AI - Vision OCR & Test Matching)
+/// 2. LabQueueAndSafetyAgent (Clinical Operations & Patient Safety AI - Queueing, Chair Balancing, Fasting)
+/// 
+/// Enforces:
+/// - Human-in-the-Loop policy: Pauses bookings for pathologist sign-off if restricted.
+/// - Structured audit trail logged to LabBooking.AgentWorkflowStateJson for frontend inspection.
+/// </summary>
 public class LabAgentOrchestrator
 {
-    private readonly PrescriptionVisionTool _visionTool;
-    private readonly LabSafetyRulesTool _safetyTool;
-    private readonly SmartQueueOptimizerTool _queueTool;
-    private readonly PatientPrepGeneratorTool _prepTool;
+    private readonly PrescriptionVerificationAgent _prescriptionAgent;
+    private readonly LabQueueAndSafetyAgent _queueSafetyAgent;
     private readonly ILogger<LabAgentOrchestrator> _logger;
 
     public LabAgentOrchestrator(
-        PrescriptionVisionTool visionTool,
-        LabSafetyRulesTool safetyTool,
-        SmartQueueOptimizerTool queueTool,
-        PatientPrepGeneratorTool prepTool,
+        PrescriptionVerificationAgent prescriptionAgent,
+        LabQueueAndSafetyAgent queueSafetyAgent,
         ILogger<LabAgentOrchestrator> logger)
     {
-        _visionTool = visionTool;
-        _safetyTool = safetyTool;
-        _queueTool = queueTool;
-        _prepTool = prepTool;
+        _prescriptionAgent = prescriptionAgent;
+        _queueSafetyAgent = queueSafetyAgent;
         _logger = logger;
     }
 
@@ -57,31 +61,106 @@ public class LabAgentOrchestrator
         var booking = await db.LabBookings.Include(b => b.LabTest).FirstOrDefaultAsync(b => b.Id == bookingId);
         if (booking == null) return;
 
-        _logger.LogInformation("[LabAgentOrchestrator] Starting multi-agent diagnostic & queue workflow for Booking ID {Id}", bookingId);
+        _logger.LogInformation("[LabAgentOrchestrator] Starting 2-Agent clinical workflow for Booking ID {Id}", bookingId);
 
-        // Fetch recent patient test history for duplicate check
+        // 1. Fetch recent patient history for duplicate screening
         var recentTests = await db.LabBookings
             .Where(b => b.PatientId == booking.PatientId && b.Id != bookingId && b.CreatedAt >= DateTime.UtcNow.AddDays(-30))
             .Include(b => b.LabTest)
             .Select(b => b.LabTest.Name)
             .ToListAsync();
 
-        // Calculate sequence number for slot
+        // 2. Tally slot and daily counts for phlebotomy chair load balancing
         var existingCount = await db.LabBookings
             .CountAsync(b => b.BookingDate == booking.BookingDate && b.TimeSlot == booking.TimeSlot);
 
         var dailySeqCount = await db.LabBookings
             .CountAsync(b => b.BookingDate == booking.BookingDate);
 
-        var input = new ToolInput
+        var state = new AgentWorkflowState
+        {
+            Objective = $"Verify prescription validity and optimize phlebotomy triage for '{booking.LabTest.Name}'",
+            ExecutionPlan = new List<string>
+            {
+                "1. PrescriptionVerificationAgent: Clinical Document OCR & Investigation Validation",
+                "2. LabQueueAndSafetyAgent: Phlebotomy Queue Triage, Chair Allocation & Safety Check"
+            }
+        };
+
+        // =========================================================================
+        // AGENT 1: PrescriptionVerificationAgent (Clinical Document AI)
+        // =========================================================================
+        PrescriptionVerificationOutput rxResult;
+        if (!string.IsNullOrEmpty(booking.PrescriptionImageUrl) || booking.LabTest.IsRestricted)
+        {
+            var rxInput = new PrescriptionVerificationInput
+            {
+                BookingId = booking.Id,
+                PatientName = booking.PatientName,
+                TestName = booking.LabTest.Name,
+                PrescriptionImageUrl = booking.PrescriptionImageUrl
+            };
+
+            rxResult = await _prescriptionAgent.VerifyPrescriptionAsync(rxInput);
+
+            state.StepLogs.Add(new AgentWorkflowStepLog
+            {
+                StepName = "Prescription OCR & Document Verification",
+                AgentName = _prescriptionAgent.AgentName,
+                Success = rxResult.Success,
+                Confidence = rxResult.Confidence,
+                Message = rxResult.StatusMessage,
+                Details = new
+                {
+                    rxResult.MatchFound,
+                    rxResult.DoctorName,
+                    rxResult.PrescriptionDate,
+                    rxResult.ExtractedInvestigations,
+                    rxResult.Notes
+                }
+            });
+
+            if (!string.IsNullOrEmpty(rxResult.DoctorName) && rxResult.DoctorName != "Pending Inspection")
+            {
+                booking.AIExtractedDoctorName = rxResult.DoctorName;
+            }
+
+            if (rxResult.PrescriptionDate.HasValue)
+            {
+                booking.AIPrescriptionDate = rxResult.PrescriptionDate.Value;
+            }
+        }
+        else
+        {
+            rxResult = new PrescriptionVerificationOutput
+            {
+                Success = true,
+                Confidence = 1.0,
+                MatchFound = true,
+                StatusMessage = "Unrestricted routine test. Prescription document upload bypassed."
+            };
+
+            state.StepLogs.Add(new AgentWorkflowStepLog
+            {
+                StepName = "Prescription OCR Verification",
+                AgentName = _prescriptionAgent.AgentName,
+                Success = true,
+                Confidence = 1.0,
+                Message = "Standard unrestricted diagnostic test. Prescription check bypassed."
+            });
+        }
+
+        // =========================================================================
+        // AGENT 2: LabQueueAndSafetyAgent (Clinical Operations & Patient Safety AI)
+        // =========================================================================
+        var queueSafetyInput = new LabQueueSafetyInput
         {
             BookingId = booking.Id,
             PatientName = booking.PatientName,
-            PatientAge = 35, // Default patient age
+            PatientAge = 35, // Default age
             TestName = booking.LabTest.Name,
             TestCategory = booking.LabTest.Category,
             TestIsRestricted = booking.LabTest.IsRestricted,
-            PrescriptionImageUrl = booking.PrescriptionImageUrl,
             BookingDate = booking.BookingDate,
             TimeSlot = booking.TimeSlot,
             ExistingBookingsInSlot = existingCount,
@@ -89,103 +168,40 @@ public class LabAgentOrchestrator
             RecentPatientTests = recentTests
         };
 
-        var state = new AgentWorkflowState
+        var queueSafetyResult = await _queueSafetyAgent.EvaluateAndOptimizeAsync(queueSafetyInput);
+
+        state.StepLogs.Add(new AgentWorkflowStepLog
         {
-            Objective = $"Validate prescription, evaluate medical safety, and optimize phlebotomy queue for '{booking.LabTest.Name}'",
-            ExecutionPlan = new List<string>
+            StepName = "Phlebotomy Queue & Patient Safety Triage",
+            AgentName = _queueSafetyAgent.AgentName,
+            Success = queueSafetyResult.Success,
+            Confidence = queueSafetyResult.Confidence,
+            Message = queueSafetyResult.StatusMessage,
+            Details = new
             {
-                "1. Prescription OCR & Document Verification",
-                "2. Deterministic Safety & Fasting Check",
-                "3. Smart Queue & Phlebotomy Chair Load Balancing",
-                "4. Patient Preparation Guidelines Generation"
+                queueSafetyResult.QueueToken,
+                queueSafetyResult.PriorityTier,
+                queueSafetyResult.AssignedChairNo,
+                queueSafetyResult.EstimatedWaitMinutes,
+                queueSafetyResult.RequiresFasting,
+                queueSafetyResult.RequiredFastingHours,
+                queueSafetyResult.SafetyFlags,
+                queueSafetyResult.PatientPrepGuidelines
             }
-        };
-
-        // Step 1: Prescription OCR Scan (If restricted or image attached)
-        ToolResult ocrResult;
-        if (!string.IsNullOrEmpty(booking.PrescriptionImageUrl) || booking.LabTest.IsRestricted)
-        {
-            ocrResult = await _visionTool.ExecuteAsync(input);
-            state.StepLogs.Add(new AgentWorkflowStepLog
-            {
-                StepName = "Prescription OCR Verification",
-                ToolName = _visionTool.Name,
-                Success = ocrResult.Success,
-                Confidence = ocrResult.Confidence,
-                Message = ocrResult.StatusMessage,
-                Details = ocrResult.Data
-            });
-
-            if (ocrResult.Data is JsonElement element)
-            {
-                if (element.TryGetProperty("doctorName", out var doc)) booking.AIExtractedDoctorName = doc.GetString();
-                if (element.TryGetProperty("prescriptionDate", out var pd) && DateOnly.TryParse(pd.GetString(), out var parsedPd))
-                    booking.AIPrescriptionDate = parsedPd;
-            }
-        }
-        else
-        {
-            ocrResult = new ToolResult { Success = true, Confidence = 1.0, StatusMessage = "Prescription upload not required." };
-            state.StepLogs.Add(new AgentWorkflowStepLog
-            {
-                StepName = "Prescription OCR Verification",
-                ToolName = "Bypass",
-                Success = true,
-                Confidence = 1.0,
-                Message = "Standard unrestricted test. Prescription OCR skipped."
-            });
-        }
-
-        // Step 2: Safety & Fasting Rules Tool
-        var safetyResult = await _safetyTool.ExecuteAsync(input);
-        state.StepLogs.Add(new AgentWorkflowStepLog
-        {
-            StepName = "Medical Safety & Fasting Check",
-            ToolName = _safetyTool.Name,
-            Success = safetyResult.Success,
-            Confidence = safetyResult.Confidence,
-            Message = safetyResult.StatusMessage,
-            Details = safetyResult.Data
         });
 
-        // Step 3: Smart Queue & Chair Optimizer Tool
-        var queueResult = await _queueTool.ExecuteAsync(input);
-        state.StepLogs.Add(new AgentWorkflowStepLog
-        {
-            StepName = "Smart Queue & Chair Optimization",
-            ToolName = _queueTool.Name,
-            Success = queueResult.Success,
-            Confidence = queueResult.Confidence,
-            Message = queueResult.StatusMessage,
-            Details = queueResult.Data
-        });
+        // Apply queueing and chair allocations to booking entity
+        booking.QueueToken = queueSafetyResult.QueueToken;
+        booking.PriorityTier = queueSafetyResult.PriorityTier;
+        booking.EstimatedServiceDurationMinutes = queueSafetyResult.EstimatedServiceDurationMinutes;
+        booking.EstimatedWaitMinutes = queueSafetyResult.EstimatedWaitMinutes;
+        booking.AssignedChairNo = queueSafetyResult.AssignedChairNo;
 
-        if (queueResult.Data is not null)
-        {
-            var json = JsonSerializer.Serialize(queueResult.Data);
-            var queueDoc = JsonSerializer.Deserialize<JsonElement>(json);
-            booking.QueueToken = queueDoc.GetProperty("queueToken").GetString();
-            booking.PriorityTier = queueDoc.GetProperty("priorityTier").GetString();
-            booking.EstimatedServiceDurationMinutes = queueDoc.GetProperty("estimatedServiceDurationMinutes").GetInt32();
-            booking.EstimatedWaitMinutes = queueDoc.GetProperty("estimatedWaitMinutes").GetInt32();
-            booking.AssignedChairNo = queueDoc.GetProperty("assignedChairNo").GetInt32();
-        }
-
-        // Step 4: Patient Prep Guidelines Tool
-        var prepResult = await _prepTool.ExecuteAsync(input);
-        state.StepLogs.Add(new AgentWorkflowStepLog
-        {
-            StepName = "Patient Prep Generation",
-            ToolName = _prepTool.Name,
-            Success = prepResult.Success,
-            Confidence = prepResult.Confidence,
-            Message = prepResult.StatusMessage,
-            Details = prepResult.Data
-        });
-
-        // Synthesize Overall Recommendation
-        var isOcrValid = ocrResult.Success && ocrResult.Confidence >= 0.7;
-        state.OverallConfidence = Math.Min(ocrResult.Confidence, safetyResult.Confidence);
+        // =========================================================================
+        // Multi-Agent State Synthesis & Human-in-the-Loop Decision
+        // =========================================================================
+        var isOcrValid = rxResult.Success && rxResult.Confidence >= 0.7 && rxResult.MatchFound;
+        state.OverallConfidence = Math.Min(rxResult.Confidence, queueSafetyResult.Confidence);
 
         if (booking.LabTest.IsRestricted && !isOcrValid)
         {
@@ -199,12 +215,13 @@ public class LabAgentOrchestrator
         }
 
         booking.AIConfidenceScore = state.OverallConfidence;
-        booking.AIVerificationNotes = $"[Token {booking.QueueToken}] {safetyResult.StatusMessage} | {prepResult.StatusMessage}";
+        booking.AIVerificationNotes = $"[Token {booking.QueueToken}] Chair #{booking.AssignedChairNo} | {queueSafetyResult.StatusMessage}";
         booking.Status = booking.LabTest.IsRestricted ? BookingStatus.PendingLabApproval : BookingStatus.Confirmed;
         booking.AgentWorkflowStateJson = JsonSerializer.Serialize(state);
         booking.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
-        _logger.LogInformation("[LabAgentOrchestrator] Completed workflow for Booking {Id}. Token: {Token}, Status: {Status}", bookingId, booking.QueueToken, booking.AIVerification);
+        _logger.LogInformation("[LabAgentOrchestrator] Completed 2-Agent workflow for Booking {Id}. Token: {Token}, Result: {Result}",
+            bookingId, booking.QueueToken, booking.AIVerification);
     }
 }
