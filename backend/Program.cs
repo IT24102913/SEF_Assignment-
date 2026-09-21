@@ -86,21 +86,17 @@ builder.Services.AddScoped<IPrescriptionService, PrescriptionService>();
 builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
-builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.PrescriptionValidatorAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionSafetyAgent>();
-builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionValidatorAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.InventoryForecastingAgent>();
 builder.Services.AddHttpClient("GeminiClient");
 
 // ✅ Register EMR Service
 builder.Services.AddScoped<HealthBridge.Api.Services.EMR.IEMRService, HealthBridge.Api.Services.EMR.EMRService>();
 
-// ✅ Register Lab AI Multi-Agent Orchestrator & Tools
-builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.Tools.PrescriptionVisionTool>();
-builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.Tools.LabSafetyRulesTool>();
-builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.Tools.SmartQueueOptimizerTool>();
-builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.Tools.PatientPrepGeneratorTool>();
+// ✅ Register Lab Management Multi-Agent System (2 Distinct Agents + Orchestrator)
+builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.PrescriptionVerificationAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.LabQueueAndSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.LabAgentOrchestrator>();
 
 // 5. Add Controllers and DISABLE Antiforgery
