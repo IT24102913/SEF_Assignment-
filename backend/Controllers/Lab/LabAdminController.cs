@@ -126,11 +126,13 @@ public class LabAdminController : ControllerBase
         var booking = await _db.LabBookings.Include(b => b.LabTest).FirstOrDefaultAsync(b => b.Id == id);
         if (booking == null) return NotFound();
 
-        if (booking.Status != BookingStatus.SampleCollected &&
-            booking.Status != BookingStatus.TestingInProgress &&
-            booking.Status != BookingStatus.ResultsReady)
+        if (booking.Status == BookingStatus.PendingPrescriptionUpload ||
+            booking.Status == BookingStatus.PendingAIVerification ||
+            booking.Status == BookingStatus.PendingLabApproval ||
+            booking.Status == BookingStatus.Rejected ||
+            booking.Status == BookingStatus.Cancelled)
         {
-            return BadRequest(new { message = "Results can only be uploaded for samples that have been collected or in testing." });
+            return BadRequest(new { message = "Results cannot be uploaded for bookings that are pending approval, rejected, or cancelled." });
         }
 
         booking.ResultFileUrl = dto.ResultFileUrl;
@@ -227,6 +229,17 @@ public class LabAdminController : ControllerBase
         TechnicianNotes = b.TechnicianNotes,
         ResultFileUrl = b.ResultFileUrl,
         ResultsUploadedAt = b.ResultsUploadedAt,
+        QueueToken = b.QueueToken,
+        PriorityTier = b.PriorityTier,
+        EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
+        EstimatedWaitMinutes = b.EstimatedWaitMinutes,
+        AssignedChairNo = b.AssignedChairNo,
+        AgentWorkflowStateJson = b.AgentWorkflowStateJson,
+        PaymentStatus = b.PaymentStatus.ToString(),
+        PaymentMethod = b.PaymentMethod,
+        ReceiptNumber = b.ReceiptNumber,
+        AmountPaid = b.AmountPaid,
+        PaidAt = b.PaidAt,
         CreatedAt = b.CreatedAt,
         UpdatedAt = b.UpdatedAt
     };

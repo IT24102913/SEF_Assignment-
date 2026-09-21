@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
-import { getAllBookings, uploadResult, updateBookingStatus, uploadFile } from '../../api/labApi';
-import LabLayout from '../../components/LabLayout';
+import { getAllBookings, uploadResult, updateBookingStatus, uploadFile } from '../../../api/labApi';
+import LabLayout from '../../../components/LabLayout';
 import toast from 'react-hot-toast';
 import { Upload, TestTube, FileText, CheckCircle2, Search, Microscope, Send, FileUp, Link as LinkIcon, Check } from 'lucide-react';
-import emptyImg from '../../assets/lab_empty_microscope.jpg';
+import emptyImg from '../../../assets/lab_empty_microscope.jpg';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 

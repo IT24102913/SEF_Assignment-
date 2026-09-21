@@ -15,9 +15,16 @@ export const updateTest = (id, data) => api.put(`/tests/${id}`, data);
 export const deleteTest = (id) => api.delete(`/tests/${id}`);
 
 // ─── Patient Bookings ─────────────────────────────────────────────────────────
-export const getMyBookings = (patientId) => api.get(`/bookings/my?patientId=${patientId}`);
+export const getMyBookings = (patientId, email = '') => {
+  const params = new URLSearchParams();
+  if (patientId && !isNaN(Number(patientId))) params.append('patientId', patientId);
+  if (email) params.append('email', email);
+  const qs = params.toString();
+  return api.get(`/bookings/my${qs ? `?${qs}` : ''}`);
+};
 export const getBookingById = (id) => api.get(`/bookings/${id}`);
 export const createBooking = (data) => api.post('/bookings', data);
+export const uploadPrescription = (bookingId, imageUrl) => api.post(`/bookings/${bookingId}/prescription`, { prescriptionImageUrl: imageUrl });
 export const cancelBooking = (id, patientId) => api.delete(`/bookings/${id}?patientId=${patientId}`);
 export const getSlots = (date) => api.get(`/slots?date=${date}`);
 
@@ -44,3 +51,21 @@ export const uploadFile = (file) => {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
 };
+
+// ─── Centralized Payments Subsystem ──────────────────────────────────────────
+const PAYMENTS_URL = 'http://localhost:5126/api/payments';
+
+export const collectCounterPayment = ({ bookingId, amount, paymentMethod = 'CounterCash', notes = '', collectedBy = 'Lab Counter Staff' }) =>
+  axios.post(`${PAYMENTS_URL}/counter`, {
+    module: 'Laboratory',
+    referenceId: bookingId,
+    amount,
+    currency: 'LKR',
+    paymentMethod,
+    notes,
+    collectedBy
+  });
+
+export const getPaymentReceipt = (bookingId) =>
+  axios.get(`${PAYMENTS_URL}/receipt/${bookingId}`);
+
