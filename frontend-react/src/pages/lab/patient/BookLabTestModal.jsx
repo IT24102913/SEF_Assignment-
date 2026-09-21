@@ -266,8 +266,8 @@ export default function BookLabTestModal({
               <div style={styles.headerSubtitle}>
                 {step === 1 && 'Step 1 of 3: Choose Test, Schedule & Time Slot'}
                 {step === 2 && 'Step 2 of 3: Patient Information & Prescription'}
-                {step === 3 && 'Step 3 of 3: Payment Method & Review'}
-                {step === 4 && 'Your official booking pass and counter token'}
+                {step === 3 && (selectedTest?.isRestricted ? 'Step 3 of 3: Verification Review & Submit' : 'Step 3 of 3: Payment Method & Review')}
+                {step === 4 && (selectedTest?.isRestricted ? 'Prescription submitted for laboratory review' : 'Your official booking pass and counter token')}
               </div>
             </div>
           </div>
@@ -651,99 +651,157 @@ export default function BookLabTestModal({
           {/* STEP 3: PAYMENT & REVIEW */}
           {step === 3 && (
             <div>
-              <div style={styles.orderReviewCard}>
-                <div style={styles.reviewRow}>
-                  <span>Selected Test:</span>
-                  <strong>{selectedTest?.name}</strong>
-                </div>
-                <div style={styles.reviewRow}>
-                  <span>Schedule:</span>
-                  <strong>{selectedDate} at {selectedSlot}</strong>
-                </div>
-                <div style={styles.reviewRow}>
-                  <span>Patient:</span>
-                  <strong>{patientName} ({patientGender}, {patientEmail})</strong>
-                </div>
-                <div style={{ ...styles.reviewRow, borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '6px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 800 }}>Total Payable:</span>
-                  <span style={{ fontSize: '18px', fontWeight: 900, color: '#059669' }}>
-                    Rs. {Number(selectedTest?.price || 0).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '22px' }}>
-                <label style={styles.fieldLabel}>Choose Payment Method</label>
-                <div style={styles.paymentOptions}>
-                  <label style={{
-                    ...styles.payOptionCard,
-                    borderColor: paymentOption === 'OnlineCard' ? '#059669' : '#e2e8f0',
-                    backgroundColor: paymentOption === 'OnlineCard' ? '#ecfdf5' : '#fff',
-                  }}>
-                    <input
-                      type="radio"
-                      name="paymentOption"
-                      checked={paymentOption === 'OnlineCard'}
-                      onChange={() => setPaymentOption('OnlineCard')}
-                      style={{ accentColor: '#059669' }}
-                    />
-                    <div>
-                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#0f172a' }}>💳 Credit / Debit Card (Online Instant)</div>
-                      <div style={{ fontSize: '12px', color: '#64748b' }}>Instant queue priority and fast counter check-in</div>
+              {selectedTest?.isRestricted ? (
+                <div>
+                  <div style={styles.orderReviewCard}>
+                    <div style={styles.reviewRow}>
+                      <span>Selected Test:</span>
+                      <strong>{selectedTest?.name}</strong>
                     </div>
-                  </label>
-
-                  <label style={{
-                    ...styles.payOptionCard,
-                    borderColor: paymentOption === 'CounterCash' ? '#059669' : '#e2e8f0',
-                    backgroundColor: paymentOption === 'CounterCash' ? '#ecfdf5' : '#fff',
-                  }}>
-                    <input
-                      type="radio"
-                      name="paymentOption"
-                      checked={paymentOption === 'CounterCash'}
-                      onChange={() => setPaymentOption('CounterCash')}
-                      style={{ accentColor: '#059669' }}
-                    />
-                    <div>
-                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#0f172a' }}>💵 Pay Cash at Phlebotomy Counter</div>
-                      <div style={{ fontSize: '12px', color: '#64748b' }}>Settle invoice when giving blood/specimen at the lab</div>
+                    <div style={styles.reviewRow}>
+                      <span>Schedule:</span>
+                      <strong>{selectedDate} at {selectedSlot}</strong>
                     </div>
-                  </label>
-                </div>
-              </div>
-
-              {paymentOption === 'OnlineCard' && (
-                <div style={styles.mockCardForm}>
-                  <div>
-                    <label style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>Card Number</label>
-                    <input
-                      type="text"
-                      value={cardNumber}
-                      onChange={e => setCardNumber(e.target.value)}
-                      style={styles.cardInput}
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
-                    <div>
-                      <label style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>Expires</label>
-                      <input
-                        type="text"
-                        value={cardExpiry}
-                        onChange={e => setCardExpiry(e.target.value)}
-                        style={styles.cardInput}
-                      />
+                    <div style={styles.reviewRow}>
+                      <span>Patient:</span>
+                      <strong>{patientName} ({patientGender}, {patientEmail})</strong>
                     </div>
-                    <div>
-                      <label style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>CVV</label>
-                      <input
-                        type="password"
-                        value={cardCvv}
-                        onChange={e => setCardCvv(e.target.value)}
-                        style={styles.cardInput}
-                      />
+                    <div style={styles.reviewRow}>
+                      <span>Prescription File:</span>
+                      <strong style={{ color: '#059669' }}>✓ Attached for AI & Lab review</strong>
+                    </div>
+                    <div style={{ ...styles.reviewRow, borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '6px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 800 }}>Amount Payable Now:</span>
+                      <span style={{ fontSize: '18px', fontWeight: 900, color: '#059669' }}>
+                        Rs. 0 <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>(Deferred)</span>
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', textAlign: 'right', marginTop: '2px' }}>
+                      Standard fee of Rs. {Number(selectedTest?.price || 0).toLocaleString()} payable after clinical approval
                     </div>
                   </div>
+
+                  <div style={{
+                    marginTop: '20px',
+                    padding: '16px',
+                    borderRadius: '14px',
+                    background: '#FFFBEB',
+                    border: '1px solid #FDE68A',
+                    display: 'flex',
+                    gap: '12px',
+                    alignItems: 'flex-start'
+                  }}>
+                    <AlertTriangle size={20} color="#D97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#92400E' }}>
+                        Payment Deferred Pending Clinical Approval
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#78350F', marginTop: '4px', lineHeight: 1.5 }}>
+                        This is a restricted diagnostic test requiring clinical verification by Gemini Vision AI and certified laboratory staff.
+                        Payment is not required at this time.
+                        <br /><br />
+                        Once your prescription is reviewed and approved, you will receive an approval email notification and you can proceed to payment (Online Card or Counter Cash) directly from your portal.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={styles.orderReviewCard}>
+                    <div style={styles.reviewRow}>
+                      <span>Selected Test:</span>
+                      <strong>{selectedTest?.name}</strong>
+                    </div>
+                    <div style={styles.reviewRow}>
+                      <span>Schedule:</span>
+                      <strong>{selectedDate} at {selectedSlot}</strong>
+                    </div>
+                    <div style={styles.reviewRow}>
+                      <span>Patient:</span>
+                      <strong>{patientName} ({patientGender}, {patientEmail})</strong>
+                    </div>
+                    <div style={{ ...styles.reviewRow, borderTop: '1px solid #e2e8f0', paddingTop: '10px', marginTop: '6px' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 800 }}>Total Payable:</span>
+                      <span style={{ fontSize: '18px', fontWeight: 900, color: '#059669' }}>
+                        Rs. {Number(selectedTest?.price || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '22px' }}>
+                    <label style={styles.fieldLabel}>Choose Payment Method</label>
+                    <div style={styles.paymentOptions}>
+                      <label style={{
+                        ...styles.payOptionCard,
+                        borderColor: paymentOption === 'OnlineCard' ? '#059669' : '#e2e8f0',
+                        backgroundColor: paymentOption === 'OnlineCard' ? '#ecfdf5' : '#fff',
+                      }}>
+                        <input
+                          type="radio"
+                          name="paymentOption"
+                          checked={paymentOption === 'OnlineCard'}
+                          onChange={() => setPaymentOption('OnlineCard')}
+                          style={{ accentColor: '#059669' }}
+                        />
+                        <div>
+                          <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#0f172a' }}>💳 Credit / Debit Card (Online Instant)</div>
+                          <div style={{ fontSize: '12px', color: '#64748b' }}>Instant queue priority and fast counter check-in</div>
+                        </div>
+                      </label>
+
+                      <label style={{
+                        ...styles.payOptionCard,
+                        borderColor: paymentOption === 'CounterCash' ? '#059669' : '#e2e8f0',
+                        backgroundColor: paymentOption === 'CounterCash' ? '#ecfdf5' : '#fff',
+                      }}>
+                        <input
+                          type="radio"
+                          name="paymentOption"
+                          checked={paymentOption === 'CounterCash'}
+                          onChange={() => setPaymentOption('CounterCash')}
+                          style={{ accentColor: '#059669' }}
+                        />
+                        <div>
+                          <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#0f172a' }}>💵 Pay Cash at Phlebotomy Counter</div>
+                          <div style={{ fontSize: '12px', color: '#64748b' }}>Settle invoice when giving blood/specimen at the lab</div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {paymentOption === 'OnlineCard' && (
+                    <div style={styles.mockCardForm}>
+                      <div>
+                        <label style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>Card Number</label>
+                        <input
+                          type="text"
+                          value={cardNumber}
+                          onChange={e => setCardNumber(e.target.value)}
+                          style={styles.cardInput}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '10px' }}>
+                        <div>
+                          <label style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>Expires</label>
+                          <input
+                            type="text"
+                            value={cardExpiry}
+                            onChange={e => setCardExpiry(e.target.value)}
+                            style={styles.cardInput}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '11.5px', fontWeight: 700, color: '#475569' }}>CVV</label>
+                          <input
+                            type="password"
+                            value={cardCvv}
+                            onChange={e => setCardCvv(e.target.value)}
+                            style={styles.cardInput}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -752,37 +810,75 @@ export default function BookLabTestModal({
           {/* STEP 4: CONFIRMATION RECEIPT */}
           {step === 4 && confirmedBooking && (
             <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <div style={styles.successIcon}>
-                <CheckCircle2 size={42} color="#059669" />
+              <div style={{
+                ...styles.successIcon,
+                backgroundColor: selectedTest?.isRestricted ? '#FEF3C7' : '#ecfdf5'
+              }}>
+                {selectedTest?.isRestricted ? (
+                  <Sparkles size={42} color="#D97706" />
+                ) : (
+                  <CheckCircle2 size={42} color="#059669" />
+                )}
               </div>
               <h3 style={{ fontSize: '20px', fontWeight: 900, color: '#0f172a', margin: '14px 0 4px' }}>
-                Appointment Confirmed!
+                {selectedTest?.isRestricted ? 'Prescription Submitted for Review!' : 'Appointment Confirmed!'}
               </h3>
               <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-                Please present this token at the laboratory reception counter.
+                {selectedTest?.isRestricted
+                  ? 'Your prescription has been submitted for AI analysis and laboratory staff approval.'
+                  : 'Please present this token at the laboratory reception counter.'}
               </p>
 
               <div style={styles.tokenDisplayCard}>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#047857', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  Laboratory Token Number
+                <div style={{
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  color: selectedTest?.isRestricted ? '#B45309' : '#047857',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}>
+                  {selectedTest?.isRestricted ? 'Reference Token Number' : 'Laboratory Token Number'}
                 </div>
-                <div style={styles.tokenBigNumber}>
+                <div style={{
+                  ...styles.tokenBigNumber,
+                  color: selectedTest?.isRestricted ? '#B45309' : '#059669'
+                }}>
                   #{confirmedBooking.tokenNumber || 'LAB-1082'}
                 </div>
                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
                   {confirmedBooking.bookingDate} at {confirmedBooking.timeSlot}
                 </div>
                 <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                  {confirmedBooking.labTest?.name || selectedTest?.name} • Room 4 (Specimen Collection)
+                  {confirmedBooking.labTest?.name || selectedTest?.name} • {selectedTest?.isRestricted ? 'Status: Pending Verification' : 'Room 4 (Specimen Collection)'}
                 </div>
               </div>
+
+              {selectedTest?.isRestricted && (
+                <div style={{
+                  marginTop: '16px',
+                  padding: '12px 16px',
+                  borderRadius: '10px',
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  fontSize: '12px',
+                  color: '#475569',
+                  textAlign: 'left'
+                }}>
+                  <strong>What happens next?</strong>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: '18px', lineHeight: 1.5 }}>
+                    <li>Gemini Vision AI and laboratory staff will review your prescription.</li>
+                    <li>You will receive an approval email notification once verified.</li>
+                    <li>Payment (Online Card or Counter Cash) will be unlocked in your portal after approval.</li>
+                  </ul>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px' }}>
                 <button
                   style={styles.primaryActionBtn}
                   onClick={onClose}
                 >
-                  Done
+                  {selectedTest?.isRestricted ? 'View in My Bookings' : 'Done'}
                 </button>
               </div>
             </div>
@@ -817,7 +913,11 @@ export default function BookLabTestModal({
                 style={styles.confirmBtn}
                 onClick={handleBookingSubmit}
               >
-                {submitting ? 'Confirming...' : `Confirm & Book (Rs. ${Number(selectedTest?.price || 0).toLocaleString()})`}
+                {submitting
+                  ? 'Submitting...'
+                  : (selectedTest?.isRestricted
+                      ? 'Submit for Prescription Verification'
+                      : `Confirm & Book (Rs. ${Number(selectedTest?.price || 0).toLocaleString()})`)}
               </button>
             )}
           </div>

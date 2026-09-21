@@ -52,7 +52,11 @@ class _LabHubScreenState extends State<LabHubScreen> {
         return;
       }
 
-      final bookings = await LabApiService.getMyBookings(user.userId);
+      final rawBookings = await LabApiService.getMyBookings(user.userId, email: user.email);
+      final emailLower = user.email.trim().toLowerCase();
+      final bookings = emailLower.isNotEmpty
+          ? rawBookings.where((b) => b.patientEmail.trim().toLowerCase() == emailLower).toList()
+          : rawBookings;
       if (mounted) {
         setState(() {
           _recentBookings = bookings;

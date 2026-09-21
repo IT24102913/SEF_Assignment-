@@ -36,22 +36,14 @@ public class LabBookingsController : ControllerBase
             .Include(b => b.LabTest)
             .AsQueryable();
 
-        if (patientId.HasValue && patientId.Value > 0)
-        {
-            if (!string.IsNullOrWhiteSpace(email))
-            {
-                var lowerEmail = email.Trim().ToLower();
-                query = query.Where(b => b.PatientId == patientId.Value || b.PatientEmail.ToLower() == lowerEmail);
-            }
-            else
-            {
-                query = query.Where(b => b.PatientId == patientId.Value);
-            }
-        }
-        else if (!string.IsNullOrWhiteSpace(email))
+        if (!string.IsNullOrWhiteSpace(email))
         {
             var lowerEmail = email.Trim().ToLower();
             query = query.Where(b => b.PatientEmail.ToLower() == lowerEmail);
+        }
+        else if (patientId.HasValue && patientId.Value > 0)
+        {
+            query = query.Where(b => b.PatientId == patientId.Value);
         }
 
         var bookings = await query

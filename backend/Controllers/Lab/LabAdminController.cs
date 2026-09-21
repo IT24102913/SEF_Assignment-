@@ -64,13 +64,47 @@ public class LabAdminController : ControllerBase
         booking.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Send confirmation email
-        await _emailService.SendBookingConfirmationAsync(
-            booking.PatientEmail,
-            booking.PatientName,
-            booking.LabTest.Name,
-            booking.BookingDate,
-            booking.TimeSlot);
+        // Find all active bookings for this patient, date & slot to compute combined appointment details
+        var appointmentBookings = await _db.LabBookings
+            .Include(b => b.LabTest)
+            .Where(b => b.PatientId == booking.PatientId
+                     && b.BookingDate == booking.BookingDate
+                     && b.TimeSlot == booking.TimeSlot
+                     && b.Status != BookingStatus.Cancelled
+                     && b.Status != BookingStatus.Rejected)
+            .ToListAsync();
+
+        var totalAppointmentPrice = appointmentBookings.Sum(b => b.LabTest?.Price ?? 0);
+        var testNamesList = appointmentBookings
+            .Select(b => b.LabTest?.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct()
+            .ToList();
+
+        var combinedTestNames = testNamesList.Count > 1
+            ? $"{string.Join(" + ", testNamesList)} ({testNamesList.Count} Tests)"
+            : (booking.LabTest?.Name ?? "Laboratory Test");
+
+        // Send confirmation email tailored for prescription approval vs standard booking
+        if (booking.LabTest != null && booking.LabTest.IsRestricted)
+        {
+            await _emailService.SendPrescriptionApprovedAsync(
+                booking.PatientEmail,
+                booking.PatientName,
+                combinedTestNames,
+                booking.BookingDate,
+                booking.TimeSlot,
+                totalAppointmentPrice > 0 ? totalAppointmentPrice : booking.LabTest.Price);
+        }
+        else
+        {
+            await _emailService.SendBookingConfirmationAsync(
+                booking.PatientEmail,
+                booking.PatientName,
+                combinedTestNames,
+                booking.BookingDate,
+                booking.TimeSlot);
+        }
 
         return Ok(MapToDto(booking));
     }
@@ -85,18 +119,38 @@ public class LabAdminController : ControllerBase
         if (booking.Status != BookingStatus.PendingLabApproval)
             return BadRequest(new { message = "This booking cannot be rejected at this stage." });
 
-        booking.Status = BookingStatus.Rejected;
+        // If prescription rejected, mark status as Cancelled so no further steps are shown
+        booking.Status = BookingStatus.Cancelled;
         booking.TechnicianId = technicianId;
         booking.TechnicianNotes = dto.Reason;
         booking.UpdatedAt = DateTime.UtcNow;
+
+        // Free up slot capacity
+        var slot = await _db.LabTimeSlots.FirstOrDefaultAsync(s => s.Date == booking.BookingDate && s.Time == booking.TimeSlot);
+        if (slot != null && slot.CurrentBookings > 0)
+        {
+            slot.CurrentBookings--;
+        }
+
         await _db.SaveChangesAsync();
 
-        // Send rejection email
-        await _emailService.SendBookingRejectionAsync(
-            booking.PatientEmail,
-            booking.PatientName,
-            booking.LabTest.Name,
-            dto.Reason);
+        // Send rejection email informing patient the booking is cancelled
+        if (booking.LabTest != null && booking.LabTest.IsRestricted)
+        {
+            await _emailService.SendPrescriptionRejectedAsync(
+                booking.PatientEmail,
+                booking.PatientName,
+                booking.LabTest.Name,
+                dto.Reason);
+        }
+        else
+        {
+            await _emailService.SendBookingRejectionAsync(
+                booking.PatientEmail,
+                booking.PatientName,
+                booking.LabTest?.Name ?? "Lab Test",
+                dto.Reason);
+        }
 
         return Ok(MapToDto(booking));
     }

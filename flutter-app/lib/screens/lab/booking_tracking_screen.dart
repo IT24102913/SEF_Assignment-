@@ -31,42 +31,52 @@ class BookingTrackingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = booking.status;
-    final isRestricted = booking.labTest?.isRestricted == true;
+    final isRestricted = booking.labTest?.isRestricted == true || (booking.prescriptionUrl != null && booking.prescriptionUrl!.isNotEmpty);
     final currentRank = _getStatusRank(status);
     final isFailed = status == 'Rejected' || status == 'Cancelled';
+    final isPaid = booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter';
+    final isPendingVerification = booking.status == 'PendingPrescriptionUpload' ||
+        booking.status == 'PendingAIVerification' ||
+        booking.status == 'PendingLabApproval';
 
     // Build timeline stages
-    List<Map<String, dynamic>> stages = [
-      {
+    List<Map<String, dynamic>> stages = [];
+
+    if (isRestricted) {
+      stages.add({
+        'title': 'Appointment & Rx Submitted',
+        'subtitle': 'Booking requested & prescription uploaded for review',
+        'icon': Icons.description_outlined,
+        'rank': 0
+      });
+      stages.add({
+        'title': 'AI & Lab Verification',
+        'subtitle': 'Gemini Vision AI & clinical lab staff approval',
+        'icon': Icons.psychology_outlined,
+        'rank': 2
+      });
+      stages.add({
+        'title': 'Prescription Approved • Payment Selection',
+        'subtitle': 'Approval granted! Select payment method to confirm',
+        'icon': Icons.verified_outlined,
+        'rank': 3
+      });
+    } else {
+      stages.add({
         'title': 'Appointment Requested',
         'subtitle': 'Booking submitted by patient',
         'icon': Icons.edit_calendar,
         'rank': 0
-      },
-    ];
-
-    if (isRestricted) {
-      stages.add({
-        'title': 'AI Prescription Analysis',
-        'subtitle': 'Gemini Vision AI verification completed',
-        'icon': Icons.psychology_outlined,
-        'rank': 1
       });
       stages.add({
-        'title': 'Laboratory Approval',
-        'subtitle': 'Verified by certified laboratory staff',
-        'icon': Icons.verified_outlined,
-        'rank': 2
-      });
-    }
-
-    stages.addAll([
-      {
         'title': 'Appointment Confirmed',
         'subtitle': 'Slot confirmed at laboratory clinic',
         'icon': Icons.check_circle_outline,
         'rank': 3
-      },
+      });
+    }
+
+    stages.addAll([
       {
         'title': 'Specimen Collected',
         'subtitle': 'Sample received and barcode tagged',
@@ -142,79 +152,85 @@ class BookingTrackingScreen extends StatelessWidget {
               ),
             ),
 
-            // Payment Milestone Card
-            FadeSlideAnimation(
-              child: Container(
-                margin: const EdgeInsets.only(top: 14),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                      ? const Color(0xFFECFDF5)
-                      : const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                        ? const Color(0xFFA7F3D0)
-                        : const Color(0xFFBFDBFE),
+            // Payment Milestone Card (Only when not cancelled/rejected)
+            if (!isFailed) ...[
+              FadeSlideAnimation(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 14),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isPaid
+                        ? const Color(0xFFECFDF5)
+                        : (isPendingVerification ? const Color(0xFFFFFBEB) : const Color(0xFFEFF6FF)),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isPaid
+                          ? const Color(0xFFA7F3D0)
+                          : (isPendingVerification ? const Color(0xFFFDE68A) : const Color(0xFFBFDBFE)),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isPaid
+                              ? const Color(0xFF059669)
+                              : (isPendingVerification ? const Color(0xFFD97706) : const Color(0xFF2563EB)),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          isPaid
+                              ? Icons.check_circle_outline
+                              : (isPendingVerification ? Icons.hourglass_top_rounded : Icons.payment_outlined),
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isPaid
+                                  ? 'Payment Settled (LKR ${(booking.amountPaid > 0 ? booking.amountPaid : (booking.labTest?.price ?? 0)).toStringAsFixed(2)})'
+                                  : (isPendingVerification
+                                      ? 'Payment Deferred Pending Approval'
+                                      : (isRestricted ? 'Prescription Approved • Action Required' : 'Payment: LKR ${(booking.labTest?.price ?? 0).toStringAsFixed(2)} Due')),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                color: isPaid
+                                    ? const Color(0xFF065F46)
+                                    : (isPendingVerification ? const Color(0xFF92400E) : const Color(0xFF1E40AF)),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isPaid
+                                  ? 'Method: ${booking.paymentMethod ?? 'Card'} • Receipt: #${booking.receiptNumber ?? 'MEDIX-RCP'}'
+                                  : (isPendingVerification
+                                      ? 'AI & lab staff are reviewing your prescription. Payment will unlock once approved.'
+                                      : (booking.paymentMethod == 'CashOnArrival'
+                                          ? 'Selected: Pay at Lab Counter (Cash / POS Card)'
+                                          : 'Select online card payment or pay at counter in My Bookings')),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isPaid
+                                    ? const Color(0xFF047857)
+                                    : (isPendingVerification ? const Color(0xFF78350F) : const Color(0xFF1E3A8A)),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                            ? const Color(0xFF059669)
-                            : const Color(0xFF2563EB),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                            ? Icons.check_circle_outline
-                            : Icons.payment_outlined,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                                ? 'Payment Settled (LKR ${(booking.amountPaid > 0 ? booking.amountPaid : (booking.labTest?.price ?? 0)).toStringAsFixed(2)})'
-                                : 'Payment: LKR ${(booking.labTest?.price ?? 0).toStringAsFixed(2)} Due',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                              color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                                  ? const Color(0xFF065F46)
-                                  : const Color(0xFF1E40AF),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                                ? 'Method: ${booking.paymentMethod ?? 'Card'} • Receipt: #${booking.receiptNumber ?? 'MEDIX-RCP'}'
-                                : booking.paymentMethod == 'CashOnArrival'
-                                    ? 'Selected: Pay at Lab Counter (Cash / POS Card)'
-                                    : 'Payable online via My Bookings or at counter on arrival',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
-                                  ? const Color(0xFF047857)
-                                  : const Color(0xFF1E3A8A),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ),
-            ),
+            ],
 
             const SizedBox(height: 20),
 
@@ -229,6 +245,7 @@ class BookingTrackingScreen extends StatelessWidget {
                   border: Border.all(color: kDanger.withOpacity(0.3)),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Icon(Icons.cancel, color: kDanger, size: 24),
                     const SizedBox(width: 12),
@@ -236,9 +253,14 @@ class BookingTrackingScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Order $status', style: const TextStyle(color: kDanger, fontWeight: FontWeight.w800, fontSize: 14)),
-                          const SizedBox(height: 2),
-                          const Text('Please schedule a new appointment or contact support.', style: TextStyle(color: kTextMuted, fontSize: 12)),
+                          const Text('Booking Cancelled', style: TextStyle(color: kDanger, fontWeight: FontWeight.w800, fontSize: 14)),
+                          const SizedBox(height: 4),
+                          Text(
+                            booking.technicianNotes != null && booking.technicianNotes!.trim().isNotEmpty
+                                ? 'Prescription was rejected by clinical staff: "${booking.technicianNotes}".\nNo further actions can be taken for this request.'
+                                : 'Prescription rejected or appointment cancelled. No further actions can be taken for this request.',
+                            style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12.5, height: 1.3),
+                          ),
                         ],
                       ),
                     ),

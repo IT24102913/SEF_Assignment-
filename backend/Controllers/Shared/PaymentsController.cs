@@ -62,18 +62,46 @@ public class PaymentsController : ControllerBase
             patientId = booking.PatientId;
             patientName = booking.PatientName;
             patientEmail = booking.PatientEmail;
-            itemName = booking.LabTest?.Name ?? "Laboratory Test";
 
-            booking.PaymentStatus = PaymentStatus.PaidOnline;
-            booking.PaymentMethod = "OnlineCard";
-            booking.ReceiptNumber = receiptNum;
-            booking.AmountPaid = dto.Amount;
-            booking.PaidAt = DateTime.UtcNow;
-            if (booking.Status == BookingStatus.PendingLabApproval)
+            // Find all unpaid bookings for this patient, date & time slot to settle together
+            var appointmentBookings = await _db.LabBookings
+                .Include(b => b.LabTest)
+                .Where(b => b.PatientId == booking.PatientId
+                         && b.BookingDate == booking.BookingDate
+                         && b.TimeSlot == booking.TimeSlot
+                         && b.PaymentStatus == PaymentStatus.Unpaid
+                         && b.Status != BookingStatus.Cancelled
+                         && b.Status != BookingStatus.Rejected)
+                .ToListAsync();
+
+            if (!appointmentBookings.Any(b => b.Id == booking.Id))
             {
-                booking.Status = BookingStatus.Confirmed;
+                appointmentBookings.Add(booking);
             }
-            booking.UpdatedAt = DateTime.UtcNow;
+
+            var testNames = appointmentBookings
+                .Select(b => b.LabTest?.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct()
+                .ToList();
+
+            itemName = testNames.Count > 1
+                ? $"{string.Join(" + ", testNames)} ({testNames.Count} Tests)"
+                : (booking.LabTest?.Name ?? "Laboratory Test");
+
+            foreach (var b in appointmentBookings)
+            {
+                b.PaymentStatus = PaymentStatus.PaidOnline;
+                b.PaymentMethod = "OnlineCard";
+                b.ReceiptNumber = receiptNum;
+                b.AmountPaid = b.LabTest?.Price ?? 0;
+                b.PaidAt = DateTime.UtcNow;
+                if (b.Status == BookingStatus.PendingLabApproval)
+                {
+                    b.Status = BookingStatus.Confirmed;
+                }
+                b.UpdatedAt = DateTime.UtcNow;
+            }
         }
 
         var payment = new Payment
@@ -229,12 +257,30 @@ public class PaymentsController : ControllerBase
             var booking = await _db.LabBookings.FindAsync(bookingId);
             if (booking != null && booking.PaymentStatus == PaymentStatus.Unpaid)
             {
-                booking.PaymentMethod = "CashOnArrival";
-                if (booking.Status == BookingStatus.PendingLabApproval)
+                var appointmentBookings = await _db.LabBookings
+                    .Where(b => b.PatientId == booking.PatientId
+                             && b.BookingDate == booking.BookingDate
+                             && b.TimeSlot == booking.TimeSlot
+                             && b.PaymentStatus == PaymentStatus.Unpaid
+                             && b.Status != BookingStatus.Cancelled
+                             && b.Status != BookingStatus.Rejected)
+                    .ToListAsync();
+
+                if (!appointmentBookings.Any(b => b.Id == booking.Id))
                 {
-                    booking.Status = BookingStatus.Confirmed;
+                    appointmentBookings.Add(booking);
                 }
-                booking.UpdatedAt = DateTime.UtcNow;
+
+                foreach (var b in appointmentBookings)
+                {
+                    b.PaymentMethod = "CashOnArrival";
+                    if (b.Status == BookingStatus.PendingLabApproval)
+                    {
+                        b.Status = BookingStatus.Confirmed;
+                    }
+                    b.UpdatedAt = DateTime.UtcNow;
+                }
+
                 await _db.SaveChangesAsync();
                 return Ok(new { message = "Payment method updated: Pay on arrival at laboratory counter." });
             }
