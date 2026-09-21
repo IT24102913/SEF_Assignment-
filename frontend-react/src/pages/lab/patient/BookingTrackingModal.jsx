@@ -29,37 +29,47 @@ export default function BookingTrackingModal({ booking, onClose, onDownloadRepor
   const isRestricted = booking.labTest?.isRestricted || booking.isRestricted;
 
   // Build timeline stages
-  const stages = [
-    {
-      title: 'Appointment Requested',
-      subtitle: 'Booking submitted and scheduled in laboratory system',
-      icon: Calendar,
-      rank: 0,
-    },
-  ];
+  const stages = [];
 
   if (isRestricted) {
-    stages.push({
-      title: 'AI Prescription Analysis',
-      subtitle: 'Gemini Vision AI verified clinical requirement',
-      icon: Sparkles,
-      rank: 1,
-    });
-    stages.push({
-      title: 'Laboratory Verification',
-      subtitle: 'Verified by certified laboratory staff & technician',
-      icon: ShieldCheck,
-      rank: 2,
-    });
+    stages.push(
+      {
+        title: 'Appointment & Rx Submitted',
+        subtitle: 'Booking requested & prescription attached for clinical review',
+        icon: Calendar,
+        rank: 0,
+      },
+      {
+        title: 'AI & Lab Clinical Verification',
+        subtitle: 'Gemini Vision AI & certified laboratory staff review',
+        icon: Sparkles,
+        rank: 2,
+      },
+      {
+        title: 'Prescription Approved • Payment Selection',
+        subtitle: 'Prescription approved! Choose online card or counter cash payment',
+        icon: CheckCircle2,
+        rank: 3,
+      }
+    );
+  } else {
+    stages.push(
+      {
+        title: 'Appointment Requested',
+        subtitle: 'Booking submitted and scheduled in laboratory system',
+        icon: Calendar,
+        rank: 0,
+      },
+      {
+        title: 'Confirmed & Token Scheduled',
+        subtitle: `Token #${booking.tokenNumber || 'LAB'} assigned for counter visit`,
+        icon: CheckCircle2,
+        rank: 3,
+      }
+    );
   }
 
   stages.push(
-    {
-      title: 'Confirmed & Token Scheduled',
-      subtitle: `Token #${booking.tokenNumber || 'LAB'} assigned for counter visit`,
-      icon: CheckCircle2,
-      rank: 3,
-    },
     {
       title: 'Sample Collected',
       subtitle: `Specimen (${booking.labTest?.sampleType || 'Specimen'}) collected at phlebotomy counter`,
@@ -106,9 +116,11 @@ export default function BookingTrackingModal({ booking, onClose, onDownloadRepor
           <div style={styles.failedBanner}>
             <AlertTriangle size={20} color="#dc2626" />
             <div>
-              <strong style={{ color: '#991b1b', fontSize: '14px' }}>Booking {status}</strong>
-              <div style={{ fontSize: '12.5px', color: '#b91c1c', marginTop: '2px' }}>
-                {booking.notes || 'This laboratory appointment was cancelled or rejected by lab staff.'}
+              <strong style={{ color: '#991b1b', fontSize: '14px' }}>Booking Cancelled</strong>
+              <div style={{ fontSize: '12.5px', color: '#b91c1c', marginTop: '2px', lineHeight: 1.4 }}>
+                {booking.technicianNotes
+                  ? `Prescription rejected by laboratory staff: "${booking.technicianNotes}". No further actions can be taken for this request.`
+                  : (booking.notes || 'This laboratory appointment was cancelled or rejected by clinical staff.')}
               </div>
             </div>
           </div>
