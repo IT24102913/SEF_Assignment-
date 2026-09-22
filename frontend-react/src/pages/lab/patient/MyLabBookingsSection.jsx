@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Microscope, Calendar, Clock, Download, AlertCircle, 
   CheckCircle2, XCircle, Search, RefreshCw, Sparkles, 
-  ShieldCheck, FileText, ArrowRight, Eye, Trash2, Plus 
+  ShieldCheck, FileText, ArrowRight, Eye, Trash2, Plus,
+  CreditCard, DollarSign, X
 } from 'lucide-react';
-import { getMyBookings, cancelBooking } from '../../../api/labApi';
+import { getMyBookings, cancelBooking, payBookingOnline, selectPayAtCounter } from '../../../api/labApi';
 import BookingTrackingModal from './BookingTrackingModal';
 import toast from 'react-hot-toast';
 
@@ -22,6 +23,8 @@ export default function MyLabBookingsSection({
   const [search, setSearch] = useState('');
   const [selectedTrackingBooking, setSelectedTrackingBooking] = useState(null);
   const [cancellingId, setCancellingId] = useState(null);
+  const [paymentModalBooking, setPaymentModalBooking] = useState(null);
+  const [payingCard, setPayingCard] = useState(false);
 
   const patientId = parseInt(user?.userId || user?.id) || 1;
   const userEmail = user?.email || '';
@@ -66,6 +69,41 @@ export default function MyLabBookingsSection({
       toast.error('Could not cancel booking.');
     } finally {
       setCancellingId(null);
+    }
+  };
+
+  const handleSelectCounterPayment = async (booking) => {
+    try {
+      await selectPayAtCounter(booking.id);
+      toast.success('Payment method set to Pay at Counter. Settle in cash or card POS at phlebotomy counter.');
+      fetchBookings();
+    } catch (err) {
+      toast.error('Failed to set pay at counter: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handlePayOnlineSubmit = async (e) => {
+    e.preventDefault();
+    if (!paymentModalBooking) return;
+    setPayingCard(true);
+    try {
+      const amountToPay = paymentModalBooking._combinedAmount || paymentModalBooking.labTest?.price || 0;
+      await payBookingOnline({
+        bookingId: paymentModalBooking.id,
+        amount: amountToPay,
+        cardHolderName: user?.fullName || 'Patient Cardholder',
+        cardNumber: '4242 •••• •••• 4242',
+        expiryDate: '12/28',
+        cvv: '123',
+        patientEmail: user?.email || paymentModalBooking.patientEmail,
+      });
+      toast.success('Payment settled successfully online!');
+      setPaymentModalBooking(null);
+      fetchBookings();
+    } catch (err) {
+      toast.error('Payment failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setPayingCard(false);
     }
   };
 
@@ -135,10 +173,10 @@ export default function MyLabBookingsSection({
     return { active, results, history, all: bookings.length };
   }, [bookings]);
 
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status, technicianNotes) => {
     switch (status) {
       case 'Confirmed':
-        return { bg: '#ecfdf5', color: '#059669', label: '✓ Confirmed & Scheduled' };
+        return { bg: '#ecfdf5', color: '#059669', label: '✓ Confirmed' };
       case 'SampleCollected':
         return { bg: '#eff6ff', color: '#2563eb', label: '🔬 Specimen Collected' };
       case 'TestingInProgress':
@@ -151,7 +189,11 @@ export default function MyLabBookingsSection({
         return { bg: '#f1f5f9', color: '#475569', label: 'Completed' };
       case 'Cancelled':
       case 'Rejected':
-        return { bg: '#fef2f2', color: '#dc2626', label: 'Cancelled / Rejected' };
+        return { 
+          bg: '#fef2f2', 
+          color: '#dc2626', 
+          label: technicianNotes ? '✗ Cancelled (Prescription Rejected)' : '✗ Cancelled' 
+        };
       default:
         return { bg: '#fffbeb', color: '#d97706', label: '⏳ Verification Pending' };
     }
@@ -253,9 +295,29 @@ export default function MyLabBookingsSection({
       ) : (
         <div style={styles.bookingsGrid}>
           {filteredBookings.map(b => {
-            const badge = getStatusBadge(b.status);
-            const canCancel = ['PendingLabApproval', 'PendingPrescriptionUpload', 'Confirmed'].includes(b.status);
+            const badge = getStatusBadge(b.status, b.technicianNotes);
+            const isCancelledOrRejected = b.status === 'Cancelled' || b.status === 'Rejected';
+            const isPending = ['PendingLabApproval', 'PendingPrescriptionUpload', 'PendingAIVerification'].includes(b.status);
+            const isPaid = b.paymentStatus === 'PaidOnline' || b.paymentStatus === 'PaidAtCounter';
+            const isConfirmedUnpaid = b.status === 'Confirmed' && !isPaid;
+            const isCounterChosen = b.paymentMethod === 'CashOnArrival';
+            const canCancel = ['PendingLabApproval', 'PendingPrescriptionUpload', 'Confirmed'].includes(b.status) && !isPaid;
             const hasReport = Boolean(b.resultFileUrl) || ['ResultsReady', 'ReportDelivered', 'Completed'].includes(b.status);
+            const price = b.labTest?.price || 0;
+
+            const siblingBookings = bookings.filter(sb =>
+              sb.bookingDate === b.bookingDate &&
+              sb.timeSlot === b.timeSlot &&
+              sb.status !== 'Cancelled' &&
+              sb.status !== 'Rejected'
+            );
+            const isMultiTestAppointment = siblingBookings.length > 1;
+            const totalAppointmentPrice = isMultiTestAppointment
+              ? siblingBookings.reduce((sum, sb) => sum + Number(sb.labTest?.price || (sb.amountPaid > 0 ? sb.amountPaid : 0)), 0)
+              : Number(price);
+            const combinedTestNames = isMultiTestAppointment
+              ? siblingBookings.map(sb => sb.labTest?.name || 'Lab Test').join(' + ')
+              : (b.labTest?.name || 'Diagnostic Laboratory Test');
 
             return (
               <div key={b.id} style={styles.bookingCard}>
@@ -275,9 +337,29 @@ export default function MyLabBookingsSection({
                   </div>
 
                   <div style={styles.priceMeta}>
-                    Rs. {Number(b.labTest?.price || 0).toLocaleString()}
+                    Rs. {Number(price).toLocaleString()}
                   </div>
                 </div>
+
+                {/* Combined Appointment Indicator */}
+                {isMultiTestAppointment && (
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    backgroundColor: '#f3e8ff',
+                    border: '1px solid #d8b4fe',
+                    fontSize: '11.5px',
+                    color: '#6b21a8',
+                    fontWeight: 700,
+                    marginBottom: '10px',
+                  }}>
+                    <Sparkles size={13} color="#7e22ce" />
+                    <span>Combined Appointment ({siblingBookings.length} Tests): {combinedTestNames}</span>
+                  </div>
+                )}
 
                 {/* Test Title & Meta */}
                 <h3 style={styles.testName}>{b.labTest?.name || 'Diagnostic Laboratory Test'}</h3>
@@ -301,14 +383,162 @@ export default function MyLabBookingsSection({
                 {b.labTest?.isRestricted && (
                   <div style={styles.aiTagRow}>
                     <Sparkles size={14} color="#059669" />
-                    <span>Gemini Vision AI Verified Prescription</span>
+                    <span>Doctor Prescription Required & AI Monitored</span>
+                  </div>
+                )}
+
+                {/* Pending Verification Banner */}
+                {isPending && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: '#FFFBEB',
+                    border: '1px solid #FDE68A',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: '#92400E'
+                  }}>
+                    <Sparkles size={16} color="#D97706" style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <div>
+                      <strong style={{ fontWeight: 800 }}>Prescription Review in Progress</strong>
+                      <div style={{ marginTop: '2px', color: '#78350F', lineHeight: 1.4 }}>
+                        Payment options are locked while AI & laboratory staff review your prescription. You will receive an approval email notification once verified.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Rejection / Cancellation Reason Banner */}
+                {isCancelledOrRejected && b.technicianNotes && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FECACA',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '8px',
+                    fontSize: '12px',
+                    color: '#B91C1C'
+                  }}>
+                    <AlertCircle size={16} color="#DC2626" style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <div>
+                      <strong style={{ color: '#991B1B', fontWeight: 800 }}>Reason for Cancellation / Rejection:</strong>
+                      <div style={{ marginTop: '2px', color: '#B91C1C', fontWeight: 500 }}>"{b.technicianNotes}"</div>
+                      <div style={{ marginTop: '3px', fontSize: '11px', color: '#EF4444' }}>
+                        No payment is due and no further actions can be taken for this request.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Prescription Approved • Payment Callout */}
+                {isConfirmedUnpaid && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    borderRadius: '10px',
+                    backgroundColor: isCounterChosen ? '#FFFBEB' : '#F0FDF4',
+                    border: `1px solid ${isCounterChosen ? '#FDE68A' : '#BBF7D0'}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <CheckCircle2 size={16} color={isCounterChosen ? '#B45309' : '#059669'} />
+                        <span style={{
+                          fontSize: '12.5px',
+                          fontWeight: 800,
+                          color: isCounterChosen ? '#92400E' : '#065F46'
+                        }}>
+                          {isCounterChosen ? 'Pay at Counter Selected' : 'Prescription Approved • Action Required'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: isCounterChosen ? '#92400E' : '#047857' }}>
+                        Due: Rs. {Number(totalAppointmentPrice).toLocaleString()} {isMultiTestAppointment ? '(Combined)' : ''}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '11.5px', color: isCounterChosen ? '#78350F' : '#065F46', lineHeight: 1.4 }}>
+                      {isCounterChosen
+                        ? `You can pay Rs. ${Number(totalAppointmentPrice).toLocaleString()} in cash or card POS at the laboratory counter for all ${siblingBookings.length} tests during sample collection.`
+                        : `Your prescription has been approved by laboratory staff! Please choose a payment method below to settle the combined total of Rs. ${Number(totalAppointmentPrice).toLocaleString()} for all tests in this appointment.`}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setPaymentModalBooking({
+                          ...b,
+                          _combinedAmount: totalAppointmentPrice,
+                          _combinedTestNames: combinedTestNames,
+                          _siblingCount: siblingBookings.length,
+                        })}
+                        style={{
+                          flex: 1,
+                          padding: '7px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: '#2563EB',
+                          color: '#fff',
+                          border: 'none',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '5px'
+                        }}
+                      >
+                        <CreditCard size={13} /> Pay Online Now
+                      </button>
+
+                      {!isCounterChosen && (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectCounterPayment(b)}
+                          style={{
+                            flex: 1,
+                            padding: '7px 12px',
+                            borderRadius: '6px',
+                            backgroundColor: '#fff',
+                            color: '#1E40AF',
+                            border: '1px solid #93C5FD',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '5px'
+                          }}
+                        >
+                          <DollarSign size={13} /> Pay at Counter
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
 
                 {/* Card Footer Actions */}
                 <div style={styles.cardFooter}>
-                  <div style={{ fontSize: '12px', color: b.paymentStatus === 'PaidOnline' ? '#059669' : '#d97706', fontWeight: 700 }}>
-                    {b.paymentStatus === 'PaidOnline' ? '✓ Paid Online (Card)' : 'Cash at Counter'}
+                  <div style={{
+                    fontSize: '12px',
+                    color: isPaid ? '#059669' : (isCounterChosen ? '#b45309' : (isPending ? '#d97706' : (isCancelledOrRejected ? '#dc2626' : '#2563eb'))),
+                    fontWeight: 700
+                  }}>
+                    {isPaid
+                      ? '✓ Paid Online (Card)'
+                      : (isCounterChosen
+                          ? '💵 Pay at Counter'
+                          : (isPending
+                              ? '⏳ Payment Deferred'
+                              : (isCancelledOrRejected ? '✗ Order Cancelled' : 'Payment Required')))}
                   </div>
 
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -358,6 +588,151 @@ export default function MyLabBookingsSection({
           booking={selectedTrackingBooking}
           onClose={() => setSelectedTrackingBooking(null)}
         />
+      )}
+
+      {/* Online Card Payment Modal */}
+      {paymentModalBooking && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 10000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }} onClick={() => setPaymentModalBooking(null)}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '20px',
+            maxWidth: '480px',
+            width: '100%',
+            padding: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CreditCard size={20} color="#2563EB" />
+                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#0F172A' }}>Online Card Checkout</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentModalBooking(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                <X size={18} color="#64748B" />
+              </button>
+            </div>
+
+            <div style={{
+              padding: '12px',
+              borderRadius: '10px',
+              backgroundColor: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              marginBottom: '16px'
+            }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#1E40AF' }}>
+                {paymentModalBooking._combinedTestNames || paymentModalBooking.labTest?.name || 'Laboratory Diagnostic Test'}
+              </div>
+              <div style={{ fontSize: '12px', color: '#1E3A8A', marginTop: '2px' }}>
+                Appointment: {paymentModalBooking.bookingDate} at {paymentModalBooking.timeSlot}
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: 900, color: '#1D4ED8', marginTop: '6px' }}>
+                Amount Due: Rs. {Number(paymentModalBooking._combinedAmount || paymentModalBooking.labTest?.price || 0).toLocaleString()}
+                {paymentModalBooking._siblingCount > 1 ? ' (Combined Total)' : ''}
+              </div>
+            </div>
+
+            <form onSubmit={handlePayOnlineSubmit}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Cardholder Name
+                </label>
+                <input
+                  type="text"
+                  defaultValue={user?.fullName || 'Patient Cardholder'}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                  required
+                />
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Card Number
+                </label>
+                <input
+                  type="text"
+                  defaultValue="4242 •••• •••• 4242"
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Expires
+                  </label>
+                  <input
+                    type="text"
+                    defaultValue="12/28"
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    CVV
+                  </label>
+                  <input
+                    type="password"
+                    defaultValue="123"
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setPaymentModalBooking(null)}
+                  style={{
+                    flex: 1,
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    backgroundColor: '#fff',
+                    color: '#475569',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={payingCard}
+                  style={{
+                    flex: 2,
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#2563EB',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {payingCard ? 'Processing...' : `Pay Rs. ${Number(paymentModalBooking._combinedAmount || paymentModalBooking.labTest?.price || 0).toLocaleString()} Now`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

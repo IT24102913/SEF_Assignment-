@@ -22,6 +22,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   List<LabBooking> _bookings = [];
   bool _loading = true;
   String? _userId;
+  String? _userEmail;
   // 'ACTIVE' | 'RESULTS' | 'HISTORY' | 'ALL'
   String _activeTab = 'ACTIVE';
 
@@ -46,6 +47,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       return;
     }
     _userId = user.userId;
+    _userEmail = user.email;
     _load();
   }
 
@@ -53,10 +55,14 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     if (_userId == null) return;
     setState(() => _loading = true);
     try {
-      final b = await LabApiService.getMyBookings(_userId!);
+      final b = await LabApiService.getMyBookings(_userId!, email: _userEmail);
       if (mounted) {
+        final emailLower = (_userEmail ?? '').trim().toLowerCase();
+        final filtered = emailLower.isNotEmpty
+            ? b.where((item) => item.patientEmail.trim().toLowerCase() == emailLower).toList()
+            : b;
         setState(() {
-          _bookings = b;
+          _bookings = filtered;
           _loading = false;
         });
       }
@@ -227,6 +233,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     if (_activeTab == 'ACTIVE') {
       return _ActiveBookingCard(
         booking: booking,
+        allBookings: _bookings,
         onCancel: () => _cancel(booking),
         onRefresh: _load,
       );
@@ -260,6 +267,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       } else {
         return _ActiveBookingCard(
           booking: booking,
+          allBookings: _bookings,
           onCancel: () => _cancel(booking),
           onRefresh: _load,
         );
@@ -425,11 +433,13 @@ class _TabPill extends StatelessWidget {
 
 class _ActiveBookingCard extends StatelessWidget {
   final LabBooking booking;
+  final List<LabBooking>? allBookings;
   final VoidCallback onCancel;
   final VoidCallback onRefresh;
 
   const _ActiveBookingCard({
     required this.booking,
+    this.allBookings,
     required this.onCancel,
     required this.onRefresh,
   });
@@ -442,25 +452,36 @@ class _ActiveBookingCard extends StatelessWidget {
   ].contains(booking.status);
 
   String get _stageProgressText {
+    final isPaid = booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter';
+    final isCounter = booking.paymentMethod == 'CashOnArrival';
+
     switch (booking.status) {
       case 'PendingPrescriptionUpload':
-        return 'Awaiting Doctor Prescription';
+        return 'Prescription Document Required • Please Upload in App';
       case 'PendingAIVerification':
-        return 'AI Gemini Vision Scanning Rx';
+        return 'AI Gemini Vision Scanning Rx • Review in Progress';
       case 'PendingLabApproval':
-        return 'Lab Pathologist Reviewing Slot';
+        return 'AI Verified • Clinical Lab Pathologist Reviewing Prescription';
       case 'Confirmed':
-        return 'Slot Confirmed • Ready for Payment & Sample';
+        if (booking.labTest?.isRestricted == true && !isPaid && !isCounter) {
+          return 'Prescription Approved! • Action Required: Select Payment Method';
+        } else if (isCounter) {
+          return 'Appointment Confirmed • Pay at Counter on Arrival';
+        } else if (isPaid) {
+          return 'Slot Confirmed & Payment Settled • Ready for Sample Collection';
+        } else {
+          return 'Slot Confirmed • Ready for Payment & Sample Collection';
+        }
       case 'SampleCollected':
         return 'Specimen Collected • Sent to Analyzers';
       case 'TestingInProgress':
-        return 'Active Clinical Diagnostics & Assay';
+        return 'Active Clinical Diagnostics & Assay Processing';
       case 'ResultVerification':
         return 'Diagnostic Assays Completed • Verifying Results';
       case 'ResultsReady':
       case 'ReportDelivered':
       case 'Completed':
-        return 'Results Ready & Completed • Report Available';
+        return 'Results Ready & Completed • Official Report Available';
       default:
         return 'In Progress';
     }
@@ -468,11 +489,29 @@ class _ActiveBookingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final siblingBookings = (allBookings ?? []).where((b) =>
+      b.bookingDate == booking.bookingDate &&
+      b.timeSlot == booking.timeSlot &&
+      b.status != 'Cancelled' &&
+      b.status != 'Rejected'
+    ).toList();
+    final isMultiTestAppointment = siblingBookings.length > 1;
+    final price = booking.labTest?.price ?? (booking.amountPaid > 0 ? booking.amountPaid : 0.0);
+    final totalAppointmentPrice = isMultiTestAppointment
+        ? siblingBookings.fold<double>(0.0, (sum, b) => sum + (b.labTest?.price ?? (b.amountPaid > 0 ? b.amountPaid : 0.0)))
+        : price;
+    final combinedTestNames = isMultiTestAppointment
+        ? siblingBookings.map((b) => b.labTest?.name ?? 'Test').join(' + ')
+        : (booking.labTest?.name ?? 'Clinical Diagnostic Test');
+
     final isPaid = booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter';
     final isCounterSelected = booking.paymentMethod == 'CashOnArrival' && !isPaid;
     final isConfirmed = booking.status == 'Confirmed';
+    final isPendingVerification = booking.status == 'PendingPrescriptionUpload' ||
+        booking.status == 'PendingAIVerification' ||
+        booking.status == 'PendingLabApproval';
     final showPaymentSection = isPaid || isConfirmed || booking.status == 'SampleCollected' || booking.status == 'TestingInProgress';
-    final price = booking.labTest?.price ?? (booking.amountPaid > 0 ? booking.amountPaid : 0.0);
+    final hasPrescription = booking.prescriptionUrl != null && booking.prescriptionUrl!.trim().isNotEmpty;
 
     return FadeSlideAnimation(
       child: AppCard(
@@ -511,6 +550,34 @@ class _ActiveBookingCard extends StatelessWidget {
                 StatusBadge(status: booking.status),
               ],
             ),
+
+            if (isMultiTestAppointment) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3E8FF),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFD8B4FE)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.layers_rounded, color: Color(0xFF7E22CE), size: 15),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Combined Appointment (${siblingBookings.length} Tests): $combinedTestNames',
+                        style: const TextStyle(
+                          color: Color(0xFF6B21A8),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: 10),
 
@@ -637,6 +704,50 @@ class _ActiveBookingCard extends StatelessWidget {
               ),
             ],
 
+            // Pending Verification Banner
+            if (isPendingVerification) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.hourglass_top_rounded, size: 20, color: Color(0xFFD97706)),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Prescription Review in Progress',
+                            style: TextStyle(
+                              color: Color(0xFF92400E),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            'Payment options will be unlocked once AI verification & lab staff approve your prescription. You will receive an email notification upon approval.',
+                            style: TextStyle(
+                              color: Color(0xFF78350F),
+                              fontSize: 11.5,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             // Centralized Payment Banner (Paid vs Unpaid / Intent)
             if (showPaymentSection) ...[
               const SizedBox(height: 12),
@@ -657,7 +768,7 @@ class _ActiveBookingCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Payment Settled: LKR ${(booking.amountPaid > 0 ? booking.amountPaid : price).toStringAsFixed(2)}',
+                              'Payment Settled: LKR ${(booking.amountPaid > 0 ? booking.amountPaid : (isMultiTestAppointment ? totalAppointmentPrice : price)).toStringAsFixed(2)}',
                               style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: Color(0xFF065F46)),
                             ),
                             Text(
@@ -684,9 +795,15 @@ class _ActiveBookingCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isCounterSelected ? const Color(0xFFFFFBEB) : const Color(0xFFEFF6FF),
+                    color: isCounterSelected
+                        ? const Color(0xFFFFFBEB)
+                        : (hasPrescription ? const Color(0xFFF0FDF4) : const Color(0xFFEFF6FF)),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: isCounterSelected ? const Color(0xFFFDE68A) : const Color(0xFFBFDBFE)),
+                    border: Border.all(
+                      color: isCounterSelected
+                          ? const Color(0xFFFDE68A)
+                          : (hasPrescription ? const Color(0xFFBBF7D0) : const Color(0xFFBFDBFE)),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -694,34 +811,52 @@ class _ActiveBookingCard extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Icon(
-                                isCounterSelected ? Icons.storefront_rounded : Icons.payment_rounded,
-                                size: 16,
-                                color: isCounterSelected ? const Color(0xFFB45309) : const Color(0xFF1D4ED8),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                isCounterSelected ? 'Pay at Counter Selected' : 'Payment Required (Approved)',
-                                style: TextStyle(
-                                  color: isCounterSelected ? const Color(0xFF92400E) : const Color(0xFF1E40AF),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isCounterSelected
+                                      ? Icons.storefront_rounded
+                                      : (hasPrescription ? Icons.verified_user_rounded : Icons.payment_rounded),
+                                  size: 16,
+                                  color: isCounterSelected
+                                      ? const Color(0xFFB45309)
+                                      : (hasPrescription ? const Color(0xFF047857) : const Color(0xFF1D4ED8)),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    isCounterSelected
+                                        ? 'Pay at Counter Selected'
+                                        : (hasPrescription ? 'Prescription Approved • Select Payment' : 'Payment Required (Approved)'),
+                                    style: TextStyle(
+                                      color: isCounterSelected
+                                          ? const Color(0xFF92400E)
+                                          : (hasPrescription ? const Color(0xFF065F46) : const Color(0xFF1E40AF)),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: isCounterSelected ? const Color(0xFFFEF3C7) : const Color(0xFFDBEAFE),
+                              color: isCounterSelected
+                                  ? const Color(0xFFFEF3C7)
+                                  : (hasPrescription ? const Color(0xFFD1FAE5) : const Color(0xFFDBEAFE)),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              'Due: LKR ${price.toStringAsFixed(2)}',
+                              'Due: LKR ${(isMultiTestAppointment ? totalAppointmentPrice : price).toStringAsFixed(2)}${isMultiTestAppointment ? ' (Combined)' : ''}',
                               style: TextStyle(
-                                color: isCounterSelected ? const Color(0xFF92400E) : const Color(0xFF1E40AF),
+                                color: isCounterSelected
+                                    ? const Color(0xFF92400E)
+                                    : (hasPrescription ? const Color(0xFF065F46) : const Color(0xFF1E40AF)),
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -732,10 +867,14 @@ class _ActiveBookingCard extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         isCounterSelected
-                            ? 'You can pay LKR ${price.toStringAsFixed(2)} in Cash or Card POS at the laboratory counter during sample collection.'
-                            : 'Staff has confirmed your appointment. Settle online now with a card or select pay at counter.',
+                            ? 'You can pay LKR ${(isMultiTestAppointment ? totalAppointmentPrice : price).toStringAsFixed(2)} in Cash or Card POS at the laboratory counter ${isMultiTestAppointment ? 'for all ${siblingBookings.length} tests ' : ''}during sample collection.'
+                            : (hasPrescription
+                                ? 'Your prescription has been approved by lab staff! ${isMultiTestAppointment ? 'Settle the combined total of LKR ${totalAppointmentPrice.toStringAsFixed(2)} for all scheduled tests below.' : 'Please select your payment method below to finalize your booking.'}'
+                                : 'Staff has confirmed your appointment. Settle online now with a card or select pay at counter.'),
                         style: TextStyle(
-                          color: isCounterSelected ? const Color(0xFF78350F) : const Color(0xFF1E3A8A),
+                          color: isCounterSelected
+                              ? const Color(0xFF78350F)
+                              : (hasPrescription ? const Color(0xFF047857) : const Color(0xFF1E3A8A)),
                           fontSize: 11.5,
                           fontWeight: FontWeight.w500,
                         ),
@@ -745,7 +884,13 @@ class _ActiveBookingCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: () => _openOnlinePaymentSheet(context, booking, onRefresh),
+                              onPressed: () => _openOnlinePaymentSheet(
+                                context,
+                                booking,
+                                onRefresh,
+                                combinedAmount: isMultiTestAppointment ? totalAppointmentPrice : null,
+                                combinedTestNames: isMultiTestAppointment ? combinedTestNames : null,
+                              ),
                               icon: const Icon(Icons.credit_card, size: 14),
                               label: const Text('Pay Online Now'),
                               style: ElevatedButton.styleFrom(
@@ -857,12 +1002,23 @@ class _ActiveBookingCard extends StatelessWidget {
     }
   }
 
-  void _openOnlinePaymentSheet(BuildContext context, LabBooking booking, VoidCallback onRefresh) {
+  void _openOnlinePaymentSheet(
+    BuildContext context,
+    LabBooking booking,
+    VoidCallback onRefresh, {
+    double? combinedAmount,
+    String? combinedTestNames,
+  }) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _OnlinePaymentBottomSheet(booking: booking, onSuccess: onRefresh),
+      builder: (ctx) => _OnlinePaymentBottomSheet(
+        booking: booking,
+        onSuccess: onRefresh,
+        combinedAmount: combinedAmount,
+        combinedTestNames: combinedTestNames,
+      ),
     );
   }
 
@@ -1105,7 +1261,9 @@ class _HistoryRecordCard extends StatelessWidget {
       badgeIcon = Icons.check_circle_outline;
     } else if (isCancelled) {
       badgeColor = kDanger;
-      badgeLabel = 'Cancelled by Patient';
+      badgeLabel = (booking.technicianNotes != null && booking.technicianNotes!.trim().isNotEmpty)
+          ? 'Cancelled (Prescription Rejected)'
+          : 'Cancelled';
       badgeIcon = Icons.cancel_outlined;
     } else if (isRejected) {
       badgeColor = const Color(0xFFD97706);
@@ -1193,6 +1351,42 @@ class _HistoryRecordCard extends StatelessWidget {
               ),
             ),
 
+            if ((isCancelled || isRejected) && booking.technicianNotes != null && booking.technicianNotes!.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFECACA)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline, size: 16, color: Color(0xFFDC2626)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Reason for Rejection / Cancellation',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF991B1B)),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            booking.technicianNotes!,
+                            style: const TextStyle(fontSize: 11.5, color: Color(0xFFB91C1C), height: 1.3),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
             const SizedBox(height: 14),
 
             // Actions: Book Test Again + Archived Report Link (if available)
@@ -1269,10 +1463,14 @@ class _HistoryRecordCard extends StatelessWidget {
 class _OnlinePaymentBottomSheet extends StatefulWidget {
   final LabBooking booking;
   final VoidCallback onSuccess;
+  final double? combinedAmount;
+  final String? combinedTestNames;
 
   const _OnlinePaymentBottomSheet({
     required this.booking,
     required this.onSuccess,
+    this.combinedAmount,
+    this.combinedTestNames,
   });
 
   @override
@@ -1316,7 +1514,7 @@ class _OnlinePaymentBottomSheetState extends State<_OnlinePaymentBottomSheet> {
     setState(() => _submitting = true);
 
     try {
-      final price = widget.booking.labTest?.price ?? (widget.booking.amountPaid > 0 ? widget.booking.amountPaid : 0.0);
+      final price = widget.combinedAmount ?? (widget.booking.labTest?.price ?? (widget.booking.amountPaid > 0 ? widget.booking.amountPaid : 0.0));
       final res = await LabApiService.payBookingOnline(
         bookingId: widget.booking.id,
         amount: price,
@@ -1370,7 +1568,7 @@ class _OnlinePaymentBottomSheetState extends State<_OnlinePaymentBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final price = widget.booking.labTest?.price ?? (widget.booking.amountPaid > 0 ? widget.booking.amountPaid : 0.0);
+    final price = widget.combinedAmount ?? (widget.booking.labTest?.price ?? (widget.booking.amountPaid > 0 ? widget.booking.amountPaid : 0.0));
 
     return Padding(
       padding: EdgeInsets.only(
@@ -1458,24 +1656,32 @@ class _OnlinePaymentBottomSheetState extends State<_OnlinePaymentBottomSheet> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.booking.labTest?.name ?? 'Diagnostic Test',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Slot: ${widget.booking.bookingDate} at ${widget.booking.timeSlot}',
-                            style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 11),
-                          ),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.combinedTestNames ?? (widget.booking.labTest?.name ?? 'Diagnostic Test'),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Slot: ${widget.booking.bookingDate} at ${widget.booking.timeSlot}',
+                              style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 11),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          const Text('Total Due', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700)),
+                          Text(
+                            widget.combinedAmount != null ? 'Total Due (Combined)' : 'Total Due',
+                            style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700),
+                          ),
                           Text(
                             'LKR ${price.toStringAsFixed(2)}',
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),

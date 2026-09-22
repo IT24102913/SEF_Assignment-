@@ -55,6 +55,25 @@ export const uploadFile = (file) => {
 // ─── Centralized Payments Subsystem ──────────────────────────────────────────
 const PAYMENTS_URL = 'http://localhost:5126/api/payments';
 
+export const payBookingOnline = ({ bookingId, amount, cardHolderName, cardNumber, expiryDate, cvv, patientEmail }) =>
+  axios.post(`${PAYMENTS_URL}/checkout`, {
+    module: 'Laboratory',
+    referenceId: bookingId,
+    amount,
+    currency: 'LKR',
+    cardHolderName,
+    cardNumber,
+    expiryDate,
+    cvv,
+    patientEmail,
+  });
+
+export const selectPayAtCounter = (bookingId) =>
+  axios.post(`${PAYMENTS_URL}/intent/counter`, {
+    module: 'Laboratory',
+    referenceId: bookingId,
+  });
+
 export const collectCounterPayment = ({ bookingId, amount, paymentMethod = 'CounterCash', notes = '', collectedBy = 'Lab Counter Staff' }) =>
   axios.post(`${PAYMENTS_URL}/counter`, {
     module: 'Laboratory',
