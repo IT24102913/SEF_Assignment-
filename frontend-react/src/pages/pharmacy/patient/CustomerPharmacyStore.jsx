@@ -34,6 +34,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [showCheckoutModal, setShowCheckoutModal] = useState(false);
     const [isDirectRxMode, setIsDirectRxMode] = useState(false);
     const [orderSuccessData, setOrderSuccessData] = useState(null);
+    const [rxModalMedicine, setRxModalMedicine] = useState(null);
 
     // Checkout Form state
     const [customerName, setCustomerName] = useState(user?.fullName || '');
@@ -505,89 +506,103 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                         <p>Try searching for a different drug name or clear your filters.</p>
                     </div>
                 ) : (
-                    filteredMedicines.map(med => (
-                        <div key={med.id} style={ps.card}>
-                            <div style={ps.imgWrapper}>
-                                <img
-                                    src={med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop'}
-                                    alt={med.name}
-                                    style={ps.cardImg}
-                                />
-                                {med.requiresPrescription && (
-                                    <span style={ps.rxRequiredBadge}>
-                                        <FileCheck size={12} /> Rx Required
-                                    </span>
-                                )}
-                            </div>
-
-                            <div style={ps.cardBody}>
-                                <span style={ps.cardCat}>{med.categoryName || 'General'}</span>
-                                <h3 style={ps.cardTitle}>{med.name}</h3>
-                                <p style={ps.cardDesc}>{med.description || 'Quality pharmaceuticals.'}</p>
-
-                                <div style={ps.cardFooter}>
-                                    <div>
-                                        <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#059669' }}>
-                                            Rs. {med.price?.toFixed(2)} <span style={{ fontSize: '11px', fontWeight: 500, color: '#64748B' }}>/ pill</span>
-                                        </div>
-                                        <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569', marginTop: '2px' }}>
-                                            Card ({med.pillsPerCard || 10} pills): <span style={{ color: '#0F172A', fontWeight: 700 }}>Rs. {(med.cardPrice || med.price * (med.pillsPerCard || 10))?.toFixed(2)}</span>
-                                        </div>
-                                    </div>
-                                    {(med.requiresPrescription === true || med.RequiresPrescription === true) ? (
-                                        <button
-                                            onClick={() => addToCart(med, 'RxQuote')}
-                                            disabled={med.stockQuantity <= 0}
-                                            style={{
-                                                ...ps.addBtn,
-                                                padding: '8px 12px',
-                                                fontSize: '12px',
-                                                backgroundColor: med.stockQuantity > 0 ? '#D97706' : '#CBD5E1',
-                                                cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '5px'
-                                            }}
-                                            title="Prescription Required: Request quote & upload doctor prescription photo"
-                                        >
-                                            <FileCheck size={14} /> Request Quote
-                                        </button>
-                                    ) : (
-                                        <div style={{ display: 'flex', gap: '6px' }}>
-                                            <button
-                                                onClick={() => addToCart(med, 'Pill')}
-                                                disabled={med.stockQuantity <= 0}
-                                                style={{
-                                                    ...ps.addBtn,
-                                                    padding: '7px 10px',
-                                                    fontSize: '12px',
-                                                    backgroundColor: med.stockQuantity > 0 ? '#059669' : '#CBD5E1',
-                                                    cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                                                }}
-                                                title="Add 1 Individual Pill / Unit"
-                                            >
-                                                <Plus size={13} /> Pill
-                                            </button>
-                                            <button
-                                                onClick={() => addToCart(med, 'Card')}
-                                                disabled={med.stockQuantity <= 0}
-                                                style={{
-                                                    ...ps.addBtn,
-                                                    padding: '7px 10px',
-                                                    fontSize: '12px',
-                                                    backgroundColor: med.stockQuantity > 0 ? '#047857' : '#CBD5E1',
-                                                    cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                                                }}
-                                                title={`Add 1 Card (${med.pillsPerCard || 10} Pills)`}
-                                            >
-                                                <Plus size={13} /> Card
-                                            </button>
-                                        </div>
+                    filteredMedicines.map(med => {
+                        const isRx = med.requiresPrescription === true || med.RequiresPrescription === true;
+                        return (
+                            <div
+                                key={med.id}
+                                style={{
+                                    ...ps.card,
+                                    border: isRx ? '1.5px solid #FCA5A5' : ps.card.border,
+                                    cursor: isRx ? 'pointer' : 'default'
+                                }}
+                                onClick={() => { if (isRx) setRxModalMedicine(med); }}
+                            >
+                                <div style={ps.imgWrapper}>
+                                    <img
+                                        src={med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop'}
+                                        alt={med.name}
+                                        style={ps.cardImg}
+                                    />
+                                    {isRx && (
+                                        <span style={ps.rxRequiredBadge} onClick={(e) => { e.stopPropagation(); setRxModalMedicine(med); }}>
+                                            <FileCheck size={12} /> Rx Required
+                                        </span>
                                     )}
                                 </div>
+
+                                <div style={ps.cardBody}>
+                                    <span style={ps.cardCat}>{med.categoryName || 'General'}</span>
+                                    <h3 style={ps.cardTitle}>{med.name}</h3>
+                                    <p style={ps.cardDesc}>{med.description || 'Quality pharmaceuticals.'}</p>
+
+                                    <div style={ps.cardFooter}>
+                                        <div>
+                                            <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#059669' }}>
+                                                Rs. {med.price?.toFixed(2)} <span style={{ fontSize: '11px', fontWeight: 500, color: '#64748B' }}>/ pill</span>
+                                            </div>
+                                            <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569', marginTop: '2px' }}>
+                                                Card ({med.pillsPerCard || 10} pills): <span style={{ color: '#0F172A', fontWeight: 700 }}>Rs. {(med.cardPrice || med.price * (med.pillsPerCard || 10))?.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                        {isRx ? (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setRxModalMedicine(med);
+                                                }}
+                                                disabled={med.stockQuantity <= 0}
+                                                style={{
+                                                    ...ps.addBtn,
+                                                    padding: '8px 12px',
+                                                    fontSize: '12px',
+                                                    backgroundColor: med.stockQuantity > 0 ? '#D97706' : '#CBD5E1',
+                                                    cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '5px'
+                                                }}
+                                                title="Doctor Prescription Required: Tap to view details & request quote"
+                                            >
+                                                <FileCheck size={14} /> Request Quote
+                                            </button>
+                                        ) : (
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                <button
+                                                    onClick={() => addToCart(med, 'Pill')}
+                                                    disabled={med.stockQuantity <= 0}
+                                                    style={{
+                                                        ...ps.addBtn,
+                                                        padding: '7px 10px',
+                                                        fontSize: '12px',
+                                                        backgroundColor: med.stockQuantity > 0 ? '#059669' : '#CBD5E1',
+                                                        cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
+                                                    }}
+                                                    title="Add 1 Individual Pill / Unit"
+                                                >
+                                                    <Plus size={13} /> Pill
+                                                </button>
+                                                <button
+                                                    onClick={() => addToCart(med, 'Card')}
+                                                    disabled={med.stockQuantity <= 0}
+                                                    style={{
+                                                        ...ps.addBtn,
+                                                        padding: '7px 10px',
+                                                        fontSize: '12px',
+                                                        backgroundColor: med.stockQuantity > 0 ? '#047857' : '#CBD5E1',
+                                                        cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
+                                                    }}
+                                                    title={`Add 1 Card (${med.pillsPerCard || 10} Pills)`}
+                                                >
+                                                    <Plus size={13} /> Card
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
@@ -1131,6 +1146,96 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     </div>
                 </div>
             )}
+
+            {/* Rx Explanation Pop-up Window */}
+            {rxModalMedicine && (
+                <div style={ps.modalOverlay} onClick={() => setRxModalMedicine(null)}>
+                    <div style={{ ...ps.checkoutModal, maxWidth: '480px', padding: '24px' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <div style={{ width: '42px', height: '42px', borderRadius: '12px', backgroundColor: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <FileCheck size={24} color="#DC2626" />
+                                </div>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '17px', color: '#0F172A', fontWeight: 800 }}>Doctor Prescription Needed</h3>
+                                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#DC2626', marginTop: '2px' }}>Rx / Restricted Medicine</div>
+                                </div>
+                            </div>
+                            <button onClick={() => setRxModalMedicine(null)} style={ps.closeBtn} title="Close">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Medicine Summary */}
+                        <div style={{ padding: '12px 14px', borderRadius: '12px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '16px' }}>
+                            <Pill size={24} color="#059669" />
+                            <div>
+                                <div style={{ fontSize: '14px', fontWeight: 800, color: '#0F172A' }}>{rxModalMedicine.name}</div>
+                                <div style={{ fontSize: '12px', color: '#64748B' }}>Category: {rxModalMedicine.categoryName || 'General'}</div>
+                            </div>
+                        </div>
+
+                        {/* Explanation for patients */}
+                        <div style={{ marginBottom: '14px' }}>
+                            <strong style={{ fontSize: '13.5px', color: '#0F172A', display: 'block', marginBottom: '6px' }}>What does "Rx Required" mean?</strong>
+                            <p style={{ margin: 0, fontSize: '12.5px', color: '#475569', lineHeight: 1.5 }}>
+                                In medical terminology, "Rx" stands for a Doctor's Prescription. This medicine is regulated for patient safety and cannot be dispensed without a valid prescription written by a doctor.
+                            </p>
+                        </div>
+
+                        <div style={{ padding: '12px 14px', borderRadius: '12px', backgroundColor: '#ECFDF5', border: '1px solid #A7F3D0', display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '20px' }}>
+                            <Sparkles size={18} color="#059669" style={{ flexShrink: 0, marginTop: '2px' }} />
+                            <p style={{ margin: 0, fontSize: '12px', fontWeight: 600, color: '#065F46', lineHeight: 1.45 }}>
+                                <strong>How to order:</strong> Tap "Request Quote", upload a photo of your doctor's prescription, and our licensed pharmacist will calculate your price &amp; dosage!
+                            </p>
+                        </div>
+
+                        {/* Modal Action Buttons */}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button
+                                onClick={() => setRxModalMedicine(null)}
+                                style={{
+                                    flex: 1,
+                                    padding: '12px',
+                                    borderRadius: '10px',
+                                    border: '1px solid #CBD5E1',
+                                    backgroundColor: '#FFFFFF',
+                                    color: '#475569',
+                                    fontWeight: 700,
+                                    fontSize: '13px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Close
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const med = rxModalMedicine;
+                                    setRxModalMedicine(null);
+                                    addToCart(med, 'RxQuote');
+                                }}
+                                style={{
+                                    flex: 2,
+                                    padding: '12px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    backgroundColor: '#D97706',
+                                    color: '#FFFFFF',
+                                    fontWeight: 700,
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <Upload size={16} /> Request Quote
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1512,6 +1617,19 @@ const ps = {
         alignItems: 'center',
         justifyContent: 'center',
         gap: '6px',
+    },
+    modalOverlay: {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(15,23,42,0.6)',
+        backdropFilter: 'blur(4px)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     checkoutModal: {
         backgroundColor: '#FFFFFF',
