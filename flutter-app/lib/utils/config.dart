@@ -1,11 +1,11 @@
 import 'package:http/http.dart' as http;
 
 class ApiConfig {
-  static String _activeHost = 'http://127.0.0.1:5126';
+  static String _activeHost = 'http://192.168.1.8:5126';
 
   static final List<String> candidateHosts = [
     'http://127.0.0.1:5126',   // ADB reverse port forwarding (USB connected physical device)
-    'http://10.35.16.140:5126', // LAN IPv4 address of PC
+    'http://192.168.1.8:5126', // LAN IPv4 address of PC
     'http://10.0.2.2:5126',     // Android Emulator default loopback
     'http://localhost:5126',    // Web / Direct local
   ];
