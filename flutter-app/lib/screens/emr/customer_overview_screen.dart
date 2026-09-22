@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 import '../../utils/theme.dart';
-import '../auth/login_screen.dart';
 import 'customer_health_passport_dialog.dart';
 
 class CustomerOverviewScreen extends StatelessWidget {
@@ -19,7 +18,6 @@ class CustomerOverviewScreen extends StatelessWidget {
       body: RefreshIndicator(
         color: HealthBridgeTheme.accentTeal,
         onRefresh: () async {
-          // Trigger refresh
           await Future.delayed(const Duration(milliseconds: 600));
         },
         child: ListView(

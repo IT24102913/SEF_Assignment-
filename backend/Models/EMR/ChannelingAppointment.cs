@@ -1,4 +1,4 @@
-﻿namespace LabManagement.API.Models.EMR;
+namespace HealthBridge.Api.Models.EMR;
 
 public class ChannelingAppointment
 {

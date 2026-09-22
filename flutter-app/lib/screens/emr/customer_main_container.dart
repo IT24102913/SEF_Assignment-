@@ -38,7 +38,6 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
     setState(() => _currentIndex = index);
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -48,7 +47,13 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
         backgroundColor: HealthBridgeTheme.primaryTeal,
         elevation: 0,
         foregroundColor: Colors.white,
-        titleSpacing: 16,
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
+        titleSpacing: Navigator.canPop(context) ? 0 : 16,
         title: Row(
           children: [
             // Logo Container with Heartbeat Icon
@@ -96,7 +101,7 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
           ],
         ),
         actions: [
-          // ── User Account Popup (replaces patient switcher)
+          // ── User Account Popup
           PopupMenuButton<String>(
             tooltip: 'My Profile & Account',
             offset: const Offset(0, 48),
@@ -117,7 +122,7 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
               ),
             ),
             itemBuilder: (context) => [
-              // User info header (tappable to view profile)
+              // User info header
               PopupMenuItem<String>(
                 value: 'profile',
                 height: 68,

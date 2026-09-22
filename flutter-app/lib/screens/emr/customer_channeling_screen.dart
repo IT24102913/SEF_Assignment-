@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 import '../../utils/theme.dart';
 
@@ -105,7 +105,7 @@ class _CustomerChannelingScreenState extends State<CustomerChannelingScreen> {
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF2563EB),
+                      color: Color(0xFF0D7C6B),
                     ),
                   ),
                 ],

@@ -1,8 +1,8 @@
-using LabManagement.API.DTOs.EMR;
-using LabManagement.API.Services.EMR;
+using HealthBridge.Api.DTOs.EMR;
+using HealthBridge.Api.Services.EMR;
 using Microsoft.AspNetCore.Mvc;
 
-namespace LabManagement.API.Controllers.EMR;
+namespace HealthBridge.Api.Controllers.EMR;
 
 [ApiController]
 [Route("api/emr")]
@@ -344,4 +344,3 @@ public class EMRController : ControllerBase
         return Ok(created);
     }
 }
-

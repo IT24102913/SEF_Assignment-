@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 import '../../utils/theme.dart';
 

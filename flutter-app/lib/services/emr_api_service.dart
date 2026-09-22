@@ -1,7 +1,43 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../utils/config.dart';
+
+// ─── Simple In-Memory Auth State ─────────────────────────────────────────────
+class AuthState {
+  static String? token;
+  static String? userId;
+  static String? name = 'John Anderson';
+  static String? email = 'john.anderson@example.com';
+  static String? role = 'Patient';
+  static String? patientCode = 'PAT-1001';
+  static int? age = 41;
+  static String? phoneNumber = '+1 555-0192';
+
+  static bool get isLoggedIn => token != null && token!.isNotEmpty;
+
+  static void setUser(Map<String, dynamic> data) {
+    token = data['token'] as String?;
+    userId = data['userId'] as String?;
+    name = data['name'] as String? ?? 'John Anderson';
+    email = data['email'] as String? ?? 'john.anderson@example.com';
+    role = data['role'] as String? ?? 'Patient';
+    patientCode = data['patientCode'] as String? ?? 'PAT-1001';
+    age = data['age'] is int ? data['age'] as int : (data['age'] != null ? int.tryParse(data['age'].toString()) : 41);
+    phoneNumber = data['phoneNumber'] as String? ?? '+1 555-0192';
+  }
+
+  static void clear() {
+    token = userId = name = email = role = patientCode = phoneNumber = null;
+    age = null;
+  }
+
+  static String get initials {
+    if (name == null || name!.isEmpty) return 'JA';
+    final parts = name!.trim().split(' ');
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return parts[0][0].toUpperCase();
+  }
+}
 
 // ─── Data Models ──────────────────────────────────────────────────────────────
 
@@ -290,15 +326,12 @@ class EmrApiService {
     _customHost = host;
   }
 
-  /// Automatically resolves base URL depending on platform
+  /// Automatically resolves base URL depending on platform and ApiConfig
   static String get baseUrl {
     if (_customHost != null && _customHost!.isNotEmpty) {
-      return 'http://$_customHost:5238/api/emr';
+      return 'http://$_customHost:5126/api/emr';
     }
-    if (!kIsWeb && Platform.isAndroid) {
-      return 'http://10.0.2.2:5238/api/emr';
-    }
-    return 'http://localhost:5238/api/emr';
+    return ApiConfig.emrUrl;
   }
 
   // ── Active Patient State ───────────────────────────────────────────────────

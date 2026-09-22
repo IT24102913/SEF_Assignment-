@@ -1,4 +1,4 @@
-﻿namespace LabManagement.API.DTOs.EMR;
+namespace HealthBridge.Api.DTOs.EMR;
 
 public class PrescriptionDto
 {

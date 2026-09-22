@@ -1,5 +1,5 @@
-﻿// Central Shared EMR Store with PostgreSQL Live Sync & LocalStorage Fallback
-import { emrApi } from '../services/emrApi.js';
+// Central Shared EMR Store with PostgreSQL Live Sync & LocalStorage Fallback
+import { emrApi } from '../api/emrApi.js';
 
 const INITIAL_PATIENTS = [
   { id: 'PAT-1001', name: 'John Anderson', age: 41, gender: 'Male', phone: '+1 555-0192', bloodGroup: 'O+', allergies: 'Penicillin, Peanuts', chronicConditions: 'Stage 1 Hypertension, Mild Asthma' },
@@ -156,7 +156,7 @@ class EmrStore {
     });
   }
 
-  // â”€â”€ Sync with Live PostgreSQL Backend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Sync with Live PostgreSQL Backend ──────────────────────────────────────
   async syncFromBackend() {
     if (this.isSyncing) return;
     this.isSyncing = true;
@@ -258,7 +258,7 @@ class EmrStore {
     return p ? p.name : patientCode;
   }
 
-  // â”€â”€ Patients API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Patients API ──────────────────────────────────────────────────────────
   getPatients() { return this.patients; }
 
   async addPatient(patient) {
@@ -291,7 +291,7 @@ class EmrStore {
     this.saveData();
   }
 
-  // â”€â”€ Consultation Notes API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Consultation Notes API ─────────────────────────────────────────────────
   getConsultations(patientId = null) {
     if (!patientId) return this.consultations;
     return this.consultations.filter(c => c.patientId === patientId);
@@ -332,7 +332,7 @@ class EmrStore {
     }
   }
 
-  // â”€â”€ Lab Reports API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Lab Reports API ────────────────────────────────────────────────────────
   getLabReports(patientId = null) {
     if (!patientId) return this.labReports;
     return this.labReports.filter(l => l.patientId === patientId);
@@ -379,7 +379,7 @@ class EmrStore {
     }
   }
 
-  // â”€â”€ Pharmacy Prescriptions API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Pharmacy Prescriptions API ─────────────────────────────────────────────
   getPrescriptions(patientId = null) {
     if (!patientId) return this.prescriptions;
     return this.prescriptions.filter(p => p.patientId === patientId);
@@ -429,4 +429,3 @@ class EmrStore {
 }
 
 export const emrStore = new EmrStore();
-

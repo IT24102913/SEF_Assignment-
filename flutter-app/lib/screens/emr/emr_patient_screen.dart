@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 
 // Health Bridge teal color palette
@@ -333,7 +333,7 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: kAccent.withOpacity(0.2))),
+              side: BorderSide(color: kAccent.withValues(alpha: 0.2))),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
