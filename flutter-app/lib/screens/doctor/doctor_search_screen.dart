@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/doctor_api_service.dart';
 import '../../utils/theme.dart';
+import '../../widgets/health_bridge_footer.dart';
 import 'specialist_list_screen.dart';
 import 'my_appointments_screen.dart';
 
@@ -495,6 +496,9 @@ class _DoctorSearchScreenState extends State<DoctorSearchScreen> {
                       );
                     },
                   ),
+            const SizedBox(height: 24),
+            const HealthBridgeFooter(),
+            const SizedBox(height: 16),
           ],
         ),
       ),
