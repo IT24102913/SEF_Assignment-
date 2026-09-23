@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { getAllBookings, markCollected, updateBookingStatus, deleteBookingAdmin, approveBooking, uploadResult, uploadFile } from '../../../api/labApi';
-import LabLayout from '../../../components/LabLayout';
+import LabLayout from '../../../components/layout/LabLayout';
 import { useAuth } from '../../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { FlaskConical, Search, RefreshCw, Microscope, FileText, Send, Check, Trash2, CheckCircle, Upload, X, FileUp, CheckCircle2, Link as LinkIcon, ShieldCheck } from 'lucide-react';

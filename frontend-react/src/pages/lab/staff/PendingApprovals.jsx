@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getPendingBookings, approveBooking, rejectBooking } from '../../../api/labApi';
-import LabLayout from '../../../components/LabLayout';
+import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
 import { CheckCircle, XCircle, Eye, Brain, X } from 'lucide-react';
 import emptyImg from '../../../assets/lab_empty_microscope.jpg';
@@ -46,6 +46,7 @@ export default function PendingApprovals() {
     try {
       await approveBooking(booking.id, TECHNICIAN_ID, '');
       toast.success(`Booking approved! Confirmation email sent to ${booking.patientEmail}`);
+      window.dispatchEvent(new Event('lab-booking-updated'));
       load();
     } catch { toast.error('Failed to approve booking'); }
   };
@@ -55,6 +56,7 @@ export default function PendingApprovals() {
     try {
       await rejectBooking(selected.id, TECHNICIAN_ID, rejectReason);
       toast.success('Booking rejected. Patient has been notified.');
+      window.dispatchEvent(new Event('lab-booking-updated'));
       setModal(null); setRejectReason('');
       load();
     } catch { toast.error('Failed to reject booking'); }

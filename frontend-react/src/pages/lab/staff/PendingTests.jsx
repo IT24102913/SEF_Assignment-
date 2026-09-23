@@ -8,7 +8,7 @@ import {
   deleteBookingAdmin,
   collectCounterPayment
 } from '../../../api/labApi';
-import LabLayout from '../../../components/LabLayout';
+import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
 import { 
   FlaskConical, 
@@ -121,6 +121,7 @@ export default function PendingTests() {
     try {
       await markCollected(id, TECHNICIAN_ID);
       toast.success(`Specimen marked as collected for ${patientName}!`);
+      window.dispatchEvent(new Event('lab-booking-updated'));
       load();
     } catch {
       toast.error('Failed to update sample status');
@@ -150,6 +151,7 @@ export default function PendingTests() {
 
       setPaymentModalBooking(null);
       setPaymentNotes('');
+      window.dispatchEvent(new Event('lab-booking-updated'));
       load();
     } catch (err) {
       toast.error('Failed to record counter payment: ' + (err.response?.data?.message || err.message));
@@ -162,6 +164,7 @@ export default function PendingTests() {
     try {
       await updateBookingStatus(id, newStatus);
       toast.success(message || `Status updated to ${newStatus}`);
+      window.dispatchEvent(new Event('lab-booking-updated'));
       load();
     } catch {
       toast.error('Failed to update status');
@@ -173,6 +176,7 @@ export default function PendingTests() {
     try {
       await deleteBookingAdmin(id);
       toast.success('Booking deleted successfully');
+      window.dispatchEvent(new Event('lab-booking-updated'));
       load();
     } catch {
       toast.error('Failed to delete booking');
@@ -211,6 +215,7 @@ export default function PendingTests() {
       await uploadResult(b.id, TECHNICIAN_ID, finalFileUrl);
       toast.success(`Report uploaded & email notification delivered to ${b.patientEmail}!`);
       setSelectedFiles(prev => { const n = { ...prev }; delete n[b.id]; return n; });
+      window.dispatchEvent(new Event('lab-booking-updated'));
       load();
     } catch (err) {
       toast.dismiss(`upload-${b.id}`);

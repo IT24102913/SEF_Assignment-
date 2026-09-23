@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAllTests, createTest, updateTest, deleteTest } from '../../../api/labApi';
-import LabLayout from '../../../components/LabLayout';
+import LabLayout from '../../../components/layout/LabLayout';
 import { useAuth } from '../../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { Plus, Pencil, Trash2, Search, FlaskConical, X, ShieldCheck, Eye, Info, Clock, AlertCircle } from 'lucide-react';
