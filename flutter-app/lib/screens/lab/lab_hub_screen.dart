@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/lab_api_service.dart';
 import '../../utils/theme.dart';
+import '../../widgets/health_bridge_footer.dart';
 import 'my_bookings_screen.dart';
 import 'booking_tracking_screen.dart';
 
@@ -52,11 +53,8 @@ class _LabHubScreenState extends State<LabHubScreen> {
         return;
       }
 
-      final rawBookings = await LabApiService.getMyBookings(user.userId, email: user.email);
-      final emailLower = user.email.trim().toLowerCase();
-      final bookings = emailLower.isNotEmpty
-          ? rawBookings.where((b) => b.patientEmail.trim().toLowerCase() == emailLower).toList()
-          : rawBookings;
+      final bookings = await LabApiService.getMyBookings(user.userId)
+          .timeout(const Duration(seconds: 5), onTimeout: () => []);
       if (mounted) {
         setState(() {
           _recentBookings = bookings;
@@ -466,6 +464,8 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
 
               const SizedBox(height: 20),
+              const HealthBridgeFooter(),
+              const SizedBox(height: 16),
             ],
           ),
         ),
