@@ -792,7 +792,9 @@ const CorporateFooter = () => (
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', gap: '40px', paddingBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
             <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <img src={logoImage} alt="Health Bridge Private" style={{ height: '36px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+                    <div style={{ background: '#FFFFFF', padding: '3px 6px', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                        <img src={logoImage} alt="Health Bridge Private" style={{ height: '34px', objectFit: 'contain' }} />
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.3px', lineHeight: 1.1 }}>HEALTH BRIDGE</span>
                         <span style={{ fontSize: '10px', fontWeight: 800, color: '#A7F3D0', letterSpacing: '1.2px', textTransform: 'uppercase' }}>PRIVATE</span>
