@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/authApi';
 import logoImage from '../../assets/mediz.png';
@@ -1348,8 +1348,11 @@ const PatientOrders = ({ user, onNavigate }) => {
 /* ─── Main Patient Dashboard ─────────────────────────── */
 const PatientDashboard = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { user, logout } = useAuth();
-    const [activeTab, setActiveTab] = useState('home');
+
+    // Read active tab directly from URL query param `?tab=...` (defaults to 'home')
+    const activeTab = searchParams.get('tab') || 'home';
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
     const handleNavigate = (tab) => {
@@ -1357,7 +1360,13 @@ const PatientDashboard = () => {
             navigate('/emr/overview');
             return;
         }
-        setActiveTab(tab);
+        if (tab === activeTab) return;
+
+        if (tab === 'home') {
+            navigate('/patient/dashboard');
+        } else {
+            navigate(`/patient/dashboard?tab=${tab}`);
+        }
     };
 
     const showToast = (message, type = 'success') => {
