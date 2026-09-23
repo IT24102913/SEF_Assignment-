@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { getAllBookings, uploadResult, updateBookingStatus, uploadFile } from '../../../api/labApi';
-import LabLayout from '../../../components/LabLayout';
+import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
 import { Upload, TestTube, FileText, CheckCircle2, Search, Microscope, Send, FileUp, Link as LinkIcon, Check } from 'lucide-react';
 import emptyImg from '../../../assets/lab_empty_microscope.jpg';

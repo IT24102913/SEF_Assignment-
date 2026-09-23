@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
 import '../../services/lab_api_service.dart';
+import '../../services/emr_api_service.dart';
 import 'package:lab_patient_app/utils/config.dart';
 import '../../utils/theme.dart';
 import 'booking_screen.dart';
@@ -41,11 +42,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   Future<void> _loadUser() async {
     final user = await AuthService.getUser();
-    if (user == null) {
+    final effectiveId = user?.userId ?? (AuthState.userId?.isNotEmpty == true ? AuthState.userId : null);
+    if (effectiveId == null || effectiveId.isEmpty) {
       if (mounted) Navigator.pushReplacementNamed(context, '/login');
       return;
     }
-    _userId = user.userId;
+    _userId = effectiveId;
     _load();
   }
 
@@ -575,11 +577,23 @@ class _ActiveBookingCard extends StatelessWidget {
                 children: [
                   const Icon(Icons.calendar_month_outlined, color: kPrimary, size: 16),
                   const SizedBox(width: 6),
-                  Text(booking.bookingDate, style: const TextStyle(color: kText, fontWeight: FontWeight.w700, fontSize: 12.5)),
-                  const SizedBox(width: 16),
+                  Flexible(
+                    child: Text(
+                      booking.bookingDate,
+                      style: const TextStyle(color: kText, fontWeight: FontWeight.w700, fontSize: 12.5),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
                   const Icon(Icons.access_time_rounded, color: kPrimary, size: 16),
                   const SizedBox(width: 6),
-                  Text(booking.timeSlot, style: const TextStyle(color: kText, fontWeight: FontWeight.w700, fontSize: 12.5)),
+                  Flexible(
+                    child: Text(
+                      booking.timeSlot,
+                      style: const TextStyle(color: kText, fontWeight: FontWeight.w700, fontSize: 12.5),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -591,39 +605,46 @@ class _ActiveBookingCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [kPrimary.withOpacity(0.12), const Color(0xFFE0F2FE)],
+                    colors: [kPrimary.withValues(alpha: 0.12), const Color(0xFFE0F2FE)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: kPrimary.withOpacity(0.3)),
+                  border: Border.all(color: kPrimary.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(color: kPrimary, borderRadius: BorderRadius.circular(8)),
-                          child: const Icon(Icons.confirmation_number_outlined, color: Colors.white, size: 16),
-                        ),
-                        const SizedBox(width: 10),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'AI Token: ${booking.queueToken}',
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: kPrimaryDark),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(color: kPrimary, borderRadius: BorderRadius.circular(8)),
+                            child: const Icon(Icons.confirmation_number_outlined, color: Colors.white, size: 16),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'AI Token: ${booking.queueToken}',
+                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: kPrimaryDark),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  'Station / Chair #${booking.assignedChairNo} • Est. Wait: ${booking.estimatedWaitMinutes}m',
+                                  style: const TextStyle(color: kTextMuted, fontSize: 11, fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
                             ),
-                            Text(
-                              'Station / Chair #${booking.assignedChairNo} • Est. Wait: ${booking.estimatedWaitMinutes}m',
-                              style: const TextStyle(color: kTextMuted, fontSize: 11, fontWeight: FontWeight.w600),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(color: kPrimaryDark, borderRadius: BorderRadius.circular(6)),
@@ -1084,16 +1105,15 @@ class _ReportDocumentCard extends StatelessWidget {
 
 class _HistoryRecordCard extends StatelessWidget {
   final LabBooking booking;
-  final void Function(String url) onDownload;
+  final void Function(String url)? onDownload;
 
-  const _HistoryRecordCard({required this.booking, required this.onDownload});
+  const _HistoryRecordCard({required this.booking, this.onDownload});
 
   @override
   Widget build(BuildContext context) {
     final isCompleted = booking.status == 'Completed';
     final isCancelled = booking.status == 'Cancelled';
     final isRejected = booking.status == 'Rejected';
-    final hasReport = booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty;
 
     Color badgeColor = kTextMuted;
     String badgeLabel = booking.status;
@@ -1126,9 +1146,9 @@ class _HistoryRecordCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                   decoration: BoxDecoration(
-                    color: badgeColor.withOpacity(0.12),
+                    color: badgeColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: badgeColor.withOpacity(0.3)),
+                    border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1164,38 +1184,71 @@ class _HistoryRecordCard extends StatelessWidget {
 
             const SizedBox(height: 12),
 
-            // Price & Reference ID Info Strip
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: kBorder.withOpacity(0.6)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.receipt_outlined, size: 15, color: kTextMuted),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Ref #${booking.id.substring(0, booking.id.length > 8 ? 8 : booking.id.length)}',
-                        style: const TextStyle(fontSize: 11.5, color: kTextMuted, fontWeight: FontWeight.w700),
+            // Price & Reference ID Info Strip / View Receipt
+            InkWell(
+              onTap: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => _PaymentReceiptDialog(booking: booking),
+                );
+              },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: kBorder.withValues(alpha: 0.6)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.receipt_outlined, size: 15, color: kTextMuted),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Ref #${booking.id.substring(0, booking.id.length > 8 ? 8 : booking.id.length)}',
+                          style: const TextStyle(fontSize: 11.5, color: kTextMuted, fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
                       ),
-                    ],
-                  ),
-                  Text(
-                    'LKR ${booking.labTest?.price.toStringAsFixed(0) ?? "0"}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: kPrimaryDark),
-                  ),
-                ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'LKR ${booking.labTest?.price.toStringAsFixed(0) ?? "0"}',
+                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                          ),
+                          const SizedBox(width: 6),
+                          const Icon(Icons.receipt_long, size: 13, color: Color(0xFF059669)),
+                          const SizedBox(width: 3),
+                          const Text(
+                            'View Receipt',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF059669),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
 
             const SizedBox(height: 14),
 
-            // Actions: Book Test Again + Archived Report Link (if available)
+            // Actions: Book Test Again + Test Info
             Row(
               children: [
                 Expanded(
@@ -1220,41 +1273,27 @@ class _HistoryRecordCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (hasReport) ...[
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: () => onDownload(booking.resultFileUrl!),
-                    icon: const Icon(Icons.picture_as_pdf, size: 15, color: Color(0xFF059669)),
-                    label: const Text('Archived PDF', style: TextStyle(color: Color(0xFF059669), fontSize: 12, fontWeight: FontWeight.w700)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF6EE7B7)),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: () {
+                    if (booking.labTest != null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => TestDetailScreen(test: booking.labTest!),
+                        ),
+                      );
+                    } else {
+                      Navigator.pushNamed(context, '/catalogue');
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: kBorder),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
-                ] else ...[
-                  const SizedBox(width: 10),
-                  OutlinedButton(
-                    onPressed: () {
-                      if (booking.labTest != null) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => TestDetailScreen(test: booking.labTest!),
-                          ),
-                        );
-                      } else {
-                        Navigator.pushNamed(context, '/catalogue');
-                      }
-                    },
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: kBorder),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    child: const Text('Test Info', style: TextStyle(color: kText, fontSize: 12, fontWeight: FontWeight.w700)),
-                  ),
-                ],
+                  child: const Text('Test Info', style: TextStyle(color: kText, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                ),
               ],
             ),
           ],
@@ -1657,13 +1696,13 @@ class _PaymentReceiptDialog extends StatelessWidget {
             const SizedBox(height: 14),
 
             // Receipt Metadata Rows
-            _receiptRow('Receipt #', booking.receiptNumber ?? 'MEDIX-RCP-ONLINE'),
+            _receiptRow('Receipt #', (booking.receiptNumber != null && booking.receiptNumber!.isNotEmpty) ? booking.receiptNumber! : 'MEDIX-RCP-${booking.id.length > 6 ? booking.id.substring(0, 6).toUpperCase() : "ONLINE"}'),
             _receiptRow('Payment Status', 'Settled & Verified', isHighlight: true),
             _receiptRow('Payment Method', booking.paymentMethod ?? 'Online Card Gateway'),
-            _receiptRow('Patient Name', booking.patientName),
+            _receiptRow('Patient Name', booking.patientName.isNotEmpty ? booking.patientName : (AuthState.name ?? 'Patient')),
             _receiptRow('Diagnostic Test', booking.labTest?.name ?? 'Clinical Test'),
             _receiptRow('Appointment', '${booking.bookingDate} at ${booking.timeSlot}'),
-            if (booking.paidAt != null)
+            if (booking.paidAt != null && booking.paidAt!.isNotEmpty)
               _receiptRow('Paid On', booking.paidAt!.length > 10 ? booking.paidAt!.substring(0, 10) : booking.paidAt!),
 
             const SizedBox(height: 10),
