@@ -37,6 +37,11 @@ export default function UploadResults() {
 
   const handleFileSelect = (bookingId, file) => {
     if (file) {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (!isPdf) {
+        toast.error('Only PDF documents (.pdf) can be uploaded as test results.');
+        return;
+      }
       setSelectedFiles(prev => ({ ...prev, [bookingId]: file }));
     }
   };
@@ -51,6 +56,12 @@ export default function UploadResults() {
     }
     if (isManual && !url.trim()) {
       return toast.error('Please enter a result file URL link');
+    }
+    if (isManual) {
+      const cleanUrl = url.trim().split('?')[0].toLowerCase();
+      if (!cleanUrl.endsWith('.pdf')) {
+        return toast.error('Result document link must be a direct URL to a PDF file (.pdf)');
+      }
     }
 
     setUploadingId(b.id);
@@ -210,13 +221,13 @@ export default function UploadResults() {
                   {!isManual ? (
                     <div>
                       <label className="form-label" style={{ fontWeight: 700, marginBottom: 6 }}>
-                        Upload PDF / Image Diagnostic Report *
+                        Upload PDF Diagnostic Report *
                       </label>
 
                       <input 
                         type="file"
                         id={`file-input-${b.id}`}
-                        accept=".pdf,.jpg,.jpeg,.png,.docx"
+                        accept=".pdf,application/pdf"
                         style={{ display: 'none' }}
                         onChange={(e) => handleFileSelect(b.id, e.target.files?.[0])}
                       />
@@ -243,7 +254,7 @@ export default function UploadResults() {
                             {currentFile ? currentFile.name : 'Click to select PDF document'}
                           </div>
                           <div style={{ fontSize: 11.5, color: '#64748B' }}>
-                            {currentFile ? `${(currentFile.size / 1024).toFixed(1)} KB (Ready to upload)` : 'PDF, PNG, JPG up to 25MB'}
+                            {currentFile ? `${(currentFile.size / 1024).toFixed(1)} KB (Ready to upload)` : 'Only PDF documents (.pdf) up to 25MB'}
                           </div>
                         </div>
                       </div>

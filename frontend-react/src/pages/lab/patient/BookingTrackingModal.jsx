@@ -20,13 +20,30 @@ const STATUS_RANKS = {
   'Cancelled': -1,
 };
 
-export default function BookingTrackingModal({ booking, onClose, onDownloadReport }) {
+export default function BookingTrackingModal({ booking, relatedBookings = [], onClose, onDownloadReport }) {
   if (!booking) return null;
 
+  // Resolve all bookings in this appointment
+  const candidateList = (relatedBookings && relatedBookings.length > 0)
+    ? relatedBookings
+    : (booking._siblingBookings && booking._siblingBookings.length > 0)
+      ? booking._siblingBookings
+      : (booking._allBookings && booking._allBookings.length > 0)
+        ? booking._allBookings
+        : (booking._slotSiblings && booking._slotSiblings.length > 0)
+          ? [booking, ...booking._slotSiblings]
+          : [booking];
+
+  const map = new Map();
+  map.set(booking.id, booking);
+  candidateList.forEach(b => { if (b && b.id) map.set(b.id, b); });
+  const allBookings = Array.from(map.values());
+  const isMulti = allBookings.length > 1;
+  const totalPrice = allBookings.reduce((sum, b) => sum + (b.labTest?.price || 0), 0);
   const status = booking.status || 'PendingLabApproval';
   const currentRank = STATUS_RANKS[status] ?? 0;
   const isFailed = status === 'Rejected' || status === 'Cancelled';
-  const isRestricted = booking.labTest?.isRestricted || booking.isRestricted;
+  const isRestricted = allBookings.some ? allBookings.some(b => b.labTest?.isRestricted || b.isRestricted) : (booking.labTest?.isRestricted || booking.isRestricted);
 
   // Build timeline stages
   const stages = [];
@@ -102,7 +119,7 @@ export default function BookingTrackingModal({ booking, onClose, onDownloadRepor
             <div>
               <h2 style={styles.title}>Live Test Tracking</h2>
               <div style={styles.subtitle}>
-                Token <span style={styles.tokenBadge}>#{booking.tokenNumber || 'LAB'}</span> • {booking.labTest?.name || 'Diagnostic Test'}
+                Token <span style={styles.tokenBadge}>#{booking.tokenNumber || 'LAB'}</span> • {isMulti ? `Combined Appointment (${allBookings.length} Tests)` : (booking.labTest?.name || 'Diagnostic Test')}
               </div>
             </div>
           </div>
@@ -122,6 +139,70 @@ export default function BookingTrackingModal({ booking, onClose, onDownloadRepor
                   ? `Prescription rejected by laboratory staff: "${booking.technicianNotes}". No further actions can be taken for this request.`
                   : (booking.notes || 'This laboratory appointment was cancelled or rejected by clinical staff.')}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Multi-Test Appointment Banner */}
+        {isMulti && (
+          <div style={{
+            background: '#F0FDF4',
+            borderRadius: 12,
+            border: '1.5px solid #BBF7D0',
+            padding: '14px 18px',
+            marginBottom: 16
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#065F46', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Microscope size={15} color="#059669" /> Diagnostic Tests in this Combined Appointment ({allBookings.length})
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#047857', background: '#DCFCE7', padding: '2px 8px', borderRadius: 999 }}>
+                Combined Total: LKR {totalPrice.toLocaleString()}
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {allBookings.map((item, i) => (
+                <div key={item.id || i} style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  fontSize: 13, 
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0'
+                }}>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#1E293B' }}>{item.labTest?.name || 'Diagnostic Test'}</div>
+                    <div style={{ fontSize: 11, color: '#64748B' }}>
+                      {item.labTest?.category || 'Clinical Pathology'} • Specimen: {item.labTest?.sampleType || 'Specimen'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ 
+                      fontSize: 11, 
+                      fontWeight: 700, 
+                      padding: '2px 8px', 
+                      borderRadius: 6, 
+                      background: item.status === 'ResultsReady' || item.status === 'ReportDelivered' || item.status === 'Completed'
+                        ? '#DCFCE7' 
+                        : item.status === 'SampleCollected' || item.status === 'TestingInProgress'
+                          ? '#EFF6FF' 
+                          : '#FEF3C7',
+                      color: item.status === 'ResultsReady' || item.status === 'ReportDelivered' || item.status === 'Completed'
+                        ? '#15803D' 
+                        : item.status === 'SampleCollected' || item.status === 'TestingInProgress'
+                          ? '#1D4ED8' 
+                          : '#B45309'
+                    }}>
+                      {item.status}
+                    </span>
+                    <span style={{ fontWeight: 800, color: '#059669', fontSize: 13 }}>
+                      LKR {(item.labTest?.price || 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -191,7 +272,11 @@ export default function BookingTrackingModal({ booking, onClose, onDownloadRepor
           </div>
           <div style={styles.summaryRow}>
             <span style={styles.summaryLabel}>Sample Specimen:</span>
-            <span style={styles.summaryValue}>{booking.labTest?.sampleType || 'Blood Sample'}</span>
+            <span style={styles.summaryValue}>
+              {isMulti
+                ? Array.from(new Set(allBookings.map(b => b.labTest?.sampleType || 'Specimen'))).join(', ')
+                : (booking.labTest?.sampleType || 'Blood Sample')}
+            </span>
           </div>
           <div style={styles.summaryRow}>
             <span style={styles.summaryLabel}>Payment Status:</span>
@@ -199,17 +284,31 @@ export default function BookingTrackingModal({ booking, onClose, onDownloadRepor
               {booking.paymentStatus === 'PaidOnline' ? '✓ Paid Online (Card)' : 'Cash on Counter (Pending)'}
             </span>
           </div>
+          <div style={styles.summaryRow}>
+            <span style={styles.summaryLabel}>{isMulti ? 'Combined Total Fee:' : 'Total Test Fee:'}</span>
+            <span style={{ ...styles.summaryValue, color: '#059669', fontWeight: 800 }}>
+              LKR {totalPrice.toLocaleString()}
+            </span>
+          </div>
         </div>
 
         {/* Footer Actions */}
         <div style={styles.footer}>
-          {booking.resultFileUrl ? (
-            <button 
-              style={styles.downloadBtn}
-              onClick={() => onDownloadReport ? onDownloadReport(booking) : window.open(booking.resultFileUrl, '_blank')}
-            >
-              <Download size={16} /> Download Official PDF Report
-            </button>
+          {allBookings.some(b => b.resultFileUrl) ? (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+              {allBookings.map((b, idx) => {
+                if (!b.resultFileUrl) return null;
+                return (
+                  <button 
+                    key={b.id || idx}
+                    style={styles.downloadBtn}
+                    onClick={() => onDownloadReport ? onDownloadReport(b) : window.open(b.resultFileUrl, '_blank')}
+                  >
+                    <Download size={15} /> Download {isMulti ? `${(b.labTest?.name || 'Test').split(' ')[0]} PDF` : 'Official PDF Report'}
+                  </button>
+                );
+              })}
+            </div>
           ) : (
             <div style={styles.pendingNote}>
               <Clock size={15} color="#059669" />

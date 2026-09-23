@@ -149,9 +149,16 @@ class _LabHubScreenState extends State<LabHubScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final latestActive = _recentBookings.where((b) => 
+    final activeBookings = _recentBookings.where((b) => 
       b.status != 'Completed' && b.status != 'Cancelled' && b.status != 'Rejected'
-    ).firstOrNull;
+    ).toList();
+    final latestActive = activeBookings.firstOrNull;
+    final latestActiveSiblings = latestActive != null
+        ? activeBookings.where((b) => b.id != latestActive.id && b.bookingDate == latestActive.bookingDate && b.timeSlot == latestActive.timeSlot).toList()
+        : <LabBooking>[];
+    final allLatestActive = latestActive != null ? [latestActive, ...latestActiveSiblings] : <LabBooking>[];
+    final isMultiLatest = allLatestActive.length > 1;
+    final isPaidLatest = allLatestActive.isNotEmpty && allLatestActive.every((b) => b.paymentStatus == 'PaidOnline' || b.paymentStatus == 'PaidAtCounter');
 
     return Scaffold(
       appBar: AppBar(
@@ -328,54 +335,169 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       ),
 
                 // Live Tracking Card for active booking
-                if (latestActive != null) ...[
+                if (allLatestActive.isNotEmpty) ...[
                   const SizedBox(height: 20),
-                  FadeSlideAnimation(
-                    child: AppCard(
-                      color: const Color(0xFFF8FAFC),
-                      border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => BookingTrackingScreen(booking: latestActive)),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [kPrimary, Color(0xFF00BCD4)]),
-                              borderRadius: BorderRadius.circular(12),
+                  if (!isPaidLatest && isMultiLatest) ...[
+                    // Combined intake card before payment is confirmed
+                    FadeSlideAnimation(
+                      child: AppCard(
+                        color: const Color(0xFFF8FAFC),
+                        border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => BookingTrackingScreen(
+                              booking: latestActive,
+                              relatedBookings: allLatestActive,
                             ),
-                            child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Text('Active Test: ', style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600)),
-                                    Expanded(
-                                      child: Text(
-                                        latestActive.labTest?.name ?? 'Lab Test',
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
-                                        overflow: TextOverflow.ellipsis,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(colors: [kPrimary, Color(0xFF00BCD4)]),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Active Tests (${allLatestActive.length}): ',
+                                        style: const TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
                                       ),
+                                      Expanded(
+                                        child: Text(
+                                          allLatestActive.map((b) => b.labTest?.name ?? 'Lab Test').join(' + '),
+                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      StatusBadge(status: latestActive!.status),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF3E8FF),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: const Color(0xFFD8B4FE)),
+                                        ),
+                                        child: Text(
+                                          'Combined (${allLatestActive.length} Tests)',
+                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF7E22CE)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    // Once payment is confirmed, show each active test as its own live tracking card!
+                    for (int i = 0; i < allLatestActive.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 10),
+                      FadeSlideAnimation(
+                        child: AppCard(
+                          color: const Color(0xFFF8FAFC),
+                          border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => BookingTrackingScreen(
+                                booking: allLatestActive[i],
+                                relatedBookings: const [],
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: i == 0
+                                        ? [kPrimary, const Color(0xFF00BCD4)]
+                                        : [const Color(0xFF2563EB), const Color(0xFF38BDF8)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          allLatestActive.length > 1 ? 'Active Test #${i + 1}: ' : 'Active Test: ',
+                                          style: const TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            allLatestActive[i].labTest?.name ?? 'Lab Test',
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        StatusBadge(status: allLatestActive[i].status),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFECFDF5),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.check_circle, size: 10, color: Color(0xFF059669)),
+                                              SizedBox(width: 3),
+                                              Text(
+                                                'Paid & Verified',
+                                                style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 4),
-                                StatusBadge(status: latestActive.status),
-                              ],
-                            ),
+                              ),
+                              const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
+                            ],
                           ),
-                          const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
+                    ],
+                  ],
                 ],
               ],
 

@@ -38,6 +38,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
     // Modals
     const [bookingTest, setBookingTest] = useState(null);
     const [trackingBooking, setTrackingBooking] = useState(null);
+    const [trackingRelatedBookings, setTrackingRelatedBookings] = useState([]);
 
     const requireAuth = (featureName, callback) => {
         if (isLoggedIn) {
@@ -122,11 +123,17 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
         });
     };
 
-    const latestActive = bookings.find(b =>
+    const activeBookings = bookings.filter(b =>
         b.status !== 'Completed' &&
         b.status !== 'Cancelled' &&
         b.status !== 'Rejected'
     );
+    const latestActive = activeBookings[0] || null;
+    const latestActiveSiblings = latestActive
+        ? activeBookings.filter(b => b.id !== latestActive.id && b.bookingDate === latestActive.bookingDate && b.timeSlot === latestActive.timeSlot)
+        : [];
+    const allLatestActive = latestActive ? [latestActive, ...latestActiveSiblings] : [];
+    const isMultiLatest = allLatestActive.length > 1;
 
     return (
         <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
@@ -286,7 +293,11 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                     initialFilter={initialBookingFilter}
                     onOpenBookingModal={() => setBookingTest({})}
                     onOpenCatalogue={() => setActiveTab('catalogue')}
-                    onTrackBooking={(b) => setTrackingBooking(b)}
+                    onTrackBooking={(b, related) => {
+                        const list = (related && related.length > 0) ? related : (b._siblingBookings || [b]);
+                        setTrackingBooking(b);
+                        setTrackingRelatedBookings(list);
+                    }}
                 />
             )}
 
@@ -579,7 +590,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                                             gap: '5px'
                                         }}>
                                             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#2DD4BF' }} />
-                                            Active Specimen Processing
+                                            {isMultiLatest ? `Active Appointment (${allLatestActive.length} Tests)` : 'Active Specimen Processing'}
                                         </span>
                                         <span style={{
                                             padding: '2px 8px',
@@ -594,7 +605,9 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                                         </span>
                                     </div>
                                     <div style={{ fontSize: '18px', fontWeight: 800, color: '#F8FAFC', marginBottom: '4px' }}>
-                                        {latestActive.labTest?.name || 'Diagnostic Laboratory Test'}
+                                        {isMultiLatest 
+                                            ? allLatestActive.map(b => b.labTest?.name || 'Diagnostic Test').join(' + ')
+                                            : (latestActive.labTest?.name || 'Diagnostic Laboratory Test')}
                                     </div>
                                     <div style={{ fontSize: '13px', color: '#94A3B8', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                                         <span>Status: <strong style={{ color: '#E2E8F0' }}>{latestActive.status}</strong></span>
@@ -604,7 +617,10 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                             </div>
 
                             <button
-                                onClick={() => setTrackingBooking(latestActive)}
+                                onClick={() => {
+                                    setTrackingBooking(latestActive);
+                                    setTrackingRelatedBookings(allLatestActive);
+                                }}
                                 style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -972,7 +988,11 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
             {trackingBooking && (
                 <BookingTrackingModal
                     booking={trackingBooking}
-                    onClose={() => setTrackingBooking(null)}
+                    relatedBookings={trackingRelatedBookings}
+                    onClose={() => {
+                        setTrackingBooking(null);
+                        setTrackingRelatedBookings([]);
+                    }}
                 />
             )}
 
