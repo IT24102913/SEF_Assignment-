@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/lab_api_service.dart';
+import '../../services/emr_api_service.dart';
+import '../../main.dart';
 import '../../utils/theme.dart';
 import '../../widgets/health_bridge_footer.dart';
 import 'my_bookings_screen.dart';
@@ -31,15 +33,27 @@ class _LabHubScreenState extends State<LabHubScreen> {
   Future<void> _loadData() async {
     try {
       final user = await AuthService.getUser();
-      final loggedIn = (user != null);
+      final hasAuthState = (AuthState.token != null && AuthState.token!.isNotEmpty) ||
+          (AuthState.userId != null && AuthState.userId!.isNotEmpty);
+      final loggedIn = (user != null) || hasAuthState || AppSession.isLoggedIn;
+
+      final rawName = (user != null && user.name.isNotEmpty)
+          ? user.name
+          : (AuthState.name?.isNotEmpty == true
+              ? AuthState.name!
+              : (AppSession.userName?.isNotEmpty == true ? AppSession.userName! : 'Patient'));
+      final userId = (user != null && user.userId.isNotEmpty)
+          ? user.userId
+          : (AuthState.userId ?? '');
+
       if (mounted) {
         setState(() {
           _isLoggedIn = loggedIn;
-          _userName = loggedIn ? user.name.split(' ').first : 'Guest';
+          _userName = loggedIn ? rawName.split(' ').first : 'Guest';
         });
       }
 
-      if (!loggedIn) {
+      if (!loggedIn || userId.isEmpty) {
         if (mounted) {
           setState(() {
             _loading = false;
@@ -53,7 +67,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
         return;
       }
 
-      final bookings = await LabApiService.getMyBookings(user.userId)
+      final bookings = await LabApiService.getMyBookings(userId)
           .timeout(const Duration(seconds: 5), onTimeout: () => []);
       if (mounted) {
         setState(() {
@@ -229,7 +243,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       Text(
                         _isLoggedIn
                             ? 'Book lab tests, track sample analysis live, and download verified digital medical reports.'
-                            : 'Explore 50+ accredited pathology & diagnostic tests with transparent pricing. Log in to book slots and access medical reports.',
+                            : 'Explore 50+ accredited pathology & diagnostic tests with transparent pricing.',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 13,
@@ -238,30 +252,15 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       ),
                       if (!_isLoggedIn) ...[
                         const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () => Navigator.pushNamed(context, '/catalogue'),
-                              icon: const Icon(Icons.search, size: 16, color: kPrimaryDark),
-                              label: const Text('Explore Lab Tests', style: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.bold, fontSize: 13)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            OutlinedButton.icon(
-                              onPressed: () => Navigator.pushNamed(context, '/login').then((_) => _loadData()),
-                              icon: const Icon(Icons.login, size: 16, color: Colors.white),
-                              label: const Text('Sign In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Colors.white70),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            ),
-                          ],
+                        ElevatedButton.icon(
+                          onPressed: () => Navigator.pushNamed(context, '/catalogue'),
+                          icon: const Icon(Icons.search, size: 16, color: kPrimaryDark),
+                          label: const Text('Explore Lab Tests', style: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.bold, fontSize: 13)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
                         ),
                       ],
                     ],
@@ -389,18 +388,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 1. Explore Lab Tests (Available for EVERYONE, including non-logged-in users)
-              _ActionCard(
-                icon: Icons.manage_search_outlined,
-                title: 'Explore Lab Tests & Pricing',
-                description: 'Browse 50+ clinical diagnostics, fasting preparation rules & costs.',
-                gradient: const [Color(0xFF00897B), Color(0xFF26A69A)],
-                badgeText: 'Open to All',
-                onTap: () => Navigator.pushNamed(context, '/catalogue'),
-              ),
-              const SizedBox(height: 12),
-
-              // 2. Book Laboratory Test (Requires logged-in user)
+              // 1. Book Laboratory Test (Requires logged-in user)
               _ActionCard(
                 icon: Icons.add_circle_outline,
                 title: 'Book Laboratory Test',
@@ -414,7 +402,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 3. Track Specimen & Status (Requires logged-in user)
+              // 2. Track Specimen & Status (Requires logged-in user)
               _ActionCard(
                 icon: Icons.track_changes_outlined,
                 title: 'Track Specimen & Status',
@@ -431,7 +419,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 4. Download Test Reports (Requires logged-in user)
+              // 3. Download Test Reports (Requires logged-in user)
               _ActionCard(
                 icon: Icons.file_download_done_outlined,
                 title: 'Download Test Reports',
@@ -448,7 +436,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 5. Full Booking History (Requires logged-in user)
+              // 4. Full Booking History (Requires logged-in user)
               _ActionCard(
                 icon: Icons.receipt_long_outlined,
                 title: 'Full Booking History',
@@ -548,7 +536,7 @@ class _ActionCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: gradient[0].withOpacity(0.3),
+              color: gradient[0].withValues(alpha: 0.3),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -560,7 +548,7 @@ class _ActionCard extends StatelessWidget {
               width: 46,
               height: 46,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(icon, color: Colors.white, size: 24),
@@ -607,7 +595,7 @@ class _ActionCard extends StatelessWidget {
                   Text(
                     description,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.88),
+                      color: Colors.white.withValues(alpha: 0.88),
                       fontSize: 12,
                       height: 1.3,
                     ),
@@ -616,7 +604,7 @@ class _ActionCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Icon(Icons.arrow_forward_ios, color: Colors.white.withOpacity(0.7), size: 14),
+            Icon(Icons.arrow_forward_ios, color: Colors.white.withValues(alpha: 0.7), size: 14),
           ],
         ),
       ),
