@@ -189,6 +189,17 @@ public class LabAdminController : ControllerBase
             return BadRequest(new { message = "Results cannot be uploaded for bookings that are pending approval, rejected, or cancelled." });
         }
 
+        if (string.IsNullOrWhiteSpace(dto.ResultFileUrl))
+        {
+            return BadRequest(new { message = "Result file URL or document is required." });
+        }
+
+        var cleanUrl = dto.ResultFileUrl.Split('?')[0].Trim();
+        if (!cleanUrl.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { message = "Only PDF files (.pdf) are allowed as test results." });
+        }
+
         booking.ResultFileUrl = dto.ResultFileUrl;
         booking.Status = BookingStatus.ResultsReady;
         booking.ResultsUploadedAt = DateTime.UtcNow;

@@ -34,6 +34,7 @@ class LabBooking {
   final String bookingDate, timeSlot;
   final LabTest? labTest;
   final String? prescriptionImageUrl, aiVerification, aiVerificationNotes, resultFileUrl;
+  final String? technicianNotes;
   final double? aiConfidenceScore;
   final String? queueToken, priorityTier;
   final int estimatedWaitMinutes, estimatedServiceDurationMinutes, assignedChairNo;
@@ -48,6 +49,7 @@ class LabBooking {
     required this.patientEmail, required this.status, required this.bookingDate,
     required this.timeSlot, this.labTest, this.prescriptionImageUrl,
     this.aiVerification, this.aiVerificationNotes, this.resultFileUrl,
+    this.technicianNotes,
     this.aiConfidenceScore, this.queueToken, this.priorityTier,
     this.estimatedWaitMinutes = 0, this.estimatedServiceDurationMinutes = 10,
     this.assignedChairNo = 1,
@@ -71,6 +73,7 @@ class LabBooking {
     aiVerification: j['aiVerification']?.toString(),
     aiVerificationNotes: j['aiVerificationNotes']?.toString(),
     resultFileUrl: j['resultFileUrl']?.toString(),
+    technicianNotes: j['technicianNotes']?.toString(),
     aiConfidenceScore: j['aiConfidenceScore'] != null ? (j['aiConfidenceScore'] as num).toDouble() : null,
     queueToken: j['queueToken']?.toString(),
     priorityTier: j['priorityTier']?.toString(),
