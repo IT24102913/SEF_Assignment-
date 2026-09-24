@@ -734,12 +734,17 @@ class OrderCardItem extends StatelessWidget {
                 else
                   ...order.items.map((item) {
                     final itemPending = isPendingVerification || item.unitType == 'RxQuote' || item.requiresPrescription;
+                    final isCard = item.unitType == 'Card' || item.medicineName.toLowerCase().contains('(card)');
+                    final unitLabel = isCard ? (item.quantity > 1 ? 'Cards' : 'Card') : (item.quantity > 1 ? 'Pills' : 'Pill');
+                    final cleanName = item.medicineName.replaceAll(RegExp(r'\s*\(Card\)', caseSensitive: false), '').trim();
+                    final displayLabel = '$cleanName (x${item.quantity} $unitLabel)';
+
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 4),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('${item.medicineName} (x${item.quantity})', style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
+                          Text(displayLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
                           Text(
                             itemPending ? 'Quote Pending' : 'Rs. ${item.subtotal.toStringAsFixed(2)}',
                             style: TextStyle(

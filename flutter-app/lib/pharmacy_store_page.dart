@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'services/pharmacy_service.dart';
 import 'services/emr_api_service.dart'; // For AuthState
 import 'main.dart'; // For AppSession
@@ -134,7 +135,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
         return sum + item.lineTotal;
       });
 
-  double get _deliveryFee => (_cart.isNotEmpty && _deliveryMethod == 'HomeDelivery') ? 250.0 : 0.0;
+  double get _deliveryFee => 0.0;
 
   double get _cartTotal => _cartSubtotal + _deliveryFee;
 
@@ -152,6 +153,22 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
             _cart.clear();
           });
           _showOrderSuccessDialog(orderData);
+        },
+      ),
+    );
+  }
+
+  void _openMedicineDetailModal(MedicineModel med) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => MedicineDetailBottomSheet(
+        medicine: med,
+        onAddToCart: (unit, qty) {
+          for (int i = 0; i < qty; i++) {
+            _addToCart(med, defaultUnitType: unit);
+          }
         },
       ),
     );
@@ -494,7 +511,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                     ),
                                   ),
                                   child: Text(
-                                    '🚚 Home Delivery\n(+Rs. 250)',
+                                    '🚚 Home Delivery\n(+ Delivery Charges < 500)',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 11,
@@ -555,7 +572,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                             children: [
                               const Text('Delivery Charge:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                               Text(
-                                _deliveryMethod == 'HomeDelivery' ? '+ Rs. 250.00' : 'FREE',
+                                _deliveryMethod == 'HomeDelivery' ? 'Payable on Delivery (< Rs. 500)' : 'FREE',
                                 style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
                               ),
                             ],
@@ -1053,6 +1070,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                     return ProductCard(
                                       medicine: med,
                                       onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
+                                      onOpenDetail: () => _openMedicineDetailModal(med),
                                     );
                                   },
                                   childCount: _filteredMedicines.length,
@@ -1145,11 +1163,13 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
 class ProductCard extends StatelessWidget {
   final MedicineModel medicine;
   final Function(String defaultUnitType) onAddToCart;
+  final VoidCallback onOpenDetail;
 
   const ProductCard({
     super.key,
     required this.medicine,
     required this.onAddToCart,
+    required this.onOpenDetail,
   });
 
   void _showRxInfoModal(BuildContext context) {
@@ -1318,7 +1338,7 @@ class ProductCard extends StatelessWidget {
     final isRx = medicine.requiresPrescription;
 
     return InkWell(
-      onTap: isRx ? () => _showRxInfoModal(context) : null,
+      onTap: onOpenDetail,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
@@ -1600,18 +1620,25 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
     final isRx = _requiresVerification;
     final orderItems = _isDirectRxOnly
         ? <Map<String, dynamic>>[]
-        : widget.cart.map((item) => {
-              'medicineId': item.medicine.id,
-              'medicineName': item.medicine.name,
-              'requiresPrescription': item.medicine.requiresPrescription,
-              'unitType': item.unitType,
-              'quantity': item.quantity,
-              'price': isRx ? 0.0 : item.unitPrice,
+        : widget.cart.map((item) {
+              final isCard = item.unitType == 'Card';
+              final medName = (isCard && !item.medicine.name.toLowerCase().contains('(card)'))
+                  ? '${item.medicine.name} (Card)'
+                  : item.medicine.name;
+              return {
+                'medicineId': item.medicine.id,
+                'medicineName': medName,
+                'requiresPrescription': item.medicine.requiresPrescription,
+                'unitType': item.unitType,
+                'quantity': item.quantity,
+                'price': isRx ? 0.0 : item.unitPrice,
+                'unitPrice': isRx ? 0.0 : item.unitPrice,
+              };
             }).toList();
 
     final subtotal = widget.cart.fold(0.0, (s, i) => s + i.lineTotal);
-    final deliveryFee = widget.deliveryMethod == 'HomeDelivery' ? 250.0 : 0.0;
-    final totalAmount = isRx ? 0.0 : (subtotal + deliveryFee);
+    final deliveryFee = 0.0;
+    final totalAmount = isRx ? 0.0 : subtotal;
 
     final resData = await PharmacyService.placeOrder(
       customerName: _nameCtrl.text.trim(),
@@ -1887,6 +1914,455 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class MedicineDetailBottomSheet extends StatefulWidget {
+  final MedicineModel medicine;
+  final Function(String unitType, int quantity) onAddToCart;
+
+  const MedicineDetailBottomSheet({
+    super.key,
+    required this.medicine,
+    required this.onAddToCart,
+  });
+
+  @override
+  State<MedicineDetailBottomSheet> createState() => _MedicineDetailBottomSheetState();
+}
+
+class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
+  int _selectedImageIndex = 0;
+  int _quantity = 1;
+
+  Future<void> _launchGoogleSearch(String query) async {
+    final searchUrl = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query + " medicine dosage brand details")}');
+    if (await canLaunchUrl(searchUrl)) {
+      await launchUrl(searchUrl, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final med = widget.medicine;
+    final images = med.galleryImages;
+    final activeImg = images.isNotEmpty && _selectedImageIndex < images.length
+        ? images[_selectedImageIndex]
+        : (med.imageUrl ?? '');
+    final brand = med.brandName?.isNotEmpty == true ? med.brandName! : 'CIPLA PHARMA';
+    final isRx = med.requiresPrescription;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.88,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: Column(
+        children: [
+          // Header Bar: ← Back to Products | CATEGORY BADGE | Close X
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                InkWell(
+                  onTap: () => Navigator.pop(context),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.arrow_back, size: 18, color: Color(0xFF059669)),
+                      SizedBox(width: 4),
+                      Text(
+                        'Back to Products',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Text(
+                    med.categoryName.toUpperCase(),
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857)),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+
+          // Scrollable Content
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Main Image View with 100% Genuine Medicine Badge
+                  Stack(
+                    children: [
+                      Container(
+                        height: 220,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: activeImg.startsWith('http')
+                              ? Image.network(
+                                  activeImg,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (c, e, s) => const Center(
+                                    child: Icon(Icons.medication_liquid, size: 64, color: Color(0xFF94A3B8)),
+                                  ),
+                                )
+                              : const Center(
+                                  child: Icon(Icons.medication_liquid, size: 64, color: Color(0xFF94A3B8)),
+                                ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 12,
+                        left: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(235),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 6),
+                            ],
+                          ),
+                          child: Row(
+                            children: const [
+                              Icon(Icons.verified, color: Color(0xFF059669), size: 14),
+                              SizedBox(width: 4),
+                              Text(
+                                '100% Genuine Medicine',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Gallery Thumbnail Strip
+                  if (images.length > 1) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 60,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: images.length,
+                        itemBuilder: (ctx, idx) {
+                          final imgUrl = images[idx];
+                          final isSel = idx == _selectedImageIndex;
+                          return GestureDetector(
+                            onTap: () => setState(() => _selectedImageIndex = idx),
+                            child: Container(
+                              margin: const EdgeInsets.only(right: 10),
+                              width: 60,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSel ? const Color(0xFF059669) : const Color(0xFFCBD5E1),
+                                  width: isSel ? 2.5 : 1,
+                                ),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.network(
+                                  imgUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => const Icon(Icons.image, color: Colors.grey),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+
+                  // Brand Tag & Verified Brand Subtitle
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFBFDBFE)),
+                        ),
+                        child: Text(
+                          brand.toUpperCase(),
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        '• Verified Pharmaceutical Brand',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Medicine Title
+                  Text(
+                    med.name,
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // Description Section
+                  const Text(
+                    'PRODUCT DESCRIPTION',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    med.description,
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.45),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // Pricing & Stock Availability Box
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text('UNIT PRICE (PER PILL): ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                            Text(
+                              'Rs. ${med.price.toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Text('ONE CARD PRICE: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                            Text(
+                              'Rs. ${med.cardPrice.toStringAsFixed(2)}',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'PILLS IN ONE CARD: ${med.pillsPerCard} pills in one card',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.check_circle, color: Color(0xFF059669), size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              'In stock (${med.stockQuantity > 0 ? med.stockQuantity : 100} available) • Express Dispatch Ready',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // Storage Requirement Section
+                  const Text(
+                    'STORAGE REQUIREMENT',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: med.storageCondition?.contains('2°C') == true ? const Color(0xFFEFF6FF) : const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: med.storageCondition?.contains('2°C') == true ? const Color(0xFFBFDBFE) : const Color(0xFFA7F3D0),
+                      ),
+                    ),
+                    child: Text(
+                      med.storageCondition?.isNotEmpty == true
+                          ? med.storageCondition!
+                          : 'Normal Room Temperature (Store in a cool, dry place below 25°C)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: med.storageCondition?.contains('2°C') == true ? const Color(0xFF1E40AF) : const Color(0xFF065F46),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // Google External Identification Link Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _launchGoogleSearch(med.name),
+                      icon: const Icon(Icons.search, size: 18, color: Color(0xFF1E293B)),
+                      label: const Text(
+                        'Search & Identify More Details on Google ↗',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Bottom Fixed Action Bar: Quantity Selector + Add Pill / Add Card Buttons
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+            ),
+            child: isRx
+                ? SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onAddToCart('RxQuote', 1);
+                      },
+                      icon: const Icon(Icons.upload_file, size: 18),
+                      label: const Text('Request Prescription Quote', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFD97706),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  )
+                : Row(
+                    children: [
+                      // Quantity selector (- 1 +)
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                        ),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                              icon: const Icon(Icons.remove, size: 16),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            ),
+                            Text(
+                              '$_quantity',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            ),
+                            IconButton(
+                              onPressed: () => setState(() => _quantity++),
+                              icon: const Icon(Icons.add, size: 16),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+
+                      // Add Pill Button
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            widget.onAddToCart('Pill', _quantity);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF059669),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: Text('+ Add Pill ($_quantity)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Add Card Button
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            widget.onAddToCart('Card', _quantity);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF047857),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: Text('+ Add Card (${med.pillsPerCard}s)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
       ),
     );
   }
