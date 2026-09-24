@@ -162,13 +162,28 @@ public class EMRService : IEMRService
 
     // ─── Consultation Notes ───────────────────────────────────────────────────
 
-    public async Task<IEnumerable<ConsultationNoteDto>> GetConsultationsAsync(string? patientCode = null)
+    public async Task<IEnumerable<ConsultationNoteDto>> GetConsultationsAsync(string? patientCode = null, string? search = null, string? doctorName = null)
     {
-        var query = _db.ConsultationNotes.AsQueryable();
+        var query = _db.ConsultationNotes.Include(c => c.Patient).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
             query = query.Where(c => c.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+        }
+
+        if (!string.IsNullOrWhiteSpace(doctorName) && doctorName != "ALL")
+        {
+            query = query.Where(c => c.DoctorName.ToLower().Contains(doctorName.Trim().ToLower()));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(c => c.PatientCode.ToLower().Contains(term) ||
+                                     c.DoctorName.ToLower().Contains(term) ||
+                                     c.Diagnosis.ToLower().Contains(term) ||
+                                     c.ClinicalNotes.ToLower().Contains(term) ||
+                                     (c.Patient != null && c.Patient.FullName.ToLower().Contains(term)));
         }
 
         var notes = await query.OrderByDescending(c => c.ConsultationDate).ToListAsync();
@@ -226,13 +241,33 @@ public class EMRService : IEMRService
 
     // ─── Lab Reports ──────────────────────────────────────────────────────────
 
-    public async Task<IEnumerable<LabReportDto>> GetLabReportsAsync(string? patientCode = null)
+    public async Task<IEnumerable<LabReportDto>> GetLabReportsAsync(string? patientCode = null, string? search = null, string? category = null, string? status = null)
     {
-        var query = _db.LabReports.AsQueryable();
+        var query = _db.LabReports.Include(l => l.Patient).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
             query = query.Where(l => l.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+        }
+
+        if (!string.IsNullOrWhiteSpace(category) && category != "ALL")
+        {
+            query = query.Where(l => l.Category.ToLower() == category.Trim().ToLower());
+        }
+
+        if (!string.IsNullOrWhiteSpace(status) && status != "ALL")
+        {
+            query = query.Where(l => l.Status.ToLower() == status.Trim().ToLower());
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(l => l.PatientCode.ToLower().Contains(term) ||
+                                     l.TestTitle.ToLower().Contains(term) ||
+                                     l.OrderedDoctor.ToLower().Contains(term) ||
+                                     l.ResultsSummary.ToLower().Contains(term) ||
+                                     (l.Patient != null && l.Patient.FullName.ToLower().Contains(term)));
         }
 
         var reports = await query.OrderByDescending(l => l.ReportDate).ToListAsync();
@@ -305,13 +340,33 @@ public class EMRService : IEMRService
 
     // ─── Prescriptions ────────────────────────────────────────────────────────
 
-    public async Task<IEnumerable<PrescriptionDto>> GetPrescriptionsAsync(string? patientCode = null)
+    public async Task<IEnumerable<PrescriptionDto>> GetPrescriptionsAsync(string? patientCode = null, string? search = null, string? status = null, string? doctorName = null)
     {
-        var query = _db.Prescriptions.AsQueryable();
+        var query = _db.Prescriptions.Include(p => p.Patient).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
             query = query.Where(p => p.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+        }
+
+        if (!string.IsNullOrWhiteSpace(status) && status != "ALL")
+        {
+            query = query.Where(p => p.Status.ToLower() == status.Trim().ToLower());
+        }
+
+        if (!string.IsNullOrWhiteSpace(doctorName) && doctorName != "ALL")
+        {
+            query = query.Where(p => p.PrescribedDoctor.ToLower().Contains(doctorName.Trim().ToLower()));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(p => p.PatientCode.ToLower().Contains(term) ||
+                                     p.MedicationName.ToLower().Contains(term) ||
+                                     p.Dosage.ToLower().Contains(term) ||
+                                     p.PrescribedDoctor.ToLower().Contains(term) ||
+                                     (p.Patient != null && p.Patient.FullName.ToLower().Contains(term)));
         }
 
         var rxs = await query.OrderByDescending(p => p.StartDate).ToListAsync();

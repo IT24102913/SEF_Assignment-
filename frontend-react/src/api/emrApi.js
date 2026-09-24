@@ -65,8 +65,13 @@ export const emrApi = {
   },
 
   // ── Consultation Notes ───────────────────────────────────────────────────
-  async getConsultations(patientCode = '') {
-    const url = patientCode ? `${API_BASE}/consultations?patientCode=${encodeURIComponent(patientCode)}` : `${API_BASE}/consultations`;
+  async getConsultations(patientCode = '', search = '', doctorName = '') {
+    const params = new URLSearchParams();
+    if (patientCode) params.append('patientCode', patientCode);
+    if (search) params.append('search', search);
+    if (doctorName && doctorName !== 'ALL') params.append('doctorName', doctorName);
+    const qs = params.toString();
+    const url = qs ? `${API_BASE}/consultations?${qs}` : `${API_BASE}/consultations`;
     const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch consultations: ${res.statusText}`);
     return await res.json();
@@ -89,8 +94,14 @@ export const emrApi = {
   },
 
   // ── Lab Reports ──────────────────────────────────────────────────────────
-  async getLabReports(patientCode = '') {
-    const url = patientCode ? `${API_BASE}/lab-reports?patientCode=${encodeURIComponent(patientCode)}` : `${API_BASE}/lab-reports`;
+  async getLabReports(patientCode = '', search = '', category = '', status = '') {
+    const params = new URLSearchParams();
+    if (patientCode) params.append('patientCode', patientCode);
+    if (search) params.append('search', search);
+    if (category && category !== 'ALL') params.append('category', category);
+    if (status && status !== 'ALL') params.append('status', status);
+    const qs = params.toString();
+    const url = qs ? `${API_BASE}/lab-reports?${qs}` : `${API_BASE}/lab-reports`;
     const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch lab reports: ${res.statusText}`);
     return await res.json();
@@ -123,8 +134,14 @@ export const emrApi = {
   },
 
   // ── Prescriptions ────────────────────────────────────────────────────────
-  async getPrescriptions(patientCode = '') {
-    const url = patientCode ? `${API_BASE}/prescriptions?patientCode=${encodeURIComponent(patientCode)}` : `${API_BASE}/prescriptions`;
+  async getPrescriptions(patientCode = '', search = '', status = '', doctorName = '') {
+    const params = new URLSearchParams();
+    if (patientCode) params.append('patientCode', patientCode);
+    if (search) params.append('search', search);
+    if (status && status !== 'ALL') params.append('status', status);
+    if (doctorName && doctorName !== 'ALL') params.append('doctorName', doctorName);
+    const qs = params.toString();
+    const url = qs ? `${API_BASE}/prescriptions?${qs}` : `${API_BASE}/prescriptions`;
     const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch prescriptions: ${res.statusText}`);
     return await res.json();
