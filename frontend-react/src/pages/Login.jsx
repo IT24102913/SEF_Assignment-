@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { register as apiRegister } from '../api/authApi';
@@ -264,7 +264,13 @@ const PasswordField = ({ id, label, value, onChange, onBlur, placeholder, error,
 const Login = () => {
     const [tab, setTab] = useState('signin');
     const navigate = useNavigate();
-    const { login } = useAuth();
+    const { user, login } = useAuth();
+
+    useEffect(() => {
+        if (user?.role) {
+            navigate(`/${user.role.toLowerCase()}/dashboard`, { replace: true });
+        }
+    }, [user, navigate]);
 
     // Sign-in state
     const [siEmail, setSiEmail] = useState('');
@@ -291,7 +297,7 @@ const Login = () => {
         setSiLoading(true);
         try {
             const data = await login(siEmail, siPass);
-            navigate(`/${data.user.role.toLowerCase()}/dashboard`);
+            navigate(`/${data.user.role.toLowerCase()}/dashboard`, { replace: true });
         } catch (err) {
             setSiError(err.message || 'Invalid email or password.');
         } finally {

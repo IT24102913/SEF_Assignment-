@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/authApi';
 import logoImage from '../../assets/mediz.png';
@@ -355,7 +355,7 @@ const HospitalHeroBanner = ({ onNavigate }) => (
 
                 <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
                     <button
-                        onClick={() => onNavigate('services')}
+                        onClick={() => onNavigate('channeling')}
                         style={{
                             padding: '14px 30px',
                             borderRadius: '12px',
@@ -724,17 +724,17 @@ const DashboardHome = ({ user, onNavigate }) => (
                 <div key={label}
                     onClick={() => tab && onNavigate(tab)}
                     style={{
-                    background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
-                    borderRadius: '20px',
-                    padding: '20px 22px',
-                    border: `1.5px solid ${border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '18px',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-                    transition: 'all 0.25s ease',
-                    cursor: tab ? 'pointer' : 'default',
-                }}>
+                        background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+                        borderRadius: '20px',
+                        padding: '20px 22px',
+                        border: `1.5px solid ${border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '18px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                        transition: 'all 0.25s ease',
+                        cursor: tab ? 'pointer' : 'default',
+                    }}>
                     <div style={{
                         width: '50px',
                         height: '50px',
@@ -792,7 +792,9 @@ const CorporateFooter = () => (
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', gap: '40px', paddingBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
             <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <img src={logoImage} alt="Health Bridge Private" style={{ height: '36px', objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+                    <div style={{ background: '#FFFFFF', padding: '3px 6px', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                        <img src={logoImage} alt="Health Bridge Private" style={{ height: '34px', objectFit: 'contain' }} />
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                         <span style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.3px', lineHeight: 1.1 }}>HEALTH BRIDGE</span>
                         <span style={{ fontSize: '10px', fontWeight: 800, color: '#A7F3D0', letterSpacing: '1.2px', textTransform: 'uppercase' }}>PRIVATE</span>
@@ -1348,8 +1350,11 @@ const PatientOrders = ({ user, onNavigate }) => {
 /* ─── Main Patient Dashboard ─────────────────────────── */
 const PatientDashboard = () => {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { user, logout } = useAuth();
-    const [activeTab, setActiveTab] = useState('home');
+
+    // Read active tab directly from URL query param `?tab=...` (defaults to 'home')
+    const activeTab = searchParams.get('tab') || 'home';
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
     const handleNavigate = (tab) => {
@@ -1357,7 +1362,13 @@ const PatientDashboard = () => {
             navigate('/emr/overview');
             return;
         }
-        setActiveTab(tab);
+        if (tab === activeTab) return;
+
+        if (tab === 'home') {
+            navigate('/patient/dashboard');
+        } else {
+            navigate(`/patient/dashboard?tab=${tab}`);
+        }
     };
 
     const showToast = (message, type = 'success') => {
