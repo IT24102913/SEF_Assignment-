@@ -9,6 +9,7 @@ import PatientDashboard from './pages/patient/Dashboard';
 
 // ✅ Import Hospital Admin
 import Patients from './pages/admin/Patients';
+import StaffManagement from './pages/admin/StaffManagement';
 
 // ✅ Import Pharmacy Module (Staff & Patient)
 import PharmacyDashboard from './pages/pharmacy/staff/PharmacyDashboard';
@@ -283,6 +284,12 @@ function App() {
                     </Route>
                     <Route path="/emr/staff" element={<EmrStaffPortal />} />
                     <Route path="/emr/admin" element={<EmrStaffPortal />} />
+                    <Route path="/admin/records" element={<Navigate to="/emr/admin" replace />} />
+                    <Route path="/admin/staff" element={
+                        <ProtectedRoute allowedRoles={['Admin']}>
+                            <StaffManagement />
+                        </ProtectedRoute>
+                    } />
 
                     <Route path="/staff/dashboard" element={
                         <ProtectedRoute allowedRoles={['Staff']}>

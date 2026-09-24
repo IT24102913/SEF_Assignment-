@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
 import PatientSelector from './PatientSelector';
 import { emrStore } from '../../../data/mockEmrStore';
-import { Microscope, Upload, FilePlus, ShieldAlert, CheckCircle, Info } from 'lucide-react';
+import { Microscope, Upload, FilePlus, ShieldAlert, CheckCircle, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../../context/AuthContext';
 
 export default function LaboratorianPortal({ staffSession }) {
+  const { user } = useAuth();
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  // Form state
-  const [testTitle, setTestTitle] = useState('Complete Blood Count (CBC)');
-  const [category, setCategory] = useState('Hematology');
-  const [orderedDoctor, setOrderedDoctor] = useState('Dr. Sarah Jenkins');
+  // Form state - 100% clean, no hardcoded demo values
+  const [testTitle, setTestTitle] = useState('');
+  const [category, setCategory] = useState('');
+  const [orderedDoctor, setOrderedDoctor] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [status, setStatus] = useState('Completed');
+  const [resultsSummary, setResultsSummary] = useState('');
   const [fileName, setFileName] = useState('');
 
   const handleFileUpload = (e) => {
@@ -22,37 +26,48 @@ export default function LaboratorianPortal({ staffSession }) {
     }
   };
 
-  const handleCreateLabReport = (e) => {
+  const handleCreateLabReport = async (e) => {
     e.preventDefault();
     if (!selectedPatient) {
       toast.error('Please select a patient first.');
       return;
     }
+    if (!testTitle.trim()) {
+      toast.error('Please enter the lab test title.');
+      return;
+    }
 
-    const newReport = {
-      id: `LAB-${Math.floor(1000 + Math.random() * 9000)}`,
-      patientId: selectedPatient.id,
-      patientName: selectedPatient.name,
-      testTitle,
-      category,
-      orderedDoctor,
-      date,
-      status,
-      fileName: fileName || `${testTitle.replace(/\s+/g, '_')}_${selectedPatient.name.replace(/\s+/g, '')}.pdf`,
-      addedBy: `${staffSession.staffId} (Lab Staff)`
-    };
+    setSaving(true);
+    try {
+      const generatedFileName = fileName || `${testTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${selectedPatient.name.replace(/[^a-zA-Z0-9]/g, '')}.pdf`;
 
-    emrStore.addLabReport(newReport);
-    toast.success(`Lab Report "${testTitle}" uploaded for ${selectedPatient.name}!`);
+      const newReport = {
+        patientId: selectedPatient.id,
+        patientName: selectedPatient.name,
+        testTitle: testTitle.trim(),
+        category: category.trim() || 'General',
+        orderedDoctor: orderedDoctor.trim() || 'Attending Physician',
+        date,
+        status,
+        fileName: generatedFileName,
+        resultsSummary: resultsSummary.trim(),
+        addedBy: `${staffSession.staffId || user?.fullName || 'Staff'} (Lab)`
+      };
 
-    // Reset fields
-    setFileName('');
-  };
+      await emrStore.addLabReport(newReport);
+      toast.success(`Lab Report "${testTitle}" saved for ${selectedPatient.name}!`);
 
-  const handleEditRequest = () => {
-    toast('Edit/Delete restricted for Lab Staff. Request sent to Super Admin.', {
-      icon: '🛡️',
-    });
+      // Reset form
+      setTestTitle('');
+      setCategory('');
+      setOrderedDoctor('');
+      setResultsSummary('');
+      setFileName('');
+    } catch (err) {
+      toast.error('Failed to upload lab report. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -97,91 +112,139 @@ export default function LaboratorianPortal({ staffSession }) {
                 Upload Lab Report for {selectedPatient.name} ({selectedPatient.id})
               </h3>
             </div>
-
-            <div style={{ fontSize: '0.8rem', backgroundColor: '#f1f5f9', color: '#475569', padding: '4px 12px', borderRadius: '12px', fontWeight: 600 }}>
-              Permission: Create Only (No Delete/Edit)
-            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
             <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Report / Test Title</label>
-              <input type="text" value={testTitle} onChange={(e) => setTestTitle(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Diagnostic Test Title</label>
+              <input
+                type="text"
+                value={testTitle}
+                onChange={(e) => setTestTitle(e.target.value)}
+                placeholder="e.g. Complete Blood Count (CBC), Lipid Profile"
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Laboratory Category</label>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="input-field" style={{ width: '100%' }}>
-                <option value="Hematology">Hematology</option>
-                <option value="Biochemistry">Biochemistry</option>
-                <option value="Microbiology">Microbiology</option>
-                <option value="Radiology">Radiology & Imaging</option>
-                <option value="Pathology">Pathology</option>
-              </select>
+              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Category</label>
+              <input
+                type="text"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="e.g. Hematology, Biochemistry, Radiology, Microbiology"
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
             <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Ordered Doctor Name</label>
-              <input type="text" value={orderedDoctor} onChange={(e) => setOrderedDoctor(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Ordering Doctor</label>
+              <input
+                type="text"
+                value={orderedDoctor}
+                onChange={(e) => setOrderedDoctor(e.target.value)}
+                placeholder="e.g. Dr. John Doe"
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Report Date</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Report Status</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value)} className="input-field" style={{ width: '100%' }}>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="input-field"
+                style={{ width: '100%', padding: '10px 12px' }}
+              >
                 <option value="Completed">Completed</option>
-                <option value="Pending">Pending</option>
-                <option value="In Progress">In Progress</option>
+                <option value="Pending">Pending Analysis</option>
+                <option value="Review">Requires Doctor Review</option>
               </select>
             </div>
           </div>
 
-          {/* File Upload Box */}
-          <div style={{
-            border: '2px dashed #cbd5e1',
-            borderRadius: '14px',
-            padding: '24px',
-            textAlign: 'center',
-            backgroundColor: '#f8fafc',
-            marginBottom: '28px'
-          }}>
-            <Upload size={32} color="#16a34a" style={{ marginBottom: '8px' }} />
-            <div style={{ fontWeight: 600, fontSize: '0.92rem', color: '#0f172a', marginBottom: '4px' }}>
-              Attach PDF or Scan Image Report
+          <div className="form-group" style={{ marginBottom: '20px' }}>
+            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Diagnostic Findings / Results Summary</label>
+            <textarea
+              rows={3}
+              value={resultsSummary}
+              onChange={(e) => setResultsSummary(e.target.value)}
+              placeholder="e.g. All parameters within normal reference ranges. Hemoglobin: 14.2 g/dL..."
+              className="input-field"
+              style={{ width: '100%', resize: 'vertical' }}
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: '28px' }}>
+            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Attach Digital Diagnostic PDF / Document (Optional)</label>
+            <div style={{
+              border: '2px dashed #cbd5e1',
+              borderRadius: '12px',
+              padding: '24px',
+              textAlign: 'center',
+              backgroundColor: '#f8fafc',
+              cursor: 'pointer'
+            }}>
+              <Upload size={32} color="#16a34a" style={{ margin: '0 auto 10px auto' }} />
+              <input
+                type="file"
+                id="lab-file"
+                onChange={handleFileUpload}
+                accept=".pdf,.png,.jpg,.jpeg"
+                style={{ display: 'none' }}
+              />
+              <label htmlFor="lab-file" style={{ cursor: 'pointer', display: 'block' }}>
+                <span style={{ color: '#16a34a', fontWeight: 700 }}>Click to browse files</span> or drag and drop PDF/Images
+              </label>
+              {fileName && (
+                <div style={{ marginTop: '10px', fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
+                  Selected File: {fileName}
+                </div>
+              )}
             </div>
-            <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '12px' }}>Supported formats: .PDF, .PNG, .JPG (Max 15MB)</p>
-            
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={handleFileUpload} id="lab-file-input" style={{ display: 'none' }} />
-            <label htmlFor="lab-file-input" className="btn btn-secondary" style={{ cursor: 'pointer', display: 'inline-flex' }}>
-              Choose File
-            </label>
-
-            {fileName && (
-              <div style={{ marginTop: '12px', fontSize: '0.85rem', color: '#16a34a', fontWeight: 600 }}>
-                Selected File: {fileName}
-              </div>
-            )}
           </div>
 
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <button type="submit" className="btn" style={{ backgroundColor: '#16a34a', color: '#fff', padding: '14px 28px', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <CheckCircle size={18} /> Upload Lab Report
-            </button>
-
-            <button type="button" onClick={handleEditRequest} className="btn btn-secondary" style={{ color: '#475569' }}>
-              Request Edit / Delete Permission
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn btn-primary"
+            style={{
+              backgroundColor: '#16a34a',
+              borderColor: '#16a34a',
+              padding: '14px 28px',
+              fontSize: '1rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              opacity: saving ? 0.7 : 1
+            }}
+          >
+            <Save size={18} /> {saving ? 'Uploading Report...' : 'Publish Lab Report'}
+          </button>
         </form>
       ) : (
         <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
-          Select a patient above to create and upload lab reports.
+          Select a patient above to upload lab test reports.
         </div>
       )}
     </div>

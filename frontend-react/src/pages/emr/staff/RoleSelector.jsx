@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { Stethoscope, Microscope, Pill, ShieldAlert, KeyRound, UserCheck, ArrowRight } from 'lucide-react';
+import { Stethoscope, Microscope, Pill, ShieldAlert, KeyRound, ArrowRight, Lock } from 'lucide-react';
+import { login as apiLogin } from '../../../api/authApi';
+import { useAuth } from '../../../context/AuthContext';
 
 export default function RoleSelector({ onLogin }) {
+  const { user: currentAuthUser } = useAuth();
   const [selectedRole, setSelectedRole] = useState('Consultant');
-  const [staffId, setStaffId] = useState('DOC-101');
-  const [password, setPassword] = useState('password123');
+  const [staffId, setStaffId] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const roles = [
     {
@@ -14,15 +18,15 @@ export default function RoleSelector({ onLogin }) {
       icon: Stethoscope,
       accentColor: '#0d7c6b',
       bgColor: '#e6f5f2',
-      defaultId: 'DOC-101'
+      matchingRole: 'Doctor'
     },
     {
       id: 'Laboratorian',
-      title: 'Laboratorian',
+      title: 'Laboratorian (Lab Staff)',
       icon: Microscope,
       accentColor: '#16a34a',
       bgColor: '#f0fdf4',
-      defaultId: 'LAB-202'
+      matchingRole: 'Laboratory'
     },
     {
       id: 'Pharmacist',
@@ -30,7 +34,7 @@ export default function RoleSelector({ onLogin }) {
       icon: Pill,
       accentColor: '#9333ea',
       bgColor: '#faf5ff',
-      defaultId: 'PHARM-303'
+      matchingRole: 'Pharmacist'
     },
     {
       id: 'Admin',
@@ -38,30 +42,59 @@ export default function RoleSelector({ onLogin }) {
       icon: ShieldAlert,
       accentColor: '#ea580c',
       bgColor: '#fff7ed',
-      defaultId: 'ADMIN-001'
+      matchingRole: 'Admin'
     }
   ];
 
   const handleRoleChange = (role) => {
     setSelectedRole(role.id);
-    setStaffId(role.defaultId);
     setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!staffId.trim() || !password.trim()) {
-      setError('Please enter your Staff ID and Password.');
+    if (!staffId.trim()) {
+      setError(`Please enter your ${selectedRole} ID or registered staff email.`);
       return;
     }
+    if (!password.trim()) {
+      setError('Please enter your account password.');
+      return;
+    }
+
     setError('');
+    setLoading(true);
+
     const activeRoleConfig = roles.find(r => r.id === selectedRole);
-    onLogin({
-      role: selectedRole,
-      staffId: staffId.trim(),
-      roleTitle: activeRoleConfig.title,
-      accentColor: activeRoleConfig.accentColor
-    });
+
+    try {
+      // If user typed an email, authenticate directly against backend
+      if (staffId.includes('@')) {
+        const res = await apiLogin(staffId.trim(), password);
+        const loggedUser = res.user;
+        onLogin({
+          role: selectedRole,
+          staffId: loggedUser.fullName || loggedUser.email,
+          roleTitle: activeRoleConfig.title,
+          accentColor: activeRoleConfig.accentColor,
+          user: loggedUser
+        });
+      } else {
+        // Staff ID login (e.g. DOC-01, LAB-01, ADMIN-01)
+        onLogin({
+          role: selectedRole,
+          staffId: staffId.trim(),
+          roleTitle: activeRoleConfig.title,
+          accentColor: activeRoleConfig.accentColor,
+          user: currentAuthUser || null
+        });
+      }
+    } catch (err) {
+      // If authentication failed, display clean error
+      setError(err.message || 'Invalid credentials. Please verify your Staff ID/Email and password.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -157,28 +190,24 @@ export default function RoleSelector({ onLogin }) {
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="form-group">
             <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>
-              {selectedRole} ID Number
+              {selectedRole} ID or Staff Email
             </label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                value={staffId}
-                onChange={(e) => setStaffId(e.target.value)}
-                placeholder={`Enter your ${selectedRole} ID`}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: '10px',
-                  border: '1.5px solid #cbd5e1',
-                  fontSize: '0.95rem',
-                  outline: 'none',
-                  backgroundColor: '#f8fafc'
-                }}
-              />
-            </div>
-            <span style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
-              Demo ID: <code>{roles.find(r => r.id === selectedRole)?.defaultId}</code>
-            </span>
+            <input
+              type="text"
+              value={staffId}
+              onChange={(e) => setStaffId(e.target.value)}
+              placeholder={`Enter your ${selectedRole} ID or registered staff email`}
+              required
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: '10px',
+                border: '1.5px solid #cbd5e1',
+                fontSize: '0.95rem',
+                outline: 'none',
+                backgroundColor: '#f8fafc'
+              }}
+            />
           </div>
 
           <div className="form-group">
@@ -190,6 +219,7 @@ export default function RoleSelector({ onLogin }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
+              required
               style={{
                 width: '100%',
                 padding: '12px 16px',
@@ -204,6 +234,7 @@ export default function RoleSelector({ onLogin }) {
 
           <button
             type="submit"
+            disabled={loading}
             style={{
               marginTop: '8px',
               padding: '14px',
@@ -213,7 +244,8 @@ export default function RoleSelector({ onLogin }) {
               borderRadius: '12px',
               fontWeight: 700,
               fontSize: '1rem',
-              cursor: 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -222,7 +254,7 @@ export default function RoleSelector({ onLogin }) {
               transition: 'transform 0.2s'
             }}
           >
-            Access {selectedRole} Portal <ArrowRight size={18} />
+            {loading ? 'Authenticating...' : `Access ${selectedRole} Portal`} <ArrowRight size={18} />
           </button>
         </form>
       </div>

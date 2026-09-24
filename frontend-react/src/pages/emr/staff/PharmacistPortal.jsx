@@ -1,63 +1,79 @@
 import React, { useState } from 'react';
 import PatientSelector from './PatientSelector';
 import { emrStore } from '../../../data/mockEmrStore';
-import { Pill, PlusCircle, ShieldAlert, CheckCircle2, Clock } from 'lucide-react';
+import { Pill, PlusCircle, ShieldAlert, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../../context/AuthContext';
 
 export default function PharmacistPortal({ staffSession }) {
+  const { user } = useAuth();
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  // Form state
-  const [medication, setMedication] = useState('Amoxicillin 500mg');
-  const [unitPrice, setUnitPrice] = useState('$15.00');
-  const [dosage, setDosage] = useState('Take 1 capsule every 8 hours with meals');
-  const [durationDays, setDurationDays] = useState(7);
-  const [prescribedDoctor, setPrescribedDoctor] = useState('Dr. Sarah Jenkins');
+  // Form state - 100% clean, no hardcoded demo values
+  const [medication, setMedication] = useState('');
+  const [unitPrice, setUnitPrice] = useState('');
+  const [dosage, setDosage] = useState('');
+  const [durationDays, setDurationDays] = useState('');
+  const [prescribedDoctor, setPrescribedDoctor] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
 
-  const handleAddMedication = (e) => {
+  const handleAddMedication = async (e) => {
     e.preventDefault();
     if (!selectedPatient) {
       toast.error('Please select a patient first.');
       return;
     }
+    if (!medication.trim()) {
+      toast.error('Please enter the medication name.');
+      return;
+    }
+    if (!dosage.trim()) {
+      toast.error('Please enter dosage instructions.');
+      return;
+    }
 
-    // Calculate end date based on duration
-    const start = new Date(startDate);
-    const end = new Date(start);
-    end.setDate(end.getDate() + parseInt(durationDays || 7));
-    const endDateStr = end.toISOString().split('T')[0];
+    setSaving(true);
+    try {
+      const days = parseInt(durationDays, 10) || 7;
+      const start = new Date(startDate);
+      const end = new Date(start);
+      end.setDate(end.getDate() + days);
+      const endDateStr = end.toISOString().split('T')[0];
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const initialStatus = endDateStr < todayStr ? 'Completed' : 'Active';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const initialStatus = endDateStr < todayStr ? 'Completed' : 'Active';
 
-    const newPrescription = {
-      id: `RX-${Math.floor(1000 + Math.random() * 9000)}`,
-      patientId: selectedPatient.id,
-      patientName: selectedPatient.name,
-      medication,
-      unitPrice: unitPrice.startsWith('$') ? unitPrice : `$${unitPrice}`,
-      dosage,
-      duration: `${durationDays} Days`,
-      startDate,
-      endDate: endDateStr,
-      prescribedDoctor,
-      status: initialStatus,
-      addedBy: `${staffSession.staffId} (Pharmacist)`
-    };
+      const priceNum = parseFloat(String(unitPrice).replace(/[^0-9.]/g, '')) || 0;
 
-    emrStore.addPrescription(newPrescription);
-    toast.success(`Medication "${medication}" logged for ${selectedPatient.name}!`);
+      const newPrescription = {
+        patientId: selectedPatient.id,
+        patientName: selectedPatient.name,
+        medication: medication.trim(),
+        unitPrice: `$${priceNum.toFixed(2)}`,
+        dosage: dosage.trim(),
+        duration: `${days} Days`,
+        startDate,
+        endDate: endDateStr,
+        prescribedDoctor: prescribedDoctor.trim() || 'Attending Physician',
+        status: initialStatus,
+        addedBy: `${staffSession.staffId || user?.fullName || 'Staff'} (Pharmacist)`
+      };
 
-    // Reset inputs
-    setMedication('');
-    setDosage('');
-  };
+      await emrStore.addPrescription(newPrescription);
+      toast.success(`Medication "${medication}" logged for ${selectedPatient.name}!`);
 
-  const handleEditRequest = () => {
-    toast('Edit/Delete restricted for Pharmacists. Request sent to Super Admin.', {
-      icon: '🛡️',
-    });
+      // Reset form
+      setMedication('');
+      setUnitPrice('');
+      setDosage('');
+      setDurationDays('');
+      setPrescribedDoctor('');
+    } catch (err) {
+      toast.error('Failed to log prescription. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -99,69 +115,115 @@ export default function PharmacistPortal({ staffSession }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <PlusCircle size={22} color="#9333ea" />
               <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
-                Dispense Medication for {selectedPatient.name} ({selectedPatient.id})
+                Log Medication for {selectedPatient.name} ({selectedPatient.id})
               </h3>
-            </div>
-
-            <div style={{ fontSize: '0.8rem', backgroundColor: '#f1f5f9', color: '#475569', padding: '4px 12px', borderRadius: '12px', fontWeight: 600 }}>
-              Permission: Create Only (Auto-Status Transition)
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '20px' }}>
             <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Medication Name & Strength</label>
-              <input type="text" value={medication} onChange={(e) => setMedication(e.target.value)} required placeholder="e.g. Amoxicillin 500mg, Paracetamol 500mg" className="input-field" style={{ width: '100%' }} />
+              <input
+                type="text"
+                value={medication}
+                onChange={(e) => setMedication(e.target.value)}
+                placeholder="e.g. Amoxicillin 500mg, Paracetamol 500mg, Metformin 850mg"
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Unit Price / Cost</label>
-              <input type="text" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} required className="input-field" style={{ width: '100%' }} />
-            </div>
-
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Prescribed Doctor</label>
-              <input type="text" value={prescribedDoctor} onChange={(e) => setPrescribedDoctor(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Unit Price (Optional)</label>
+              <input
+                type="text"
+                value={unitPrice}
+                onChange={(e) => setUnitPrice(e.target.value)}
+                placeholder="e.g. 15.00"
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
           </div>
 
           <div className="form-group" style={{ marginBottom: '20px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Dosage Instructions</label>
-            <input type="text" value={dosage} onChange={(e) => setDosage(e.target.value)} required placeholder="e.g. Take 1 capsule every 8 hours after meals" className="input-field" style={{ width: '100%' }} />
+            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Dosage & Consumption Instructions</label>
+            <input
+              type="text"
+              value={dosage}
+              onChange={(e) => setDosage(e.target.value)}
+              placeholder="e.g. Take 1 capsule every 8 hours with meals"
+              required
+              className="input-field"
+              style={{ width: '100%' }}
+            />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '28px' }}>
             <div className="form-group">
+              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Course Duration (Days)</label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={durationDays}
+                onChange={(e) => setDurationDays(e.target.value)}
+                placeholder="e.g. 7"
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Start Date</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Duration (Days)</label>
-              <input type="number" min="1" max="180" value={durationDays} onChange={(e) => setDurationDays(e.target.value)} required className="input-field" style={{ width: '100%' }} />
-            </div>
-
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Auto Status Transition</label>
-              <div style={{ padding: '10px 14px', backgroundColor: '#f1f5f9', borderRadius: '10px', fontSize: '0.88rem', fontWeight: 600, color: '#2563eb', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Clock size={16} /> Active → Auto Completed after Duration
-              </div>
+              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Prescribed Doctor</label>
+              <input
+                type="text"
+                value={prescribedDoctor}
+                onChange={(e) => setPrescribedDoctor(e.target.value)}
+                placeholder="e.g. Dr. John Doe"
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <button type="submit" className="btn" style={{ backgroundColor: '#9333ea', color: '#fff', padding: '14px 28px', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <CheckCircle2 size={18} /> Dispense & Save Prescription
-            </button>
-
-            <button type="button" onClick={handleEditRequest} className="btn btn-secondary" style={{ color: '#475569' }}>
-              Request Edit / Delete Authorization
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn btn-primary"
+            style={{
+              backgroundColor: '#9333ea',
+              borderColor: '#9333ea',
+              padding: '14px 28px',
+              fontSize: '1rem',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              opacity: saving ? 0.7 : 1
+            }}
+          >
+            <Save size={18} /> {saving ? 'Logging Medication...' : 'Log & Dispense Medication'}
+          </button>
         </form>
       ) : (
         <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
-          Select a patient above to log medication prescriptions.
+          Select a patient above to log prescription and medication schedules.
         </div>
       )}
     </div>

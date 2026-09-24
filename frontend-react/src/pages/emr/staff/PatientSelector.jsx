@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, UserCheck, UserPlus, Filter } from 'lucide-react';
+import { Search, UserCheck } from 'lucide-react';
 import { emrStore } from '../../../data/mockEmrStore';
 
 export default function PatientSelector({ selectedPatient, onSelectPatient }) {
@@ -7,7 +7,10 @@ export default function PatientSelector({ selectedPatient, onSelectPatient }) {
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
+    // Load local and trigger sync from PostgreSQL
     setPatients(emrStore.getPatients());
+    emrStore.syncFromBackend();
+
     const unsubscribe = emrStore.subscribe(() => {
       setPatients(emrStore.getPatients());
     });
@@ -15,8 +18,8 @@ export default function PatientSelector({ selectedPatient, onSelectPatient }) {
   }, []);
 
   const filteredPatients = patients.filter(p => 
-    p.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (p.id && p.id.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (p.name && p.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (p.age != null && p.age.toString().includes(searchTerm))
   );
 
@@ -70,7 +73,7 @@ export default function PatientSelector({ selectedPatient, onSelectPatient }) {
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Search by Patient ID (e.g. PAT-1001), Name, or Age..."
+          placeholder="Search by Patient ID, Name, or Age..."
           style={{
             border: 'none',
             background: 'transparent',
@@ -114,15 +117,15 @@ export default function PatientSelector({ selectedPatient, onSelectPatient }) {
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: '12px' }}>
                   <span>Age: <strong>{p.age != null ? p.age : '—'}</strong></span>
-                  <span>Gender: <strong>{p.gender}</strong></span>
-                  <span>Blood: <strong>{p.bloodGroup}</strong></span>
+                  <span>Gender: <strong>{p.gender || '—'}</strong></span>
+                  <span>Blood: <strong>{p.bloodGroup || '—'}</strong></span>
                 </div>
               </div>
             );
           })
         ) : (
           <div style={{ gridColumn: '1 / -1', padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>
-            No patient found matching "{searchTerm}".
+            {searchTerm ? `No patient found matching "${searchTerm}".` : 'No registered patients found.'}
           </div>
         )}
       </div>
