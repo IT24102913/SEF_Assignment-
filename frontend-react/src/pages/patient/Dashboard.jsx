@@ -355,7 +355,7 @@ const HospitalHeroBanner = ({ onNavigate }) => (
 
                 <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
                     <button
-                        onClick={() => onNavigate('services')}
+                        onClick={() => onNavigate('channeling')}
                         style={{
                             padding: '14px 30px',
                             borderRadius: '12px',
@@ -724,17 +724,17 @@ const DashboardHome = ({ user, onNavigate }) => (
                 <div key={label}
                     onClick={() => tab && onNavigate(tab)}
                     style={{
-                    background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
-                    borderRadius: '20px',
-                    padding: '20px 22px',
-                    border: `1.5px solid ${border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '18px',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-                    transition: 'all 0.25s ease',
-                    cursor: tab ? 'pointer' : 'default',
-                }}>
+                        background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+                        borderRadius: '20px',
+                        padding: '20px 22px',
+                        border: `1.5px solid ${border}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '18px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                        transition: 'all 0.25s ease',
+                        cursor: tab ? 'pointer' : 'default',
+                    }}>
                     <div style={{
                         width: '50px',
                         height: '50px',
