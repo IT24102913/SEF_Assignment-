@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
 import PatientSelector from './PatientSelector';
 import { emrStore } from '../../../data/mockEmrStore';
-import { Stethoscope, FilePlus, Save, CheckCircle, Plus, Trash2 } from 'lucide-react';
+import { Stethoscope, FilePlus, Save, Plus, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../../context/AuthContext';
 
 export default function ConsultantPortal({ staffSession }) {
+  const { user } = useAuth();
   const [selectedPatient, setSelectedPatient] = useState(null);
+  const [saving, setSaving] = useState(false);
   
-  // Doctor form state
-  const [doctorName, setDoctorName] = useState('Dr. Sarah Jenkins');
-  const [doctorDesignation, setDoctorDesignation] = useState('Senior Consultant (MD)');
+  // Doctor form state - 100% clean, no hardcoded demo values
+  const [doctorName, setDoctorName] = useState(user?.role === 'Doctor' ? (user.fullName || '') : (staffSession.staffId && !staffSession.staffId.includes('DOC') ? staffSession.staffId : ''));
+  const [doctorDesignation, setDoctorDesignation] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [diagnosis, setDiagnosis] = useState('');
-  const [recommendedTests, setRecommendedTests] = useState('Complete Blood Count (CBC), Lipid Profile Panel');
+  const [recommendedTests, setRecommendedTests] = useState('');
   const [clinicalNotes, setClinicalNotes] = useState('');
   const [medicines, setMedicines] = useState([
     { name: '', dosage: '', duration: '' }
@@ -32,10 +35,14 @@ export default function ConsultantPortal({ staffSession }) {
     setMedicines(updated);
   };
 
-  const handleSaveNote = (e) => {
+  const handleSaveNote = async (e) => {
     e.preventDefault();
     if (!selectedPatient) {
       toast.error('Please select a patient first.');
+      return;
+    }
+    if (!doctorName.trim()) {
+      toast.error('Please enter the doctor name.');
       return;
     }
     if (!diagnosis.trim()) {
@@ -43,26 +50,34 @@ export default function ConsultantPortal({ staffSession }) {
       return;
     }
 
-    const newNote = {
-      id: `CN-${Math.floor(1000 + Math.random() * 9000)}`,
-      patientId: selectedPatient.id,
-      patientName: selectedPatient.name,
-      doctorName,
-      doctorDesignation,
-      date,
-      diagnosis,
-      recommendedTests: recommendedTests.split(',').map(t => t.trim()).filter(Boolean),
-      medicines: medicines.filter(m => m.name.trim()),
-      notes: clinicalNotes
-    };
+    setSaving(true);
+    try {
+      const newNote = {
+        patientId: selectedPatient.id,
+        patientName: selectedPatient.name,
+        doctorId: staffSession.staffId || 'DOC',
+        doctorName: doctorName.trim(),
+        doctorDesignation: doctorDesignation.trim(),
+        date,
+        diagnosis: diagnosis.trim(),
+        recommendedTests: recommendedTests ? recommendedTests.split(',').map(t => t.trim()).filter(Boolean) : [],
+        medicines: medicines.filter(m => m.name.trim()),
+        notes: clinicalNotes.trim()
+      };
 
-    emrStore.addConsultation(newNote);
-    toast.success(`Consultation note saved for ${selectedPatient.name}!`);
+      await emrStore.addConsultation(newNote);
+      toast.success(`Consultation note saved for ${selectedPatient.name}!`);
 
-    // Reset form
-    setDiagnosis('');
-    setClinicalNotes('');
-    setMedicines([{ name: '', dosage: '', duration: '' }]);
+      // Reset form to clean state
+      setDiagnosis('');
+      setRecommendedTests('');
+      setClinicalNotes('');
+      setMedicines([{ name: '', dosage: '', duration: '' }]);
+    } catch (err) {
+      toast.error('Failed to save consultation note. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -102,28 +117,65 @@ export default function ConsultantPortal({ staffSession }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
             <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Doctor Name</label>
-              <input type="text" value={doctorName} onChange={(e) => setDoctorName(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <input
+                type="text"
+                value={doctorName}
+                onChange={(e) => setDoctorName(e.target.value)}
+                placeholder="e.g. Dr. John Doe"
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Designation / Specialty</label>
-              <input type="text" value={doctorDesignation} onChange={(e) => setDoctorDesignation(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <input
+                type="text"
+                value={doctorDesignation}
+                onChange={(e) => setDoctorDesignation(e.target.value)}
+                placeholder="e.g. Consultant Physician"
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
 
             <div className="form-group">
               <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Consultation Date</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className="input-field" style={{ width: '100%' }} />
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                required
+                className="input-field"
+                style={{ width: '100%' }}
+              />
             </div>
           </div>
 
           <div className="form-group" style={{ marginBottom: '20px' }}>
             <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Primary Diagnosis</label>
-            <input type="text" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="e.g. Mild Hypertension, Seasonal Allergies, Diabetes Type 2" required className="input-field" style={{ width: '100%' }} />
+            <input
+              type="text"
+              value={diagnosis}
+              onChange={(e) => setDiagnosis(e.target.value)}
+              placeholder="e.g. Mild Hypertension, Seasonal Allergies, Diabetes Type 2"
+              required
+              className="input-field"
+              style={{ width: '100%' }}
+            />
           </div>
 
           <div className="form-group" style={{ marginBottom: '24px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Recommended Diagnostic Tests (Comma separated)</label>
-            <input type="text" value={recommendedTests} onChange={(e) => setRecommendedTests(e.target.value)} placeholder="e.g. Complete Blood Count (CBC), Lipid Profile Panel, Chest X-Ray" className="input-field" style={{ width: '100%' }} />
+            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Recommended Diagnostic Tests (Optional, comma-separated)</label>
+            <input
+              type="text"
+              value={recommendedTests}
+              onChange={(e) => setRecommendedTests(e.target.value)}
+              placeholder="e.g. Complete Blood Count (CBC), Lipid Profile Panel, Chest X-Ray"
+              className="input-field"
+              style={{ width: '100%' }}
+            />
           </div>
 
           {/* Prescribed Medicines Builder */}
@@ -137,9 +189,27 @@ export default function ConsultantPortal({ staffSession }) {
 
             {medicines.map((med, index) => (
               <div key={index} style={{ display: 'grid', gridTemplateColumns: '1.5fr 2fr 1fr 40px', gap: '12px', marginBottom: '10px', alignItems: 'center' }}>
-                <input type="text" placeholder="Medicine Name" value={med.name} onChange={(e) => handleMedicineChange(index, 'name', e.target.value)} className="input-field" />
-                <input type="text" placeholder="Dosage Instructions (e.g. 1 tab 3x daily)" value={med.dosage} onChange={(e) => handleMedicineChange(index, 'dosage', e.target.value)} className="input-field" />
-                <input type="text" placeholder="Duration (e.g. 7 Days)" value={med.duration} onChange={(e) => handleMedicineChange(index, 'duration', e.target.value)} className="input-field" />
+                <input
+                  type="text"
+                  placeholder="Medicine Name (e.g. Amoxicillin 500mg)"
+                  value={med.name}
+                  onChange={(e) => handleMedicineChange(index, 'name', e.target.value)}
+                  className="input-field"
+                />
+                <input
+                  type="text"
+                  placeholder="Dosage Instructions (e.g. 1 tab 3x daily)"
+                  value={med.dosage}
+                  onChange={(e) => handleMedicineChange(index, 'dosage', e.target.value)}
+                  className="input-field"
+                />
+                <input
+                  type="text"
+                  placeholder="Duration (e.g. 7 Days)"
+                  value={med.duration}
+                  onChange={(e) => handleMedicineChange(index, 'duration', e.target.value)}
+                  className="input-field"
+                />
                 {medicines.length > 1 && (
                   <button type="button" onClick={() => handleRemoveMedicine(index)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Trash2 size={18} />
@@ -151,11 +221,23 @@ export default function ConsultantPortal({ staffSession }) {
 
           <div className="form-group" style={{ marginBottom: '28px' }}>
             <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Detailed Doctor Clinical Notes</label>
-            <textarea rows={4} value={clinicalNotes} onChange={(e) => setClinicalNotes(e.target.value)} placeholder="Enter patient symptom history, vitals, lifestyle advice..." className="input-field" style={{ width: '100%', resize: 'vertical' }} />
+            <textarea
+              rows={4}
+              value={clinicalNotes}
+              onChange={(e) => setClinicalNotes(e.target.value)}
+              placeholder="Enter patient symptom history, vitals, lifestyle advice..."
+              className="input-field"
+              style={{ width: '100%', resize: 'vertical' }}
+            />
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ padding: '14px 28px', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Save size={18} /> Save Consultation Note
+          <button
+            type="submit"
+            disabled={saving}
+            className="btn btn-primary"
+            style={{ padding: '14px 28px', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+          >
+            <Save size={18} /> {saving ? 'Saving Note...' : 'Save Consultation Note'}
           </button>
         </form>
       ) : (

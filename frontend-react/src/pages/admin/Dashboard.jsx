@@ -47,7 +47,7 @@ const Dashboard = () => {
         },
         {
             id: 'records',
-            title: 'Medical Records',
+            title: 'Electronic Medical Records',
             description: 'Encrypted patient history, health summaries and electronic charts.',
             icon: FileText,
             color: '#7C3AED',

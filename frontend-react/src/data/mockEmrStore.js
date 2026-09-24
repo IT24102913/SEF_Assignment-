@@ -199,7 +199,7 @@ class EmrStore {
     try {
       await emrApi.createConsultation({
         patientCode: note.patientId,
-        doctorId: note.doctorId || 'DOC-101',
+        doctorId: note.doctorId || note.doctorName || 'Staff',
         doctorName: note.doctorName,
         doctorDesignation: note.doctorDesignation,
         diagnosis: note.diagnosis,
