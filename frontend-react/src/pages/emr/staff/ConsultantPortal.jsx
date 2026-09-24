@@ -10,8 +10,9 @@ export default function ConsultantPortal({ staffSession }) {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [saving, setSaving] = useState(false);
   
-  // Doctor form state - 100% clean, no hardcoded demo values
-  const [doctorName, setDoctorName] = useState(user?.role === 'Doctor' ? (user.fullName || '') : (staffSession.staffId && !staffSession.staffId.includes('DOC') ? staffSession.staffId : ''));
+  // Doctor form state
+  const defaultDoctor = user?.role === 'Doctor' ? (user.fullName || '') : (staffSession?.staffId && !staffSession.staffId.includes('DOC') ? staffSession.staffId : '');
+  const [doctorName, setDoctorName] = useState(defaultDoctor);
   const [doctorDesignation, setDoctorDesignation] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [diagnosis, setDiagnosis] = useState('');
@@ -41,10 +42,6 @@ export default function ConsultantPortal({ staffSession }) {
       toast.error('Please select a patient first.');
       return;
     }
-    if (!doctorName.trim()) {
-      toast.error('Please enter the doctor name.');
-      return;
-    }
     if (!diagnosis.trim()) {
       toast.error('Please enter the primary diagnosis.');
       return;
@@ -55,9 +52,9 @@ export default function ConsultantPortal({ staffSession }) {
       const newNote = {
         patientId: selectedPatient.id,
         patientName: selectedPatient.name,
-        doctorId: staffSession.staffId || 'DOC',
-        doctorName: doctorName.trim(),
-        doctorDesignation: doctorDesignation.trim(),
+        doctorId: staffSession?.staffId || 'DOC-101',
+        doctorName: doctorName.trim() || 'Dr. Consultant',
+        doctorDesignation: doctorDesignation.trim() || 'Consultant Specialist',
         date,
         diagnosis: diagnosis.trim(),
         recommendedTests: recommendedTests ? recommendedTests.split(',').map(t => t.trim()).filter(Boolean) : [],
@@ -68,12 +65,13 @@ export default function ConsultantPortal({ staffSession }) {
       await emrStore.addConsultation(newNote);
       toast.success(`Consultation note saved for ${selectedPatient.name}!`);
 
-      // Reset form to clean state
+      // Reset form fields
       setDiagnosis('');
       setRecommendedTests('');
       setClinicalNotes('');
       setMedicines([{ name: '', dosage: '', duration: '' }]);
     } catch (err) {
+      console.error('Failed to save consultation note:', err);
       toast.error('Failed to save consultation note. Please try again.');
     } finally {
       setSaving(false);
@@ -81,167 +79,344 @@ export default function ConsultantPortal({ staffSession }) {
   };
 
   return (
-    <div>
-      {/* Header Banner */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '24px', backgroundColor: '#eff6ff', padding: '20px', borderRadius: '16px', border: '1px solid #bfdbfe' }}>
-        <div style={{ width: '44px', height: '44px', borderRadius: '12px', backgroundColor: '#2563eb', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Stethoscope size={24} />
+    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      {/* 1. Header Banner */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '14px',
+        marginBottom: '24px',
+        backgroundColor: '#f0f7ff',
+        padding: '18px 24px',
+        borderRadius: '16px',
+        border: '1.5px solid #bfdbfe'
+      }}>
+        <div style={{
+          width: '42px',
+          height: '42px',
+          borderRadius: '12px',
+          backgroundColor: '#2563eb',
+          color: '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}>
+          <Stethoscope size={22} />
         </div>
         <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>Consultant (Doctor) Workspace</h2>
-          <p style={{ color: '#475569', fontSize: '0.9rem' }}>
-            Logged in as <strong>{staffSession.staffId}</strong> • Authorized to author clinical diagnosis & consultation notes.
+          <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', margin: '0 0 2px 0' }}>
+            Consultant (Doctor) Workspace
+          </h2>
+          <p style={{ color: '#475569', fontSize: '0.88rem', margin: 0 }}>
+            Logged in as <strong>{staffSession?.staffId || 'DOC-101'}</strong> • Authorized to author clinical diagnosis & consultation notes.
           </p>
         </div>
       </div>
 
-      {/* 1. Patient Selector */}
+      {/* 2. Patient Selector Component (Shows max 8 patients & prominent search) */}
       <PatientSelector selectedPatient={selectedPatient} onSelectPatient={setSelectedPatient} />
 
-      {/* 2. Doctor Consultation Entry Form */}
+      {/* 3. Doctor Consultation Entry Form */}
       {selectedPatient ? (
         <form onSubmit={handleSaveNote} style={{
           backgroundColor: '#ffffff',
           border: '1.5px solid #cbd5e1',
-          borderRadius: '20px',
-          padding: '32px',
-          boxShadow: '0 8px 20px -4px rgba(0, 0, 0, 0.04)'
+          borderRadius: '16px',
+          padding: '28px 32px',
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.03)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px', borderBottom: '1px solid #f1f5f9', pb: '16px' }}>
+          {/* Form Header */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            marginBottom: '24px',
+            borderBottom: '1px solid #f1f5f9',
+            paddingBottom: '16px'
+          }}>
             <FilePlus size={22} color="#2563eb" />
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
               Create Consultation Note for {selectedPatient.name} ({selectedPatient.id})
             </h3>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Doctor Name</label>
+          {/* Row 1: Doctor Name, Designation, Date */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr', gap: '20px', marginBottom: '20px' }}>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Doctor Name
+              </label>
               <input
                 type="text"
                 value={doctorName}
                 onChange={(e) => setDoctorName(e.target.value)}
-                placeholder="e.g. Dr. John Doe"
-                required
-                className="input-field"
-                style={{ width: '100%' }}
+                placeholder="Dr. Sarah Jenkins"
+                style={{
+                  width: '100%',
+                  padding: '11px 16px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: '#ffffff'
+                }}
               />
             </div>
 
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Designation / Specialty</label>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Designation / Specialty
+              </label>
               <input
                 type="text"
                 value={doctorDesignation}
                 onChange={(e) => setDoctorDesignation(e.target.value)}
-                placeholder="e.g. Consultant Physician"
-                className="input-field"
-                style={{ width: '100%' }}
+                placeholder="Senior Consultant (MD)"
+                style={{
+                  width: '100%',
+                  padding: '11px 16px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: '#ffffff'
+                }}
               />
             </div>
 
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Consultation Date</label>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Consultation Date
+              </label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 required
-                className="input-field"
-                style={{ width: '100%' }}
+                style={{
+                  width: '100%',
+                  padding: '11px 16px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: '#ffffff'
+                }}
               />
             </div>
           </div>
 
-          <div className="form-group" style={{ marginBottom: '20px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Primary Diagnosis</label>
+          {/* Row 2: Primary Diagnosis */}
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+              Primary Diagnosis
+            </label>
             <input
               type="text"
               value={diagnosis}
               onChange={(e) => setDiagnosis(e.target.value)}
               placeholder="e.g. Mild Hypertension, Seasonal Allergies, Diabetes Type 2"
               required
-              className="input-field"
-              style={{ width: '100%' }}
+              style={{
+                width: '100%',
+                padding: '11px 16px',
+                borderRadius: '10px',
+                border: '1.5px solid #cbd5e1',
+                fontSize: '0.92rem',
+                outline: 'none',
+                backgroundColor: '#ffffff'
+              }}
             />
           </div>
 
-          <div className="form-group" style={{ marginBottom: '24px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Recommended Diagnostic Tests (Optional, comma-separated)</label>
+          {/* Row 3: Recommended Diagnostic Tests */}
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+              Recommended Diagnostic Tests (Comma separated)
+            </label>
             <input
               type="text"
               value={recommendedTests}
               onChange={(e) => setRecommendedTests(e.target.value)}
-              placeholder="e.g. Complete Blood Count (CBC), Lipid Profile Panel, Chest X-Ray"
-              className="input-field"
-              style={{ width: '100%' }}
+              placeholder="Complete Blood Count (CBC), Lipid Profile Panel"
+              style={{
+                width: '100%',
+                padding: '11px 16px',
+                borderRadius: '10px',
+                border: '1.5px solid #cbd5e1',
+                fontSize: '0.92rem',
+                outline: 'none',
+                backgroundColor: '#ffffff'
+              }}
             />
           </div>
 
-          {/* Prescribed Medicines Builder */}
-          <div style={{ marginBottom: '24px', backgroundColor: '#f8fafc', padding: '20px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+          {/* Row 4: Prescribed Medications & Items Box */}
+          <div style={{
+            marginBottom: '24px',
+            backgroundColor: '#f8fafc',
+            padding: '20px 22px',
+            borderRadius: '14px',
+            border: '1.5px solid #e2e8f0'
+          }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>Prescribed Medications & Items</h4>
-              <button type="button" onClick={handleAddMedicine} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                Prescribed Medications & Items
+              </h4>
+              <button
+                type="button"
+                onClick={handleAddMedicine}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 16px',
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '20px',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 6px rgba(37, 99, 235, 0.25)'
+                }}
+              >
                 <Plus size={14} /> Add Medicine
               </button>
             </div>
 
             {medicines.map((med, index) => (
-              <div key={index} style={{ display: 'grid', gridTemplateColumns: '1.5fr 2fr 1fr 40px', gap: '12px', marginBottom: '10px', alignItems: 'center' }}>
+              <div key={index} style={{
+                display: 'grid',
+                gridTemplateColumns: '1.4fr 2fr 1.2fr 36px',
+                gap: '12px',
+                marginBottom: '10px',
+                alignItems: 'center'
+              }}>
                 <input
                   type="text"
-                  placeholder="Medicine Name (e.g. Amoxicillin 500mg)"
+                  placeholder="Medicine Name"
                   value={med.name}
                   onChange={(e) => handleMedicineChange(index, 'name', e.target.value)}
-                  className="input-field"
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.9rem',
+                    backgroundColor: '#ffffff',
+                    outline: 'none'
+                  }}
                 />
                 <input
                   type="text"
                   placeholder="Dosage Instructions (e.g. 1 tab 3x daily)"
                   value={med.dosage}
                   onChange={(e) => handleMedicineChange(index, 'dosage', e.target.value)}
-                  className="input-field"
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.9rem',
+                    backgroundColor: '#ffffff',
+                    outline: 'none'
+                  }}
                 />
                 <input
                   type="text"
                   placeholder="Duration (e.g. 7 Days)"
                   value={med.duration}
                   onChange={(e) => handleMedicineChange(index, 'duration', e.target.value)}
-                  className="input-field"
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.9rem',
+                    backgroundColor: '#ffffff',
+                    outline: 'none'
+                  }}
                 />
-                {medicines.length > 1 && (
-                  <button type="button" onClick={() => handleRemoveMedicine(index)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {medicines.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMedicine(index)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#ef4444',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '4px'
+                    }}
+                    title="Remove item"
+                  >
                     <Trash2 size={18} />
                   </button>
-                )}
+                ) : <div />}
               </div>
             ))}
           </div>
 
-          <div className="form-group" style={{ marginBottom: '28px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Detailed Doctor Clinical Notes</label>
+          {/* Row 5: Detailed Doctor Clinical Notes */}
+          <div style={{ marginBottom: '28px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+              Detailed Doctor Clinical Notes
+            </label>
             <textarea
               rows={4}
               value={clinicalNotes}
               onChange={(e) => setClinicalNotes(e.target.value)}
               placeholder="Enter patient symptom history, vitals, lifestyle advice..."
-              className="input-field"
-              style={{ width: '100%', resize: 'vertical' }}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: '12px',
+                border: '1.5px solid #cbd5e1',
+                fontSize: '0.92rem',
+                outline: 'none',
+                backgroundColor: '#ffffff',
+                resize: 'vertical',
+                fontFamily: 'inherit'
+              }}
             />
           </div>
 
+          {/* Bottom Action: Forest Green Save Button */}
           <button
             type="submit"
             disabled={saving}
-            className="btn btn-primary"
-            style={{ padding: '14px 28px', fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}
+            style={{
+              backgroundColor: '#065f46',
+              color: '#ffffff',
+              border: 'none',
+              padding: '12px 26px',
+              borderRadius: '10px',
+              fontSize: '0.98rem',
+              fontWeight: 700,
+              cursor: saving ? 'not-allowed' : 'pointer',
+              opacity: saving ? 0.7 : 1,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 4px 10px rgba(6, 95, 70, 0.25)',
+              transition: 'background 0.2s, transform 0.1s'
+            }}
           >
-            <Save size={18} /> {saving ? 'Saving Note...' : 'Save Consultation Note'}
+            <Save size={18} /> {saving ? 'Saving Consultation...' : 'Save Consultation Note'}
           </button>
         </form>
       ) : (
-        <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
+        <div style={{
+          backgroundColor: '#ffffff',
+          border: '2px dashed #cbd5e1',
+          borderRadius: '16px',
+          padding: '44px 20px',
+          textAlign: 'center',
+          color: '#64748b',
+          fontSize: '0.95rem'
+        }}>
           Select a patient above to start writing consultation notes.
         </div>
       )}

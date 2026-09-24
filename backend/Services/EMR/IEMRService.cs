@@ -30,6 +30,7 @@ public interface IEMRService
     Task<IEnumerable<PrescriptionDto>> GetPrescriptionsAsync(string? patientCode = null);
     Task<PrescriptionDto?> GetPrescriptionByIdAsync(Guid id);
     Task<PrescriptionDto> CreatePrescriptionAsync(CreatePrescriptionDto dto);
+    Task<IEnumerable<PrescriptionDto>> CreatePrescriptionsBatchAsync(BatchCreatePrescriptionsDto dto);
     Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto);
     Task<bool> DeletePrescriptionAsync(Guid id);
 

@@ -140,6 +140,16 @@ export const emrApi = {
     return await res.json();
   },
 
+  async createPrescriptionsBatch(batchData) {
+    const res = await fetch(`${API_BASE}/prescriptions/batch`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(batchData)
+    });
+    if (!res.ok) throw new Error(`Failed to save batch prescriptions: ${res.statusText}`);
+    return await res.json();
+  },
+
   async updatePrescriptionStatus(id, status) {
     const res = await fetch(`${API_BASE}/prescriptions/${id}/status`, {
       method: 'PATCH',

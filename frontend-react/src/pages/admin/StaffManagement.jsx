@@ -183,7 +183,7 @@ const StaffManagement = () => {
             fetchStaff();
         } catch (err) {
             console.error('Failed to add staff:', err);
-            const msg = err.response?.data?.message || 'Failed to create staff account.';
+            const msg = err.response?.data?.message || (err.response?.data?.errors ? Object.values(err.response.data.errors).flat().join(', ') : 'Failed to create staff account.');
             showToastMessage(msg, 'error');
         } finally {
             setSubmitting(false);

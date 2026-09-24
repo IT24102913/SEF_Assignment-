@@ -301,6 +301,48 @@ class EmrStore {
     }
   }
 
+  async addPrescriptionsBatch(patientCode, doctor, items) {
+    const today = new Date().toISOString().split('T')[0];
+    const newItems = items.map(item => {
+      const days = parseInt(item.durationDays) || 7;
+      const endD = new Date(Date.now() + days * 86400000).toISOString().split('T')[0];
+      const priceNum = parseFloat(item.unitPrice) || 0;
+      return {
+        id: 'rx-batch-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        patientId: patientCode,
+        patientName: this.getPatientName(patientCode),
+        medication: item.medication.trim(),
+        unitPrice: `$${priceNum.toFixed(2)}`,
+        dosage: item.dosage.trim(),
+        duration: `${days} Days`,
+        startDate: today,
+        endDate: endD,
+        prescribedDoctor: doctor || 'Dr. Consultant',
+        status: 'Active'
+      };
+    });
+
+    this.prescriptions = [...newItems, ...this.prescriptions];
+    this.saveData();
+
+    try {
+      await emrApi.createPrescriptionsBatch({
+        patientCode: patientCode,
+        prescribedDoctor: doctor,
+        items: items.map(i => ({
+          medicationName: i.medication.trim(),
+          dosage: i.dosage.trim(),
+          duration: `${parseInt(i.durationDays) || 7} Days`,
+          unitPrice: parseFloat(i.unitPrice) || 0,
+          status: 'Active'
+        }))
+      });
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error saving batch prescriptions to API:', e);
+    }
+  }
+
   async updatePrescription(id, updatedData) {
     this.prescriptions = this.prescriptions.map(p => p.id === id ? { ...p, ...updatedData } : p);
     this.saveData();

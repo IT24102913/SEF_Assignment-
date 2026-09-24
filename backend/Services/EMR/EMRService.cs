@@ -362,6 +362,56 @@ public class EMRService : IEMRService
         return MapPrescriptionToDto(rx);
     }
 
+    public async Task<IEnumerable<PrescriptionDto>> CreatePrescriptionsBatchAsync(BatchCreatePrescriptionsDto dto)
+    {
+        var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == dto.PatientCode.Trim().ToUpper());
+        if (patient == null)
+            throw new ArgumentException($"Patient with code {dto.PatientCode} does not exist.");
+
+        var createdList = new List<Prescription>();
+        var now = DateTime.UtcNow;
+
+        foreach (var item in dto.Items)
+        {
+            if (string.IsNullOrWhiteSpace(item.MedicationName)) continue;
+
+            var days = 7;
+            var match = System.Text.RegularExpressions.Regex.Match(item.Duration ?? "", @"\d+");
+            if (match.Success && int.TryParse(match.Value, out var parsedDays))
+            {
+                days = parsedDays;
+            }
+
+            var rx = new Prescription
+            {
+                Id = Guid.NewGuid(),
+                PatientId = patient.Id,
+                PatientCode = patient.PatientCode,
+                MedicationName = item.MedicationName.Trim(),
+                Dosage = item.Dosage?.Trim() ?? string.Empty,
+                Duration = item.Duration?.Trim() ?? $"{days} Days",
+                StartDate = now,
+                EndDate = now.AddDays(days),
+                UnitPrice = item.UnitPrice,
+                PrescribedDoctor = string.IsNullOrWhiteSpace(dto.PrescribedDoctor) ? "Attending Physician" : dto.PrescribedDoctor.Trim(),
+                Status = string.IsNullOrWhiteSpace(item.Status) ? "Active" : item.Status.Trim(),
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            createdList.Add(rx);
+        }
+
+        if (createdList.Any())
+        {
+            _db.Prescriptions.AddRange(createdList);
+            await _db.SaveChangesAsync();
+            _logger.LogInformation("[EMR] Dispensed batch of {Count} prescriptions for patient {Patient}", createdList.Count, patient.PatientCode);
+        }
+
+        return createdList.Select(MapPrescriptionToDto);
+    }
+
     public async Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto)
     {
         var rx = await _db.Prescriptions.FindAsync(id);
