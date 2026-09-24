@@ -316,6 +316,26 @@ public class EMRController : ControllerBase
     }
 
     /// <summary>
+    /// Prescribe / dispense multiple medications in a single batch (Pharmacist / Doctor)
+    /// </summary>
+    [HttpPost("prescriptions/batch")]
+    public async Task<ActionResult<IEnumerable<PrescriptionDto>>> CreatePrescriptionsBatch([FromBody] BatchCreatePrescriptionsDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.PatientCode) || dto.Items == null || !dto.Items.Any())
+            return BadRequest(new { message = "PatientCode and at least one medication item are required." });
+
+        try
+        {
+            var rxs = await _emrService.CreatePrescriptionsBatchAsync(dto);
+            return Ok(rxs);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Update prescription status (Active -> Completed / Cancelled)
     /// </summary>
     [HttpPatch("prescriptions/{id:guid}/status")]

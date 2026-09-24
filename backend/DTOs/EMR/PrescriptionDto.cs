@@ -34,3 +34,20 @@ public class UpdatePrescriptionStatusDto
 {
     public string Status { get; set; } = "Completed";
 }
+
+public class BatchCreatePrescriptionsDto
+{
+    public string PatientCode { get; set; } = string.Empty;
+    public string PrescribedDoctor { get; set; } = string.Empty;
+    public List<CreatePrescriptionItemDto> Items { get; set; } = new();
+}
+
+public class CreatePrescriptionItemDto
+{
+    public string MedicationName { get; set; } = string.Empty;
+    public string Dosage { get; set; } = string.Empty;
+    public string Duration { get; set; } = "7 Days";
+    public decimal UnitPrice { get; set; } = 0.0m;
+    public string Status { get; set; } = "Active";
+}
+

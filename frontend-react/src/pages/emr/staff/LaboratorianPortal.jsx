@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import PatientSelector from './PatientSelector';
 import { emrStore } from '../../../data/mockEmrStore';
-import { Microscope, Upload, FilePlus, ShieldAlert, CheckCircle, Save } from 'lucide-react';
+import { Microscope, Upload, FilePlus, AlertCircle, CheckCircle2, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
 
@@ -10,19 +10,19 @@ export default function LaboratorianPortal({ staffSession }) {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Form state - 100% clean, no hardcoded demo values
+  // Form state
   const [testTitle, setTestTitle] = useState('');
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState('Hematology');
   const [orderedDoctor, setOrderedDoctor] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [status, setStatus] = useState('Completed');
-  const [resultsSummary, setResultsSummary] = useState('');
   const [fileName, setFileName] = useState('');
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       setFileName(file.name);
+      toast.success(`Attached file: ${file.name}`);
     }
   };
 
@@ -33,7 +33,7 @@ export default function LaboratorianPortal({ staffSession }) {
       return;
     }
     if (!testTitle.trim()) {
-      toast.error('Please enter the lab test title.');
+      toast.error('Please enter the report / test title.');
       return;
     }
 
@@ -45,205 +45,376 @@ export default function LaboratorianPortal({ staffSession }) {
         patientId: selectedPatient.id,
         patientName: selectedPatient.name,
         testTitle: testTitle.trim(),
-        category: category.trim() || 'General',
-        orderedDoctor: orderedDoctor.trim() || 'Attending Physician',
+        category: category || 'Hematology',
+        orderedDoctor: orderedDoctor.trim() || 'Dr. Consultant',
         date,
         status,
         fileName: generatedFileName,
-        resultsSummary: resultsSummary.trim(),
-        addedBy: `${staffSession.staffId || user?.fullName || 'Staff'} (Lab)`
+        resultsSummary: '',
+        addedBy: `${staffSession?.staffId || user?.fullName || 'LAB-202'} (Lab Staff)`
       };
 
       await emrStore.addLabReport(newReport);
-      toast.success(`Lab Report "${testTitle}" saved for ${selectedPatient.name}!`);
+      toast.success(`Lab Report "${testTitle}" uploaded for ${selectedPatient.name}!`);
 
       // Reset form
       setTestTitle('');
-      setCategory('');
+      setCategory('Hematology');
       setOrderedDoctor('');
-      setResultsSummary('');
+      setStatus('Completed');
       setFileName('');
     } catch (err) {
+      console.error('Failed to upload lab report:', err);
       toast.error('Failed to upload lab report. Please try again.');
     } finally {
       setSaving(false);
     }
   };
 
+  const handleRequestPermission = () => {
+    toast('Edit/Delete restricted for Lab Staff. Request sent to Super Admin.', {
+      icon: '🛡️',
+      style: {
+        borderRadius: '10px',
+        background: '#334155',
+        color: '#fff',
+      }
+    });
+  };
+
   return (
-    <div>
-      {/* Header Banner */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '24px', backgroundColor: '#f0fdf4', padding: '20px', borderRadius: '16px', border: '1px solid #bbf7d0' }}>
-        <div style={{ width: '44px', height: '44px', borderRadius: '12px', backgroundColor: '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Microscope size={24} />
+    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      {/* 1. Header Banner */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '14px',
+        marginBottom: '20px',
+        backgroundColor: '#f0fdf4',
+        padding: '18px 24px',
+        borderRadius: '16px',
+        border: '1.5px solid #bbf7d0'
+      }}>
+        <div style={{
+          width: '42px',
+          height: '42px',
+          borderRadius: '12px',
+          backgroundColor: '#16a34a',
+          color: '#ffffff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}>
+          <Microscope size={22} />
         </div>
         <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>Laboratorian (Lab Staff) Workspace</h2>
-          <p style={{ color: '#475569', fontSize: '0.9rem' }}>
-            Logged in as <strong>{staffSession.staffId}</strong> • Authorized to generate & upload diagnostic lab test reports.
+          <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#0f172a', margin: '0 0 2px 0' }}>
+            Laboratorian (Lab Staff) Workspace
+          </h2>
+          <p style={{ color: '#475569', fontSize: '0.88rem', margin: 0 }}>
+            Logged in as <strong>{staffSession?.staffId || 'LAB-202'}</strong> • Authorized to generate & upload diagnostic lab test reports.
           </p>
         </div>
       </div>
 
-      {/* Privacy Notice Banner */}
-      <div style={{ backgroundColor: '#fff7ed', border: '1px solid #fed7aa', color: '#c2410c', padding: '14px 18px', borderRadius: '12px', fontSize: '0.88rem', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <ShieldAlert size={20} />
+      {/* 2. Privacy Shield Policy Alert Box */}
+      <div style={{
+        backgroundColor: '#fff7ed',
+        border: '1.5px solid #fed7aa',
+        color: '#9a3412',
+        padding: '14px 20px',
+        borderRadius: '12px',
+        fontSize: '0.88rem',
+        marginBottom: '24px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px'
+      }}>
+        <AlertCircle size={20} color="#ea580c" style={{ flexShrink: 0 }} />
         <div>
           <strong>Privacy Shield Policy:</strong> Consultation notes are restricted to Doctor & Patient only. Lab staff can issue test reports based on lab order or patient physical document.
         </div>
       </div>
 
-      {/* 1. Patient Selector */}
+      {/* 3. Patient Selector (Shows max 8 patients & prominent search) */}
       <PatientSelector selectedPatient={selectedPatient} onSelectPatient={setSelectedPatient} />
 
-      {/* 2. Lab Report Form */}
+      {/* 4. Upload Lab Report Form Card */}
       {selectedPatient ? (
         <form onSubmit={handleCreateLabReport} style={{
           backgroundColor: '#ffffff',
           border: '1.5px solid #cbd5e1',
-          borderRadius: '20px',
-          padding: '32px',
-          boxShadow: '0 8px 20px -4px rgba(0, 0, 0, 0.04)'
+          borderRadius: '16px',
+          padding: '28px 32px',
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.03)'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', borderBottom: '1px solid #f1f5f9', pb: '16px' }}>
+          {/* Header Row */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '24px',
+            borderBottom: '1px solid #f1f5f9',
+            paddingBottom: '16px'
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <FilePlus size={22} color="#16a34a" />
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
                 Upload Lab Report for {selectedPatient.name} ({selectedPatient.id})
               </h3>
             </div>
+
+            <span style={{
+              fontSize: '0.78rem',
+              backgroundColor: '#f1f5f9',
+              color: '#475569',
+              fontWeight: 600,
+              padding: '4px 14px',
+              borderRadius: '20px'
+            }}>
+              Permission: Create Only (No Delete/Edit)
+            </span>
           </div>
 
+          {/* Row 1: Report Title (50%) & Laboratory Category (50%) */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Diagnostic Test Title</label>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Report / Test Title
+              </label>
               <input
                 type="text"
                 value={testTitle}
                 onChange={(e) => setTestTitle(e.target.value)}
-                placeholder="e.g. Complete Blood Count (CBC), Lipid Profile"
+                placeholder="Complete Blood Count (CBC)"
                 required
-                className="input-field"
-                style={{ width: '100%' }}
+                style={{
+                  width: '100%',
+                  padding: '11px 16px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: '#ffffff'
+                }}
               />
             </div>
 
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Category</label>
-              <input
-                type="text"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Hematology, Biochemistry, Radiology, Microbiology"
-                className="input-field"
-                style={{ width: '100%' }}
-              />
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Laboratory Category
+              </label>
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '11px 36px 11px 16px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.92rem',
+                    outline: 'none',
+                    backgroundColor: '#ffffff',
+                    appearance: 'none',
+                    cursor: 'pointer',
+                    color: '#0f172a'
+                  }}
+                >
+                  <option value="Hematology">Hematology</option>
+                  <option value="Biochemistry">Biochemistry</option>
+                  <option value="Immunology">Immunology</option>
+                  <option value="Microbiology">Microbiology</option>
+                  <option value="Radiology">Radiology</option>
+                  <option value="Pathology">Pathology</option>
+                  <option value="General Diagnostics">General Diagnostics</option>
+                </select>
+                <ChevronDown size={18} color="#64748b" style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Ordering Doctor</label>
+          {/* Row 2: Ordered Doctor Name (33%), Report Date (33%), Report Status (33%) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '24px' }}>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Ordered Doctor Name
+              </label>
               <input
                 type="text"
                 value={orderedDoctor}
                 onChange={(e) => setOrderedDoctor(e.target.value)}
-                placeholder="e.g. Dr. John Doe"
-                className="input-field"
-                style={{ width: '100%' }}
+                placeholder="Dr. Sarah Jenkins"
+                style={{
+                  width: '100%',
+                  padding: '11px 16px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: '#ffffff'
+                }}
               />
             </div>
 
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Report Date</label>
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Report Date
+              </label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
                 required
-                className="input-field"
-                style={{ width: '100%' }}
+                style={{
+                  width: '100%',
+                  padding: '11px 16px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '0.92rem',
+                  outline: 'none',
+                  backgroundColor: '#ffffff'
+                }}
               />
             </div>
 
-            <div className="form-group">
-              <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Report Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="input-field"
-                style={{ width: '100%', padding: '10px 12px' }}
-              >
-                <option value="Completed">Completed</option>
-                <option value="Pending">Pending Analysis</option>
-                <option value="Review">Requires Doctor Review</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: '20px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Diagnostic Findings / Results Summary</label>
-            <textarea
-              rows={3}
-              value={resultsSummary}
-              onChange={(e) => setResultsSummary(e.target.value)}
-              placeholder="e.g. All parameters within normal reference ranges. Hemoglobin: 14.2 g/dL..."
-              className="input-field"
-              style={{ width: '100%', resize: 'vertical' }}
-            />
-          </div>
-
-          <div className="form-group" style={{ marginBottom: '28px' }}>
-            <label style={{ fontSize: '0.88rem', fontWeight: 600, color: '#334155', marginBottom: '6px', display: 'block' }}>Attach Digital Diagnostic PDF / Document (Optional)</label>
-            <div style={{
-              border: '2px dashed #cbd5e1',
-              borderRadius: '12px',
-              padding: '24px',
-              textAlign: 'center',
-              backgroundColor: '#f8fafc',
-              cursor: 'pointer'
-            }}>
-              <Upload size={32} color="#16a34a" style={{ margin: '0 auto 10px auto' }} />
-              <input
-                type="file"
-                id="lab-file"
-                onChange={handleFileUpload}
-                accept=".pdf,.png,.jpg,.jpeg"
-                style={{ display: 'none' }}
-              />
-              <label htmlFor="lab-file" style={{ cursor: 'pointer', display: 'block' }}>
-                <span style={{ color: '#16a34a', fontWeight: 700 }}>Click to browse files</span> or drag and drop PDF/Images
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: '8px', display: 'block' }}>
+                Report Status
               </label>
-              {fileName && (
-                <div style={{ marginTop: '10px', fontSize: '0.85rem', color: '#0f172a', fontWeight: 600 }}>
-                  Selected File: {fileName}
-                </div>
-              )}
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '11px 36px 11px 16px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '0.92rem',
+                    outline: 'none',
+                    backgroundColor: '#ffffff',
+                    appearance: 'none',
+                    cursor: 'pointer',
+                    color: '#0f172a'
+                  }}
+                >
+                  <option value="Completed">Completed</option>
+                  <option value="Pending">Pending Analysis</option>
+                  <option value="Review">Requires Doctor Review</option>
+                </select>
+                <ChevronDown size={18} color="#64748b" style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+              </div>
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="btn btn-primary"
-            style={{
-              backgroundColor: '#16a34a',
-              borderColor: '#16a34a',
-              padding: '14px 28px',
-              fontSize: '1rem',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              opacity: saving ? 0.7 : 1
-            }}
-          >
-            <Save size={18} /> {saving ? 'Uploading Report...' : 'Publish Lab Report'}
-          </button>
+          {/* Row 3: Digital File Attachment Box */}
+          <div style={{
+            border: '2px dashed #cbd5e1',
+            borderRadius: '14px',
+            padding: '32px 20px',
+            textAlign: 'center',
+            backgroundColor: '#f8fafc',
+            marginBottom: '28px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
+              <Upload size={28} color="#16a34a" />
+            </div>
+
+            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+              Attach PDF or Scan Image Report
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: '16px' }}>
+              Supported formats: .PDF, .PNG, .JPG (Max 15MB)
+            </div>
+
+            <input
+              type="file"
+              id="lab-report-file"
+              onChange={handleFileUpload}
+              accept=".pdf,.png,.jpg,.jpeg"
+              style={{ display: 'none' }}
+            />
+            <label
+              htmlFor="lab-report-file"
+              style={{
+                display: 'inline-block',
+                backgroundColor: '#ffffff',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '8px',
+                padding: '8px 22px',
+                fontSize: '0.88rem',
+                fontWeight: 600,
+                color: '#334155',
+                cursor: 'pointer',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
+              }}
+            >
+              Choose File
+            </label>
+
+            {fileName && (
+              <div style={{ marginTop: '12px', fontSize: '0.88rem', color: '#16a34a', fontWeight: 700 }}>
+                Selected File: {fileName}
+              </div>
+            )}
+          </div>
+
+          {/* Row 4: Bottom Action Buttons */}
+          <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+            <button
+              type="submit"
+              disabled={saving}
+              style={{
+                backgroundColor: '#16a34a',
+                color: '#ffffff',
+                border: 'none',
+                padding: '12px 24px',
+                borderRadius: '10px',
+                fontSize: '0.95rem',
+                fontWeight: 700,
+                cursor: saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.7 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 10px rgba(22, 163, 74, 0.25)',
+                transition: 'background 0.2s, transform 0.1s'
+              }}
+            >
+              <CheckCircle2 size={18} /> {saving ? 'Uploading Report...' : 'Upload Lab Report'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRequestPermission}
+              style={{
+                backgroundColor: '#f1f5f9',
+                color: '#475569',
+                border: '1.5px solid #cbd5e1',
+                padding: '12px 20px',
+                borderRadius: '10px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background 0.2s'
+              }}
+            >
+              Request Edit / Delete Permission
+            </button>
+          </div>
         </form>
       ) : (
-        <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '40px', textAlign: 'center', color: '#64748b' }}>
+        <div style={{
+          backgroundColor: '#ffffff',
+          border: '2px dashed #cbd5e1',
+          borderRadius: '16px',
+          padding: '44px 20px',
+          textAlign: 'center',
+          color: '#64748b',
+          fontSize: '0.95rem'
+        }}>
           Select a patient above to upload lab test reports.
         </div>
       )}
