@@ -736,9 +736,8 @@ class OrderCardItem extends StatelessWidget {
                     final itemPending = isPendingVerification || item.unitType == 'RxQuote' || item.requiresPrescription;
                     final isCard = item.unitType == 'Card' || item.medicineName.toLowerCase().contains('(card)');
                     final unitLabel = isCard ? (item.quantity > 1 ? 'Cards' : 'Card') : (item.quantity > 1 ? 'Pills' : 'Pill');
-                    final displayLabel = item.medicineName.toLowerCase().contains('(card)')
-                        ? '${item.medicineName} (x${item.quantity})'
-                        : '${item.medicineName} (x${item.quantity} $unitLabel)';
+                    final cleanName = item.medicineName.replaceAll(RegExp(r'\s*\(Card\)', caseSensitive: false), '').trim();
+                    final displayLabel = '$cleanName (x${item.quantity} $unitLabel)';
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 4),

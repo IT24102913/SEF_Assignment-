@@ -17,6 +17,8 @@ class MedicineModel {
   final bool requiresPrescription;
   final DateTime? expiryDate;
   final String? imageUrl;
+  final String? storageCondition;
+  final String? additionalImagesJson;
 
   MedicineModel({
     required this.id,
@@ -32,7 +34,39 @@ class MedicineModel {
     required this.requiresPrescription,
     this.expiryDate,
     this.imageUrl,
+    this.storageCondition,
+    this.additionalImagesJson,
   }) : cardPrice = cardPrice ?? (price * (pillsPerCard > 0 ? pillsPerCard : 10));
+
+  List<String> get galleryImages {
+    final List<String> imgs = [];
+    if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
+      imgs.add(imageUrl!.trim());
+    }
+    if (additionalImagesJson != null && additionalImagesJson!.trim().isNotEmpty) {
+      try {
+        final parsed = jsonDecode(additionalImagesJson!);
+        if (parsed is List) {
+          for (final item in parsed) {
+            if (item != null && item.toString().trim().isNotEmpty) {
+              final str = item.toString().trim();
+              if (!imgs.contains(str)) {
+                imgs.add(str);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    if (imgs.isEmpty) {
+      imgs.add('https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop');
+    }
+    if (imgs.length == 1) {
+      imgs.add('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+    }
+    return imgs;
+  }
 
   factory MedicineModel.fromJson(Map<String, dynamic> json) {
     final pills = json['pillsPerCard'] is int
@@ -50,7 +84,7 @@ class MedicineModel {
     return MedicineModel(
       id: json['id'] is int ? json['id'] : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
       name: json['name']?.toString() ?? 'Unknown Medicine',
-      brandName: json['brandName']?.toString(),
+      brandName: json['brandName']?.toString() ?? json['BrandName']?.toString(),
       categoryId: json['categoryId'] is int ? json['categoryId'] : int.tryParse(json['categoryId']?.toString() ?? '0') ?? 0,
       categoryName: json['categoryName']?.toString() ?? (json['category'] != null ? json['category']['name']?.toString() ?? 'General' : 'General'),
       description: json['description']?.toString() ?? 'No description available.',
@@ -61,6 +95,8 @@ class MedicineModel {
       requiresPrescription: json['requiresPrescription'] == true || json['requiresPrescription']?.toString().toLowerCase() == 'true',
       expiryDate: json['expiryDate'] != null ? DateTime.tryParse(json['expiryDate'].toString()) : null,
       imageUrl: json['imageUrl']?.toString(),
+      storageCondition: json['storageCondition']?.toString() ?? json['StorageCondition']?.toString(),
+      additionalImagesJson: json['additionalImagesJson']?.toString() ?? json['AdditionalImagesJson']?.toString(),
     );
   }
 }
@@ -175,12 +211,18 @@ class PharmacyOrderItemModel {
             ? (json['lineTotal'] as num).toDouble()
             : (price * qty);
 
+    final medName = json['medicineName']?.toString() ?? json['name']?.toString() ?? 'Medicine Item';
+    final rawUType = json['unitType']?.toString();
+    final uType = (rawUType != null && rawUType.isNotEmpty && rawUType != 'null')
+        ? rawUType
+        : (medName.toLowerCase().contains('(card)') ? 'Card' : 'Pill');
+
     return PharmacyOrderItemModel(
       id: json['id'] is int ? json['id'] : int.tryParse(json['id']?.toString() ?? '0'),
       medicineId: json['medicineId'] is int ? json['medicineId'] : int.tryParse(json['medicineId']?.toString() ?? '0'),
-      medicineName: json['medicineName']?.toString() ?? json['name']?.toString() ?? 'Medicine Item',
+      medicineName: medName,
       requiresPrescription: json['requiresPrescription'] == true || json['requiresPrescription']?.toString().toLowerCase() == 'true',
-      unitType: json['unitType']?.toString() ?? 'Pill',
+      unitType: uType,
       quantity: qty,
       unitPrice: price,
       subtotal: sub,
