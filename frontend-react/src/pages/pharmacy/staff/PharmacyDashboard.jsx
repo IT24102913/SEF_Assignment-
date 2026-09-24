@@ -13,9 +13,7 @@ import {
     ArrowLeft,
     LogOut,
     Sparkles,
-    CheckCircle2,
-    Activity,
-    Stethoscope
+    CheckCircle2
 } from 'lucide-react';
 
 const PharmacyDashboard = () => {
@@ -68,15 +66,6 @@ const PharmacyDashboard = () => {
             color: '#0284C7',
             badge: 'Prescription Approvals',
             path: '/pharmacist/orders',
-        },
-        {
-            id: 'appointments',
-            icon: Stethoscope,
-            title: 'Doctor Channeling Appointments',
-            description: 'Audit patient doctor bookings, view token QR codes, verify room schedules, and manage status.',
-            color: '#0D9488',
-            badge: 'Channeling Tokens',
-            path: '/pharmacist/appointments',
         },
         {
             id: 'ai',
@@ -189,7 +178,7 @@ const PharmacyDashboard = () => {
                         <h2 style={styles.sectionTitle}>Pharmacy Operation Modules</h2>
                         <p style={styles.sectionSubtitle}>Select a workflow to oversee clinical distribution</p>
                     </div>
-                    <span style={styles.activePill}>5 Workspaces Ready</span>
+                    <span style={styles.activePill}>{modules.length} Workspaces Ready</span>
                 </div>
 
                 <div style={styles.grid}>

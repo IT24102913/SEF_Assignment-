@@ -642,7 +642,7 @@ const Orders = () => {
                                             <Phone size={14} color="#059669" /> {order.customerPhone || 'N/A'}
                                         </div>
                                         <div style={styles.infoLine}>
-                                            <MapPin size={14} color="#059669" /> Delivery Option: <strong>{order.deliveryMethod === 'Pickup' ? '🏥 Counter Pickup (FREE)' : '🚚 Home Delivery (+Rs. 250)'}</strong> ({order.deliveryAddress || 'Store Pick-up'})
+                                            <MapPin size={14} color="#059669" /> Delivery Option: <strong>{order.deliveryMethod === 'Pickup' ? '🏥 Counter Pickup (FREE)' : '🚚 Home Delivery (Delivery Charges < 500)'}</strong> ({order.deliveryAddress || 'Store Pick-up'})
                                         </div>
                                     </div>
 
@@ -672,7 +672,14 @@ const Orders = () => {
                                             const isRxItem = order.status === 'PendingVerification' || item.requiresPrescription || item.unitType === 'RxQuote' || order.totalAmount === 0;
                                             return (
                                                 <div key={idx} style={styles.itemRow}>
-                                                    <span>{item.medicineName || item.name} (x{item.quantity})</span>
+                                                    <span>{(() => {
+                                                        const isCard = item.unitType === 'Card' || (item.medicineName || item.name || '').toLowerCase().includes('(card)');
+                                                        const unitLabel = isCard ? (item.quantity > 1 ? 'Cards' : 'Card') : (item.quantity > 1 ? 'Pills' : 'Pill');
+                                                        const nameStr = item.medicineName || item.name || '';
+                                                        return nameStr.toLowerCase().includes('(card)')
+                                                            ? `${nameStr} (x${item.quantity})`
+                                                            : `${nameStr} (x${item.quantity} ${unitLabel})`;
+                                                    })()}</span>
                                                     <span style={{ fontWeight: 600, color: isRxItem ? '#D97706' : '#059669' }}>
                                                         {isRxItem ? 'Pharmacist Quote Required' : `Rs. ${(item.subtotal || item.price * item.quantity || 0).toFixed(2)}`}
                                                     </span>
@@ -768,7 +775,7 @@ const Orders = () => {
                             </p>
 
                             <div style={{ background: '#F1F5F9', padding: '10px 12px', borderRadius: '8px', fontSize: '12.5px', color: '#334155' }}>
-                                <div>Fulfillment: <strong>{selectedOrder.deliveryMethod === 'Pickup' ? '🏥 Counter Pickup (FREE)' : '🚚 Home Delivery (+Rs. 250 Charge)'}</strong></div>
+                                <div>Fulfillment: <strong>{selectedOrder.deliveryMethod === 'Pickup' ? '🏥 Counter Pickup (FREE)' : '🚚 Home Delivery (Delivery Charges < 500 - Pay on Delivery)'}</strong></div>
                                 {selectedOrder.deliveryAddress && <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>Address: {selectedOrder.deliveryAddress}</div>}
                             </div>
 
@@ -1011,7 +1018,7 @@ const Orders = () => {
                                     }}
                                 />
                                 <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '4px' }}>
-                                    💡 Tip: Doctor dosage calculation. Include Rs. 250 delivery fee if Home Delivery was requested by patient.
+                                    💡 Tip: Doctor dosage calculation. Delivery charges (&lt; Rs. 500) are paid directly to the courier upon delivery.
                                 </div>
                             </div>
 
