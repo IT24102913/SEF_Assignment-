@@ -28,9 +28,6 @@ export default function LabHeader() {
           b.status === 'PendingAIVerification'
         ).length;
         const pendingTests = all.filter(b => 
-          b.status === 'PendingLabApproval' ||
-          b.status === 'PendingPrescriptionUpload' ||
-          b.status === 'PendingAIVerification' ||
           b.status === 'Confirmed' ||
           b.status === 'SampleCollected' ||
           b.status === 'TestingInProgress' ||

@@ -20,9 +20,6 @@ export default function Dashboard() {
       setStats(statsRes.data);
       const all = bookingsRes.data || [];
       const queueCount = all.filter(b => 
-        b.status === 'PendingLabApproval' ||
-        b.status === 'PendingPrescriptionUpload' ||
-        b.status === 'PendingAIVerification' ||
         b.status === 'Confirmed' ||
         b.status === 'SampleCollected' ||
         b.status === 'TestingInProgress' ||

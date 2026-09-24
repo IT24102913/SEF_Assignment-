@@ -215,13 +215,27 @@ export default function MyLabBookingsSection({
       const isAwaitingPayment = !isPaid && ['PendingLabApproval', 'PendingPrescriptionUpload', 'PendingAIVerification', 'PendingPayment', 'Confirmed'].includes(b.status);
 
       if (isAwaitingPayment) {
-        const groupKey = `intake_${b.bookingDate || 'no_date'}_${b.timeSlot || 'no_time'}`;
-        if (!groups.has(groupKey)) {
-          const item = { primary: b, siblings: [b] };
-          groups.set(groupKey, item);
-          list.push(item);
+        const createdMs = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        let matched = null;
+        for (const item of list) {
+          if (!item.primary) continue;
+          const p = item.primary;
+          const pCreatedMs = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+          if (
+            p.bookingDate === b.bookingDate &&
+            p.timeSlot === b.timeSlot &&
+            (b.patientEmail === p.patientEmail || b.patientId === p.patientId) &&
+            Math.abs(createdMs - pCreatedMs) <= 90000 // Booked together in the same batch session
+          ) {
+            matched = item;
+            break;
+          }
+        }
+
+        if (matched) {
+          matched.siblings.push(b);
         } else {
-          groups.get(groupKey).siblings.push(b);
+          list.push({ primary: b, siblings: [b] });
         }
       } else {
         // Individual test card once specimen collected or ready
@@ -230,10 +244,13 @@ export default function MyLabBookingsSection({
     }
 
     return list.map(g => {
+      const createdMs = g.primary.createdAt ? new Date(g.primary.createdAt).getTime() : 0;
       const slotSiblings = bookings.filter(sb =>
         sb.id !== g.primary.id &&
         sb.bookingDate === g.primary.bookingDate &&
-        sb.timeSlot === g.primary.timeSlot
+        sb.timeSlot === g.primary.timeSlot &&
+        (sb.patientEmail === g.primary.patientEmail || sb.patientId === g.primary.patientId) &&
+        Math.abs((sb.createdAt ? new Date(sb.createdAt).getTime() : 0) - createdMs) <= 90000
       );
 
       return {

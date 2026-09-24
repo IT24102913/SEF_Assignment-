@@ -47,9 +47,6 @@ const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
 const getStageRank = (status) => {
   switch (status) {
-    case 'PendingPrescriptionUpload':
-    case 'PendingAIVerification':
-    case 'PendingLabApproval':
     case 'Confirmed':
       return 1;
     case 'SampleCollected':
@@ -91,16 +88,13 @@ export default function PendingTests() {
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
 
-  const load = () => {
-    setLoading(true);
+  const load = (showSpinner = false) => {
+    if (showSpinner) setLoading(true);
     getAllBookings('')
       .then(r => {
         const all = r.data || [];
-        // Active in-progress test stages
+        // Only active tests that are confirmed/approved or progressing through the laboratory pipeline
         const pendingQueue = all.filter(b => 
-          b.status === 'PendingLabApproval' ||
-          b.status === 'PendingPrescriptionUpload' ||
-          b.status === 'PendingAIVerification' ||
           b.status === 'Confirmed' ||
           b.status === 'SampleCollected' ||
           b.status === 'TestingInProgress' ||
@@ -109,12 +103,21 @@ export default function PendingTests() {
           b.status === 'ReportDelivered'
         );
         setBookings(pendingQueue);
-        setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => {})
+      .finally(() => { if (showSpinner) setLoading(false); });
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { 
+    load(true);
+    const interval = setInterval(() => load(false), 4000);
+    const handleUpdate = () => load(false);
+    window.addEventListener('lab-booking-updated', handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('lab-booking-updated', handleUpdate);
+    };
+  }, []);
 
   // --- ACTIONS ---
 
@@ -1132,7 +1135,7 @@ export default function PendingTests() {
                   </div>
 
                   {/* Payment Method Selector */}
-                  <div className="form-group" style={{ marginBottom: 14 }}>
+                  <div className="form-group" style={{ marginBottom: 20 }}>
                     <label className="form-label" style={{ fontWeight: 700 }}>Select Payment Channel *</label>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                       <button
@@ -1175,17 +1178,6 @@ export default function PendingTests() {
                         <span style={{ fontSize: 10.5, opacity: 0.85 }}>Swipe / Tap Debit / Credit</span>
                       </button>
                     </div>
-                  </div>
-
-                  {/* Notes / Reference */}
-                  <div className="form-group" style={{ marginBottom: 18 }}>
-                    <label className="form-label" style={{ fontWeight: 700 }}>Desk Reference / Notes (Optional)</label>
-                    <input
-                      className="input"
-                      placeholder={paymentMethod === 'CounterCash' ? 'e.g. Cash collected at Lab Phlebotomy Desk 1' : 'e.g. POS Transaction Slip / Terminal #'}
-                      value={paymentNotes}
-                      onChange={e => setPaymentNotes(e.target.value)}
-                    />
                   </div>
 
                   {/* Actions */}

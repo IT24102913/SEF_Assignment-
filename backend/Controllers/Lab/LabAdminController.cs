@@ -41,8 +41,10 @@ public class LabAdminController : ControllerBase
     {
         var bookings = await _db.LabBookings
             .Include(b => b.LabTest)
-            .Where(b => b.Status == BookingStatus.PendingLabApproval)
-            .OrderBy(b => b.CreatedAt)
+            .Where(b => b.Status == BookingStatus.PendingLabApproval 
+                     || b.Status == BookingStatus.PendingAIVerification
+                     || b.Status == BookingStatus.PendingPrescriptionUpload)
+            .OrderByDescending(b => b.CreatedAt)
             .ToListAsync();
 
         return Ok(bookings.Select(MapToDto));
@@ -55,7 +57,14 @@ public class LabAdminController : ControllerBase
         var booking = await _db.LabBookings.Include(b => b.LabTest).FirstOrDefaultAsync(b => b.Id == id);
         if (booking == null) return NotFound();
 
-        if (booking.Status != BookingStatus.PendingLabApproval)
+        var approvableStatuses = new[]
+        {
+            BookingStatus.PendingLabApproval,
+            BookingStatus.PendingAIVerification,
+            BookingStatus.PendingPrescriptionUpload
+        };
+
+        if (!approvableStatuses.Contains(booking.Status))
             return BadRequest(new { message = "This booking is not in a state that can be approved." });
 
         booking.Status = BookingStatus.Confirmed;
@@ -64,15 +73,24 @@ public class LabAdminController : ControllerBase
         booking.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Find all active bookings for this patient, date & slot to compute combined appointment details
-        var appointmentBookings = await _db.LabBookings
+        // Find all active bookings for this patient, date & slot created together in the same booking batch (within 90s)
+        var candidateBookings = await _db.LabBookings
             .Include(b => b.LabTest)
-            .Where(b => b.PatientId == booking.PatientId
+            .Where(b => (b.PatientId == booking.PatientId || b.PatientEmail == booking.PatientEmail)
                      && b.BookingDate == booking.BookingDate
                      && b.TimeSlot == booking.TimeSlot
                      && b.Status != BookingStatus.Cancelled
                      && b.Status != BookingStatus.Rejected)
             .ToListAsync();
+
+        var appointmentBookings = candidateBookings
+            .Where(b => Math.Abs((b.CreatedAt - booking.CreatedAt).TotalSeconds) <= 90)
+            .ToList();
+
+        if (!appointmentBookings.Any(b => b.Id == booking.Id))
+        {
+            appointmentBookings.Add(booking);
+        }
 
         var totalAppointmentPrice = appointmentBookings.Sum(b => b.LabTest?.Price ?? 0);
         var testNamesList = appointmentBookings
@@ -253,7 +271,9 @@ public class LabAdminController : ControllerBase
         var stats = new
         {
             TotalBookings = await _db.LabBookings.CountAsync(),
-            PendingApproval = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.PendingLabApproval),
+            PendingApproval = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.PendingLabApproval 
+                                                                 || b.Status == BookingStatus.PendingAIVerification
+                                                                 || b.Status == BookingStatus.PendingPrescriptionUpload),
             Confirmed = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.Confirmed),
             SampleCollected = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.SampleCollected),
             ResultsReady = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.ResultsReady),

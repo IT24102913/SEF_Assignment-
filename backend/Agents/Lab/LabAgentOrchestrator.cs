@@ -217,7 +217,7 @@ public class LabAgentOrchestrator
         booking.AIConfidenceScore = state.OverallConfidence;
         booking.AIVerificationNotes = $"[Token {booking.QueueToken}] Chair #{booking.AssignedChairNo} | {queueSafetyResult.StatusMessage}";
         booking.Status = booking.LabTest.IsRestricted ? BookingStatus.PendingLabApproval : BookingStatus.Confirmed;
-        booking.AgentWorkflowStateJson = JsonSerializer.Serialize(state);
+        booking.AgentWorkflowStateJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         booking.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();

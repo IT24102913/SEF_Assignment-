@@ -162,8 +162,23 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       );
 
       if (isAwaitingPayment) {
-        final key = '${b.bookingDate}_${b.timeSlot}';
-        grouped.putIfAbsent(key, () => []).add(b);
+        final bCreated = DateTime.tryParse(b.createdAt) ?? DateTime.now();
+        List<LabBooking>? matchedGroup;
+        for (var group in grouped.values) {
+          final first = group.first;
+          final fCreated = DateTime.tryParse(first.createdAt) ?? DateTime.now();
+          if (first.bookingDate == b.bookingDate &&
+              first.timeSlot == b.timeSlot &&
+              bCreated.difference(fCreated).inSeconds.abs() <= 90) {
+            matchedGroup = group;
+            break;
+          }
+        }
+        if (matchedGroup != null) {
+          matchedGroup.add(b);
+        } else {
+          grouped[b.id] = [b];
+        }
       } else {
         items.add(b);
       }
@@ -940,28 +955,35 @@ class _ActiveBookingCard extends StatelessWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Icon(
-                                isCounterSelected ? Icons.storefront_rounded : Icons.payment_rounded,
-                                size: 16,
-                                color: isCounterSelected ? const Color(0xFFB45309) : const Color(0xFF1D4ED8),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                isCounterSelected
-                                    ? 'Pay at Counter Selected'
-                                    : (hasRestricted
-                                        ? 'Prescription Approved • Action Required: Select Payment'
-                                        : 'Payment Required (Approved)'),
-                                style: TextStyle(
-                                  color: isCounterSelected ? const Color(0xFF92400E) : const Color(0xFF1E40AF),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isCounterSelected ? Icons.storefront_rounded : Icons.payment_rounded,
+                                  size: 16,
+                                  color: isCounterSelected ? const Color(0xFFB45309) : const Color(0xFF1D4ED8),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    isCounterSelected
+                                        ? 'Pay at Counter Selected'
+                                        : (hasRestricted
+                                            ? 'Prescription Approved • Settle Payment'
+                                            : 'Payment Required (Approved)'),
+                                    style: TextStyle(
+                                      color: isCounterSelected ? const Color(0xFF92400E) : const Color(0xFF1E40AF),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(

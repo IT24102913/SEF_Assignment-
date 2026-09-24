@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getPendingBookings, approveBooking, rejectBooking } from '../../../api/labApi';
+import { getAllBookings, approveBooking, rejectBooking } from '../../../api/labApi';
 import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
 import { CheckCircle, XCircle, Eye, Brain, X } from 'lucide-react';
@@ -10,6 +10,8 @@ const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 function StatusBadge({ status }) {
   const map = {
     PendingLabApproval: ['badge-pending', 'Pending Approval'],
+    PendingAIVerification: ['badge-warning', 'AI Verifying...'],
+    PendingPrescriptionUpload: ['badge-pending', 'Awaiting Upload'],
     Confirmed: ['badge-confirmed', 'Confirmed'],
     Rejected: ['badge-rejected', 'Rejected'],
     SampleCollected: ['badge-collected', 'Sample Collected'],
@@ -19,7 +21,9 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
-function AIBadge({ ai, score }) {
+function AIBadge({ ai, score, status }) {
+  if (status === 'PendingAIVerification') return <span className="badge badge-warning">⚡ AI Verifying...</span>;
+  if (status === 'PendingPrescriptionUpload') return <span className="badge badge-pending">⏳ Awaiting Rx Upload</span>;
   if (ai === 'NotRequired') return <span className="badge badge-open">Not Required</span>;
   if (ai === 'PreApproved') return <span className="badge badge-ai-approved">✓ AI Pre-Approved {score ? `(${(score * 100).toFixed(0)}%)` : ''}</span>;
   if (ai === 'Flagged') return <span className="badge badge-ai-flagged">⚠ AI Flagged</span>;
@@ -33,16 +37,38 @@ export default function PendingApprovals() {
   const [rejectReason, setRejectReason] = useState('');
   const [modal, setModal] = useState(null); // 'view' | 'reject' | 'image'
 
-  const load = () => {
-    setLoading(true);
-    getPendingBookings()
-      .then(r => { setBookings(r.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
+  const load = (showSpinner = false) => {
+    if (showSpinner) setLoading(true);
+    getAllBookings('')
+      .then(r => {
+        const all = r.data || [];
+        const pending = all.filter(b => 
+          b.status === 'PendingLabApproval' ||
+          b.status === 'PendingPrescriptionUpload' ||
+          b.status === 'PendingAIVerification'
+        );
+        setBookings(pending);
+      })
+      .catch(() => {})
+      .finally(() => { if (showSpinner) setLoading(false); });
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { 
+    load(true);
+    const interval = setInterval(() => load(false), 4000);
+    const handleUpdate = () => load(false);
+    window.addEventListener('lab-booking-updated', handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('lab-booking-updated', handleUpdate);
+    };
+  }, []);
 
   const handleApprove = async (booking) => {
+    if (booking.status === 'PendingPrescriptionUpload') {
+      toast.error('Patient has not uploaded a prescription slip yet.');
+      return;
+    }
     try {
       await approveBooking(booking.id, TECHNICIAN_ID, '');
       toast.success(`Booking approved! Confirmation email sent to ${booking.patientEmail}`);
@@ -98,15 +124,18 @@ export default function PendingApprovals() {
                     </td>
                     <td>
                       <div style={{ fontWeight: 500 }}>{b.labTest?.name}</div>
-                      <span className={`badge ${b.labTest?.isRestricted ? 'badge-restricted' : 'badge-open'}`}>
-                        {b.labTest?.isRestricted ? '🔒 Restricted' : '✓ Open'}
-                      </span>
+                      <div className="flex gap-1" style={{ marginTop: 4 }}>
+                        <span className={`badge ${b.labTest?.isRestricted ? 'badge-restricted' : 'badge-open'}`}>
+                          {b.labTest?.isRestricted ? '🔒 Restricted' : '✓ Open'}
+                        </span>
+                        <StatusBadge status={b.status} />
+                      </div>
                     </td>
                     <td>
                       <div>{b.bookingDate}</div>
                       <div className="text-muted">{b.timeSlot}</div>
                     </td>
-                    <td><AIBadge ai={b.aiVerification} score={b.aiConfidenceScore} /></td>
+                    <td><AIBadge ai={b.aiVerification} score={b.aiConfidenceScore} status={b.status} /></td>
                     <td>
                       {b.prescriptionImageUrl ? (
                         <button className="btn btn-ghost btn-sm" onClick={() => { setSelected(b); setModal('image'); }}>
@@ -178,15 +207,27 @@ export default function PendingApprovals() {
                 {selected.agentWorkflowStateJson && (() => {
                   try {
                     const state = JSON.parse(selected.agentWorkflowStateJson);
+                    const logs = state.stepLogs || state.StepLogs || [];
+                    if (!logs.length) return null;
                     return (
                       <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(0,0,0,0.08)' }}>
                         <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Workflow Execution Logs:</div>
-                        {state.stepLogs?.map((log, idx) => (
-                          <div key={idx} style={{ fontSize: 11, padding: '4px 8px', background: '#fff', borderRadius: 6, marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
-                            <span>✓ {log.stepName}</span>
-                            <span style={{ color: 'var(--text-muted)' }}>{(log.confidence * 100).toFixed(0)}% confidence</span>
-                          </div>
-                        ))}
+                        {logs.map((log, idx) => {
+                          const name = log.stepName || log.StepName || `Step #${idx + 1}`;
+                          const conf = log.confidence ?? log.Confidence ?? 1.0;
+                          const agent = log.agentName || log.AgentName || '';
+                          const msg = log.message || log.Message || '';
+                          return (
+                            <div key={idx} style={{ fontSize: 11, padding: '6px 8px', background: '#fff', borderRadius: 6, marginBottom: 4, border: '1px solid rgba(0,0,0,0.05)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: 600, color: '#0f172a' }}>✓ {name}</span>
+                                <span style={{ color: 'var(--text-muted)', fontSize: 10.5 }}>{(conf * 100).toFixed(0)}% confidence</span>
+                              </div>
+                              {agent && <div style={{ fontSize: 10, color: 'var(--primary-dark)', marginTop: 2 }}>Agent: {agent}</div>}
+                              {msg && <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 2 }}>{msg}</div>}
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   } catch { return null; }
