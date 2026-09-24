@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { emrStore } from '../../../data/mockEmrStore';
+import { emrApi } from '../../../api/emrApi';
 import { Microscope, Download, Clock, CheckCircle, Loader } from 'lucide-react';
 
 const statusConfig = {
@@ -10,17 +10,38 @@ const statusConfig = {
 
 export default function LabReports() {
   const [reports, setReports] = useState([]);
-  const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
-  const storedUser = JSON.parse(rawUser);
-  const PATIENT_ID = storedUser.patientCode || 'PAT-1001';
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setReports(emrStore.getLabReports(PATIENT_ID));
-    const unsubscribe = emrStore.subscribe(() => {
-      setReports(emrStore.getLabReports(PATIENT_ID));
-    });
-    return unsubscribe;
-  }, [PATIENT_ID]);
+    fetchLabReports();
+  }, []);
+
+  const fetchLabReports = async () => {
+    setLoading(true);
+    try {
+      const myPatient = await emrApi.getMyPatient();
+      if (myPatient && myPatient.patientCode) {
+        const data = await emrApi.getLabReports(myPatient.patientCode);
+        setReports((data || []).map(l => ({
+          id: l.id,
+          testTitle: l.testTitle,
+          category: l.category,
+          orderedDoctor: l.orderedDoctor,
+          date: l.reportDate ? l.reportDate.split('T')[0] : '',
+          status: l.status,
+          fileName: l.fileName || 'Report.pdf',
+          resultsSummary: l.resultsSummary
+        })));
+      } else {
+        setReports([]);
+      }
+    } catch (err) {
+      console.error('Error fetching lab reports:', err);
+      setReports([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div>
@@ -33,7 +54,12 @@ export default function LabReports() {
         </p>
       </div>
 
-      {reports.length === 0 ? (
+      {loading ? (
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '48px', textAlign: 'center', color: '#64748b' }}>
+          <Loader size={32} className="animate-spin" style={{ margin: '0 auto 12px auto', display: 'block', color: '#0d7c6b' }} />
+          <p>Loading your lab diagnostic records...</p>
+        </div>
+      ) : reports.length === 0 ? (
         <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
           <Microscope size={40} style={{ marginBottom: '12px', opacity: 0.4 }} />
           <p>No lab reports found. Reports will appear here once your tests are processed.</p>

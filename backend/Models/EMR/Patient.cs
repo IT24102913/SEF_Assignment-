@@ -5,9 +5,11 @@ namespace HealthBridge.Api.Models.EMR;
 public class Patient
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>Links this EMR patient record to the auth User (nullable for legacy/seeded records)</summary>
+    public int? UserId { get; set; }
     public string PatientCode { get; set; } = string.Empty; // e.g. PAT-1001
     public string FullName { get; set; } = string.Empty;
-    public DateTime DateOfBirth { get; set; }
+    public DateTime? DateOfBirth { get; set; }
     public string Gender { get; set; } = "Other"; // Male, Female, Other
     public string BloodGroup { get; set; } = "Unknown"; // A+, B+, O+, AB+, etc.
     public string ContactPhone { get; set; } = string.Empty;

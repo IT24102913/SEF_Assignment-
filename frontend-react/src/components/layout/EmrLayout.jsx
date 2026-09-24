@@ -11,9 +11,11 @@ import {
   LogOut, 
   Bell, 
   Activity,
-  ArrowLeft
+  ArrowLeft,
+  CheckCheck
 } from 'lucide-react';
 import EmrFooter from './EmrFooter';
+import { emrApi } from '../../api/emrApi';
 
 // ── Health Bridge brand teal palette
 const T = {
@@ -42,27 +44,26 @@ export default function EmrLayout() {
   const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
   const storedUser = JSON.parse(rawUser);
   const userName   = storedUser.fullName || storedUser.name || 'Patient';
-  const patientCode = storedUser.patientCode || 'PAT-1001';
+  const patientCode = storedUser.patientCode || '';
 
   const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
-    if (patientCode === 'PAT-1001') {
-      setNotifications([
-        { id: 1, title: 'Lab Report Ready',        message: 'Complete Blood Count (CBC) test results uploaded.',     time: '5 mins ago',  unread: true },
-        { id: 2, title: 'Prescription Refilled',   message: 'Amoxicillin 500mg processed by Central Pharmacy.',     time: '1 hour ago',  unread: true },
-        { id: 3, title: 'Appointment Confirmed',   message: 'Session with Dr. Sarah Jenkins confirmed for Aug 24.', time: '3 hours ago', unread: false },
-        { id: 4, title: 'Consultation Note Added', message: 'Dr. Sarah Chen added notes for Stage 1 Hypertension.',  time: '1 day ago',   unread: false },
-        { id: 5, title: 'Security Alert',          message: 'Successful portal login from Chrome on Windows.',       time: '2 days ago',  unread: false },
-      ]);
-    } else {
-      setNotifications([
-        { id: 'welcome',     title: `Welcome, ${userName}!`,     message: `Your Health Bridge medical records under ID ${patientCode} are now initialized.`, time: 'Just now',  unread: true },
-        { id: 'profile-tip', title: 'Complete Medical Profile',  message: 'Click your profile to add blood group, allergies, and emergency contacts.',       time: '10m ago',   unread: true },
-        { id: 'sec-notice',  title: 'Portal Security Active',   message: 'Your personal health data is encrypted and isolated to your account.',              time: 'Today',     unread: false },
-      ]);
+    fetchLiveNotifications();
+  }, [storedUser.id, storedUser.role]);
+
+  const fetchLiveNotifications = async () => {
+    try {
+      const data = await emrApi.getMyNotifications();
+      if (Array.isArray(data)) {
+        setNotifications(data);
+      } else {
+        setNotifications([]);
+      }
+    } catch {
+      setNotifications([]);
     }
-  }, [patientCode, userName]);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('hb_token');
@@ -202,45 +203,80 @@ export default function EmrLayout() {
                   position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   padding: '8px', transition: 'background 0.2s'
                 }}
+                title="Notifications"
               >
                 <Bell size={20} color={showNotifications ? T.accent : '#4d7a73'} />
-                <span style={{
-                  position: 'absolute', top: '6px', right: '6px',
-                  width: '8px', height: '8px',
-                  backgroundColor: '#ef4444', borderRadius: '50%'
-                }} />
+                {notifications.some(n => n.unread) && (
+                  <span style={{
+                    position: 'absolute', top: '6px', right: '6px',
+                    width: '8px', height: '8px',
+                    backgroundColor: '#ef4444', borderRadius: '50%',
+                    border: '2px solid #ffffff'
+                  }} />
+                )}
               </button>
 
               {showNotifications && (
                 <div style={{
-                  position: 'absolute', top: '50px', right: '0', width: '340px',
+                  position: 'absolute', top: '50px', right: '0', width: '350px',
                   backgroundColor: '#ffffff', border: `1px solid ${T.headerBorder}`,
-                  borderRadius: '16px', boxShadow: '0 12px 30px -5px rgba(0,0,0,0.10)',
+                  borderRadius: '16px', boxShadow: '0 12px 30px -5px rgba(0,0,0,0.12)',
                   zIndex: 100, overflow: 'hidden', animation: 'fadeIn 0.2s ease-out'
                 }}>
                   <div style={{ padding: '14px 18px', borderBottom: `1px solid ${T.accentBg}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0d2b27' }}>Notifications</span>
-                    <span style={{ fontSize: '0.75rem', backgroundColor: T.notifBadgeBg, color: T.notifBadgeTxt, fontWeight: 700, padding: '3px 10px', borderRadius: '12px' }}>
-                      {notifications.length} Alerts
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0d2b27' }}>Notifications</span>
+                      <span style={{ fontSize: '0.72rem', backgroundColor: T.accentLight, color: T.accent, fontWeight: 700, padding: '2px 8px', borderRadius: '10px' }}>
+                        {storedUser.role || 'Patient'}
+                      </span>
+                    </div>
+                    {notifications.some(n => n.unread) && (
+                      <button
+                        onClick={() => setNotifications(prev => prev.map(x => ({ ...x, unread: false })))}
+                        style={{
+                          background: 'none', border: 'none', color: T.accent,
+                          fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: '4px'
+                        }}
+                      >
+                        <CheckCheck size={13} /> Mark all read
+                      </button>
+                    )}
                   </div>
 
                   <div style={{ maxHeight: '310px', overflowY: 'auto' }}>
-                    {notifications.map((n) => (
-                      <div key={n.id} style={{
-                        padding: '12px 18px', borderBottom: `1px solid ${T.accentLight}`,
-                        fontSize: '0.85rem',
-                        backgroundColor: n.unread ? T.accentBg : '#ffffff',
-                        transition: 'background 0.2s'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
-                          <span style={{ fontWeight: 600, color: '#0d2b27' }}>{n.title}</span>
-                          {n.unread && <span style={{ width: '7px', height: '7px', backgroundColor: T.notifDot, borderRadius: '50%' }} />}
-                        </div>
-                        <div style={{ color: '#4d7a73', fontSize: '0.8rem', lineHeight: 1.4 }}>{n.message}</div>
-                        <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '4px' }}>{n.time}</div>
+                    {notifications.length === 0 ? (
+                      <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                        No notifications for your account.
                       </div>
-                    ))}
+                    ) : (
+                      notifications.map((n) => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, unread: false } : x));
+                            if (n.link) {
+                              setShowNotifications(false);
+                              navigate(n.link);
+                            }
+                          }}
+                          style={{
+                            padding: '12px 18px', borderBottom: `1px solid ${T.accentLight}`,
+                            fontSize: '0.85rem',
+                            backgroundColor: n.unread ? T.accentBg : '#ffffff',
+                            cursor: 'pointer',
+                            transition: 'background 0.2s'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                            <span style={{ fontWeight: 600, color: '#0d2b27' }}>{n.title}</span>
+                            {n.unread && <span style={{ width: '7px', height: '7px', backgroundColor: '#10b981', borderRadius: '50%' }} />}
+                          </div>
+                          <div style={{ color: '#4d7a73', fontSize: '0.8rem', lineHeight: 1.4 }}>{n.message}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '4px' }}>{n.time}</div>
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   <Link

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { emrStore } from '../../../data/mockEmrStore';
-import { Pill, Calendar, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { emrApi } from '../../../api/emrApi';
+import { Pill, Calendar, Clock, CheckCircle2, AlertCircle, Loader } from 'lucide-react';
 
 const statusConfig = {
   'Active':    { bg: '#dbeafe', color: '#0d7c6b', icon: Clock },
@@ -10,17 +10,39 @@ const statusConfig = {
 
 export default function Prescriptions() {
   const [prescriptions, setPrescriptions] = useState([]);
-  const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
-  const storedUser = JSON.parse(rawUser);
-  const PATIENT_ID = storedUser.patientCode || 'PAT-1001';
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setPrescriptions(emrStore.getPrescriptions(PATIENT_ID));
-    const unsubscribe = emrStore.subscribe(() => {
-      setPrescriptions(emrStore.getPrescriptions(PATIENT_ID));
-    });
-    return unsubscribe;
-  }, [PATIENT_ID]);
+    fetchPrescriptions();
+  }, []);
+
+  const fetchPrescriptions = async () => {
+    setLoading(true);
+    try {
+      const myPatient = await emrApi.getMyPatient();
+      if (myPatient && myPatient.patientCode) {
+        const data = await emrApi.getPrescriptions(myPatient.patientCode);
+        setPrescriptions((data || []).map(p => ({
+          id: p.id,
+          medication: p.medicationName,
+          unitPrice: p.unitPrice ? `$${p.unitPrice.toFixed(2)}` : '',
+          dosage: p.dosage,
+          duration: p.duration,
+          startDate: p.startDate ? p.startDate.split('T')[0] : '',
+          endDate: p.endDate ? p.endDate.split('T')[0] : '',
+          prescribedDoctor: p.prescribedDoctor,
+          status: p.status || 'Active'
+        })));
+      } else {
+        setPrescriptions([]);
+      }
+    } catch (err) {
+      console.error('Error fetching prescriptions:', err);
+      setPrescriptions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const active = prescriptions.filter(rx => rx.status === 'Active');
   const completed = prescriptions.filter(rx => rx.status !== 'Active');
@@ -59,10 +81,12 @@ export default function Prescriptions() {
             <strong>Instructions:</strong> {rx.dosage}
           </div>
           <div style={{ display: 'flex', gap: '24px', color: '#64748b', flexWrap: 'wrap' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <Calendar size={14} /> {rx.startDate} → {rx.endDate}
-            </span>
-            <span><strong>Duration:</strong> {rx.duration}</span>
+            {rx.startDate && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Calendar size={14} /> {rx.startDate} {rx.endDate ? `→ ${rx.endDate}` : ''}
+              </span>
+            )}
+            {rx.duration && <span><strong>Duration:</strong> {rx.duration}</span>}
             {rx.unitPrice && <span><strong>Cost:</strong> {rx.unitPrice}</span>}
           </div>
         </div>
@@ -79,7 +103,12 @@ export default function Prescriptions() {
         </p>
       </div>
 
-      {prescriptions.length === 0 ? (
+      {loading ? (
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '48px', textAlign: 'center', color: '#64748b' }}>
+          <Loader size={32} className="animate-spin" style={{ margin: '0 auto 12px auto', display: 'block', color: '#0d7c6b' }} />
+          <p>Loading your prescriptions...</p>
+        </div>
+      ) : prescriptions.length === 0 ? (
         <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
           <Pill size={40} style={{ marginBottom: '12px', opacity: 0.4 }} />
           <p>No prescriptions found. Medications will appear here after your doctor prescribes them.</p>

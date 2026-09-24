@@ -1,22 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { emrStore } from '../../../data/mockEmrStore';
-import { FileText, ChevronDown, ChevronUp, Pill } from 'lucide-react';
+import { emrApi } from '../../../api/emrApi';
+import { FileText, ChevronDown, ChevronUp, Pill, Loader } from 'lucide-react';
 
 export default function ConsultationNotes() {
   const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
 
-  const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
-  const storedUser = JSON.parse(rawUser);
-  const PATIENT_ID = storedUser.patientCode || 'PAT-1001';
-
   useEffect(() => {
-    setNotes(emrStore.getConsultations(PATIENT_ID));
-    const unsubscribe = emrStore.subscribe(() => {
-      setNotes(emrStore.getConsultations(PATIENT_ID));
-    });
-    return unsubscribe;
-  }, [PATIENT_ID]);
+    fetchConsultations();
+  }, []);
+
+  const fetchConsultations = async () => {
+    setLoading(true);
+    try {
+      const myPatient = await emrApi.getMyPatient();
+      if (myPatient && myPatient.patientCode) {
+        const data = await emrApi.getConsultations(myPatient.patientCode);
+        setNotes((data || []).map(c => {
+          let meds = [];
+          try {
+            meds = typeof c.prescribedMedicines === 'string' ? JSON.parse(c.prescribedMedicines) : (c.prescribedMedicines || []);
+          } catch { meds = []; }
+          let tests = [];
+          if (Array.isArray(c.recommendedTests)) {
+            tests = c.recommendedTests;
+          } else if (typeof c.recommendedTests === 'string') {
+            tests = c.recommendedTests.split(',').map(s => s.trim()).filter(Boolean);
+          }
+          return {
+            id: c.id,
+            doctorName: c.doctorName,
+            doctorDesignation: c.doctorDesignation,
+            date: c.consultationDate ? c.consultationDate.split('T')[0] : '',
+            diagnosis: c.diagnosis,
+            recommendedTests: tests,
+            medicines: meds,
+            notes: c.clinicalNotes
+          };
+        }));
+      } else {
+        setNotes([]);
+      }
+    } catch (err) {
+      console.error('Error fetching consultations:', err);
+      setNotes([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div>
@@ -29,7 +61,12 @@ export default function ConsultationNotes() {
         </p>
       </div>
 
-      {notes.length === 0 ? (
+      {loading ? (
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '48px', textAlign: 'center', color: '#64748b' }}>
+          <Loader size={32} className="animate-spin" style={{ margin: '0 auto 12px auto', display: 'block', color: '#0d7c6b' }} />
+          <p>Loading your consultation records...</p>
+        </div>
+      ) : notes.length === 0 ? (
         <div style={{ backgroundColor: '#ffffff', border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
           <FileText size={40} style={{ marginBottom: '12px', opacity: 0.4 }} />
           <p>No consultation notes found. Your doctor will add notes after your next visit.</p>

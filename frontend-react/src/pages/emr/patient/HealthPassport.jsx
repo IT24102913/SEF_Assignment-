@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  User, Mail, Phone, Calendar, Heart, MapPin, 
-  ShieldAlert, UserCheck, Save, CheckCircle, AlertCircle, Loader
+  Heart, ShieldAlert, Save, CheckCircle, AlertCircle, Loader, UserCheck
 } from 'lucide-react';
-
-const API_BASE = 'http://localhost:5126/api';
+import { emrApi } from '../../../api/emrApi';
 
 const T = {
   primary: '#095e51',
@@ -15,23 +13,35 @@ const T = {
   muted:   '#4d7a73',
 };
 
+const inputStyle = {
+  width: '100%',
+  padding: '10px 14px',
+  borderRadius: '10px',
+  border: '1.5px solid #cbd5e1',
+  fontSize: '0.92rem',
+  color: '#0f172a',
+  outline: 'none',
+  boxSizing: 'border-box',
+  background: '#fff',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
 export default function HealthPassport() {
   const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
   const storedUser = JSON.parse(rawUser);
-  const patientCode = storedUser.patientCode || 'PAT-1001';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [patientCode, setPatientCode] = useState('');
 
-  // Form state
   const [profile, setProfile] = useState({
     fullName: storedUser.fullName || storedUser.name || '',
     email: storedUser.email || '',
-    contactPhone: storedUser.contactPhone || storedUser.phoneNumber || '',
-    age: storedUser.age || 0,
-    patientCode: patientCode,
+    contactPhone: '',
     dateOfBirth: '',
     gender: 'Other',
     bloodGroup: 'Unknown',
@@ -44,32 +54,35 @@ export default function HealthPassport() {
 
   useEffect(() => {
     fetchProfile();
-  }, [patientCode]);
+  }, []);
 
   const fetchProfile = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/emr/patients/${patientCode}`);
-      if (res.ok) {
-        const data = await res.json();
-        setProfile({
-          fullName: data.fullName || storedUser.fullName || storedUser.name || '',
-          email: data.email || storedUser.email || '',
-          contactPhone: data.contactPhone || storedUser.phoneNumber || '',
-          age: data.age || storedUser.age || 0,
-          patientCode: data.patientCode || patientCode,
-          dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split('T')[0] : '',
-          gender: data.gender || 'Other',
-          bloodGroup: data.bloodGroup || 'Unknown',
-          address: data.address || '',
-          emergencyContactName: data.emergencyContactName || '',
-          emergencyContactPhone: data.emergencyContactPhone || '',
-          allergies: data.allergies || '',
-          chronicConditions: data.chronicConditions || '',
-        });
-      }
+      // Use /me endpoint — gets the logged-in user's patient record
+      const data = await emrApi.getMyPatient();
+      setPatientCode(data.patientCode || '');
+      setProfile({
+        fullName: data.fullName || storedUser.fullName || '',
+        email: data.email || storedUser.email || '',
+        contactPhone: data.contactPhone || '',
+        dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split('T')[0] : '',
+        gender: data.gender || 'Other',
+        bloodGroup: data.bloodGroup || 'Unknown',
+        address: data.address || '',
+        emergencyContactName: data.emergencyContactName || '',
+        emergencyContactPhone: data.emergencyContactPhone || '',
+        allergies: data.allergies || '',
+        chronicConditions: data.chronicConditions || '',
+      });
     } catch (err) {
-      console.warn('Could not fetch patient profile from server:', err);
+      // fallback: use stored user info
+      setProfile(p => ({
+        ...p,
+        fullName: storedUser.fullName || storedUser.name || '',
+        email: storedUser.email || '',
+      }));
+      setError('Could not load your medical profile from server. You can still fill in your details below.');
     } finally {
       setLoading(false);
     }
@@ -83,6 +96,10 @@ export default function HealthPassport() {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (!patientCode) {
+      setError('Patient record not loaded. Please refresh and try again.');
+      return;
+    }
     setSaving(true);
     setError('');
     setSuccess('');
@@ -102,32 +119,13 @@ export default function HealthPassport() {
         chronicConditions: profile.chronicConditions,
       };
 
-      const res = await fetch(`${API_BASE}/emr/patients/code/${patientCode}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      await emrApi.updatePatientByCode(patientCode, payload);
+      setSuccess('Medical profile updated successfully!');
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || 'Failed to update profile');
-      }
-
-      const updated = await res.json();
-      setSuccess('Profile updated successfully!');
-
-      // Sync local storage & session storage
-      const updatedUser = {
-        ...storedUser,
-        fullName: updated.fullName,
-        name: updated.fullName,
-        contactPhone: updated.contactPhone,
-        phoneNumber: updated.contactPhone,
-        age: updated.age,
-      };
+      // Sync local storage
+      const updatedUser = { ...storedUser, fullName: profile.fullName, name: profile.fullName };
       sessionStorage.setItem('user', JSON.stringify(updatedUser));
       localStorage.setItem('hb_user', JSON.stringify(updatedUser));
-      setProfile(p => ({ ...p, age: updated.age }));
     } catch (err) {
       setError(err.message || 'Error saving profile. Please check server.');
     } finally {
@@ -147,7 +145,7 @@ export default function HealthPassport() {
   return (
     <div style={{ maxWidth: '880px', margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ marginBottom: '28px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: '#0f172a', marginBottom: '4px', letterSpacing: '-0.3px' }}>
             Patient Medical Profile
@@ -156,16 +154,19 @@ export default function HealthPassport() {
             Manage your personal healthcare records, demographics, and emergency information.
           </p>
         </div>
-        <div style={{
-          backgroundColor: T.light,
-          border: `1.5px solid ${T.border}`,
-          borderRadius: '12px',
-          padding: '8px 16px',
-          textAlign: 'right',
-        }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: T.muted, textTransform: 'uppercase' }}>Patient ID</div>
-          <div style={{ fontSize: '1.05rem', fontWeight: 800, color: T.primary }}>{profile.patientCode}</div>
-        </div>
+        {patientCode && (
+          <div style={{
+            backgroundColor: T.light,
+            border: `1.5px solid ${T.border}`,
+            borderRadius: '12px',
+            padding: '8px 16px',
+            textAlign: 'right',
+            flexShrink: 0,
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: T.muted, textTransform: 'uppercase' }}>Patient ID</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: T.primary }}>{patientCode}</div>
+          </div>
+        )}
       </div>
 
       {/* Status Messages */}
@@ -182,7 +183,7 @@ export default function HealthPassport() {
         </div>
       )}
 
-      {/* Account Info Card (Read-only registration details) */}
+      {/* Account Info Card (Read-only) */}
       <div style={{
         backgroundColor: '#ffffff',
         border: '1px solid #e2e8f0',
@@ -194,22 +195,30 @@ export default function HealthPassport() {
         <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <UserCheck size={20} color={T.accent} /> Account Registration Details
         </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '16px' }}>
-          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>FULL NAME</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>{profile.fullName || '—'}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0 }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>FULL NAME</div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={profile.fullName}>
+              {profile.fullName || '—'}
+            </div>
+          </div>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0, gridColumn: 'span 1' }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>EMAIL ADDRESS</div>
+            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.3' }} title={profile.email}>
+              {profile.email || '—'}
+            </div>
           </div>
           <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>AGE</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>{profile.age ? `${profile.age} years` : '—'}</div>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>PHONE NUMBER</div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {profile.contactPhone || '—'}
+            </div>
           </div>
           <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>PHONE NUMBER</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>{profile.contactPhone || '—'}</div>
-          </div>
-          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>EMAIL ADDRESS</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>{profile.email || '—'}</div>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>GENDER</div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a' }}>
+              {profile.gender || '—'}
+            </div>
           </div>
         </div>
       </div>
@@ -223,41 +232,22 @@ export default function HealthPassport() {
         boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
       }}>
         <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Heart size={20} color={T.accent} /> Medical & Emergency Information
+          <Heart size={20} color={T.accent} /> Medical &amp; Emergency Information
         </h2>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '20px' }}>
           {/* Date of Birth */}
           <div>
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Date of Birth
+              Date of Birth {!profile.dateOfBirth && <span style={{ fontWeight: 400, color: '#94a3b8' }}>(Not set — choose below)</span>}
             </label>
-            <input
-              type="date"
-              value={profile.dateOfBirth}
-              onChange={handleChange('dateOfBirth')}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '10px',
-                border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-                outline: 'none', boxSizing: 'border-box'
-              }}
-            />
+            <input type="date" value={profile.dateOfBirth} onChange={handleChange('dateOfBirth')} style={inputStyle} />
           </div>
 
           {/* Gender */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Gender
-            </label>
-            <select
-              value={profile.gender}
-              onChange={handleChange('gender')}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '10px',
-                border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-                outline: 'none', boxSizing: 'border-box', backgroundColor: '#ffffff'
-              }}
-            >
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Gender</label>
+            <select value={profile.gender} onChange={handleChange('gender')} style={inputStyle}>
               <option value="Male">Male</option>
               <option value="Female">Female</option>
               <option value="Other">Other</option>
@@ -266,18 +256,8 @@ export default function HealthPassport() {
 
           {/* Blood Group */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Blood Group
-            </label>
-            <select
-              value={profile.bloodGroup}
-              onChange={handleChange('bloodGroup')}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '10px',
-                border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-                outline: 'none', boxSizing: 'border-box', backgroundColor: '#ffffff'
-              }}
-            >
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Blood Group</label>
+            <select value={profile.bloodGroup} onChange={handleChange('bloodGroup')} style={inputStyle}>
               <option value="Unknown">Unknown</option>
               <option value="A+">A+</option>
               <option value="A-">A-</option>
@@ -293,77 +273,69 @@ export default function HealthPassport() {
 
         {/* Address */}
         <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-            Residential Address
-          </label>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Residential Address</label>
           <input
             type="text"
-            placeholder="e.g. 742 Evergreen Terrace, Springfield"
+            placeholder="e.g. 42 Main Street, Colombo 03"
             value={profile.address}
             onChange={handleChange('address')}
-            style={{
-              width: '100%', padding: '10px 14px', borderRadius: '10px',
-              border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-              outline: 'none', boxSizing: 'border-box'
-            }}
+            style={inputStyle}
           />
         </div>
 
-        {/* Emergency Contact Name & Phone */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+        {/* Emergency Contact */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '20px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Emergency Contact Name
-            </label>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Emergency Contact Name</label>
             <input
               type="text"
-              placeholder="e.g. Mary Anderson (Spouse)"
+              placeholder="e.g. Amara Perera (Mother)"
               value={profile.emergencyContactName}
               onChange={handleChange('emergencyContactName')}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '10px',
-                border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-                outline: 'none', boxSizing: 'border-box'
-              }}
+              style={inputStyle}
             />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-              Emergency Contact Phone
-            </label>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>Emergency Contact Phone</label>
             <input
               type="tel"
-              placeholder="e.g. +1 555-0193"
+              placeholder="e.g. +94 77 123 4567"
               value={profile.emergencyContactPhone}
               onChange={handleChange('emergencyContactPhone')}
-              style={{
-                width: '100%', padding: '10px 14px', borderRadius: '10px',
-                border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-                outline: 'none', boxSizing: 'border-box'
-              }}
+              style={inputStyle}
             />
           </div>
         </div>
 
         {/* Known Allergies */}
-        <div style={{ marginBottom: '24px' }}>
+        <div style={{ marginBottom: '20px' }}>
           <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-            Known Allergies (comma separated)
+            Known Allergies <span style={{ fontWeight: 400, color: '#94a3b8' }}>(comma separated)</span>
           </label>
           <input
             type="text"
             placeholder="e.g. Penicillin, Peanuts, Sulfa antibiotics"
             value={profile.allergies}
             onChange={handleChange('allergies')}
-            style={{
-              width: '100%', padding: '10px 14px', borderRadius: '10px',
-              border: '1.5px solid #cbd5e1', fontSize: '0.92rem', color: '#0f172a',
-              outline: 'none', boxSizing: 'border-box'
-            }}
+            style={inputStyle}
           />
           <span style={{ fontSize: '0.76rem', color: '#94a3b8', marginTop: '4px', display: 'block' }}>
-            These allergies will be automatically cross-checked by the clinical safety engine against your prescribed medications.
+            These are cross-checked by the clinical safety engine against your prescribed medications.
           </span>
+        </div>
+
+        {/* Chronic Conditions */}
+        <div style={{ marginBottom: '28px' }}>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
+            Chronic Conditions <span style={{ fontWeight: 400, color: '#94a3b8' }}>(comma separated)</span>
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. Hypertension, Type 2 Diabetes"
+            value={profile.chronicConditions}
+            onChange={handleChange('chronicConditions')}
+            style={inputStyle}
+          />
         </div>
 
         {/* Save Button */}
@@ -384,13 +356,9 @@ export default function HealthPassport() {
           }}
         >
           {saving ? (
-            <>
-              <Loader size={18} className="animate-spin" /> Saving Changes...
-            </>
+            <><Loader size={18} className="animate-spin" /> Saving Changes...</>
           ) : (
-            <>
-              <Save size={18} /> Save Medical Profile
-            </>
+            <><Save size={18} /> Save Medical Profile</>
           )}
         </button>
       </form>

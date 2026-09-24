@@ -45,6 +45,7 @@ import Prescriptions from './pages/emr/patient/Prescriptions';
 import ChannelingHistory from './pages/emr/patient/ChannelingHistory';
 import HealthPassport from './pages/emr/patient/HealthPassport';
 import EmrStaffPortal from './pages/emr/staff/StaffPortal';
+import NotificationsCenter from './pages/emr/NotificationsCenter';
 
 const RoleRedirect = () => {
     const { user } = useAuth();
@@ -278,12 +279,7 @@ function App() {
                         <Route path="pharmacy" element={<Prescriptions />} />
                         <Route path="channeling-history" element={<ChannelingHistory />} />
                         <Route path="profile" element={<HealthPassport />} />
-                        <Route path="notifications" element={
-                            <div style={{ padding: '12px' }}>
-                                <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>Notifications Center</h1>
-                                <p style={{ color: '#64748b' }}>All patient alerts, lab updates, and prescription notifications will appear here.</p>
-                            </div>
-                        } />
+                        <Route path="notifications" element={<NotificationsCenter />} />
                     </Route>
                     <Route path="/emr/staff" element={<EmrStaffPortal />} />
                     <Route path="/emr/admin" element={<EmrStaffPortal />} />

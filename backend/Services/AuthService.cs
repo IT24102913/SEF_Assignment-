@@ -4,6 +4,7 @@ using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs;
 using HealthBridge.Api.DTOs.Auth;
 using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthBridge.Api.Services;
@@ -71,7 +72,25 @@ public class AuthService : IAuthService
         _context.PatientProfiles.Add(profile);
         await _context.SaveChangesAsync();
 
-        return MapToUserResponse(user);
+        // Auto-create EMR Patient record linked to this user
+        var patientCount = await _context.Patients.CountAsync();
+        var emrPatient = new Patient
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            PatientCode = $"PAT-{1000 + patientCount + 1}",
+            FullName = user.FullName,
+            Email = normalizedEmail,
+            ContactPhone = request.PhoneNumber.Trim(),
+            Gender = request.Gender ?? "Other",
+            DateOfBirth = null, // Empty until chosen by customer
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.Patients.Add(emrPatient);
+        await _context.SaveChangesAsync();
+
+        return await MapToUserResponseAsync(user);
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -96,7 +115,7 @@ public class AuthService : IAuthService
         return new LoginResponse
         {
             Token = token,
-            User = MapToUserResponse(user)
+            User = await MapToUserResponseAsync(user)
         };
     }
 
@@ -143,6 +162,22 @@ public class AuthService : IAuthService
             };
             _context.PatientProfiles.Add(profile);
             await _context.SaveChangesAsync();
+
+            // Auto-create EMR Patient record for Google-registered users
+            var patientCount = await _context.Patients.CountAsync();
+            var emrPatient = new Patient
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                PatientCode = $"PAT-{1000 + patientCount + 1}",
+                FullName = user.FullName,
+                Email = normalizedEmail,
+                DateOfBirth = null, // Empty until chosen by customer
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _context.Patients.Add(emrPatient);
+            await _context.SaveChangesAsync();
         }
 
         if (!user.IsActive)
@@ -155,18 +190,26 @@ public class AuthService : IAuthService
         return new LoginResponse
         {
             Token = token,
-            User = MapToUserResponse(user)
+            User = await MapToUserResponseAsync(user)
         };
     }
 
-    private static UserResponse MapToUserResponse(User user)
+    private async Task<UserResponse> MapToUserResponseAsync(User user)
     {
+        string? patientCode = null;
+        if (user.Role == UserRole.Patient)
+        {
+            var p = await _context.Patients.FirstOrDefaultAsync(x => x.UserId == user.Id || x.Email.ToLower() == user.Email.ToLower());
+            patientCode = p?.PatientCode;
+        }
+
         return new UserResponse
         {
             Id = user.Id,
             FullName = user.FullName,
             Email = user.Email,
-            Role = user.Role
+            Role = user.Role,
+            PatientCode = patientCode
         };
     }
 }

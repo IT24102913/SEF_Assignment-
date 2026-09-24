@@ -8,6 +8,7 @@ public interface IEMRService
     Task<IEnumerable<PatientDto>> GetAllPatientsAsync(string? search = null);
     Task<PatientDto?> GetPatientByIdAsync(Guid id);
     Task<PatientDto?> GetPatientByCodeAsync(string code);
+    Task<PatientDto?> GetPatientByUserIdAsync(int userId);
     Task<PatientDto> CreatePatientAsync(CreatePatientDto dto);
     Task<PatientDto?> UpdatePatientAsync(Guid id, UpdatePatientDto dto);
     Task<PatientDto?> UpdatePatientByCodeAsync(string patientCode, UpdatePatientDto dto);
@@ -38,4 +39,7 @@ public interface IEMRService
 
     // Business-Specific Operation
     Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId);
+
+    // Notifications (100% User-Specific and Role-Based)
+    Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role);
 }
