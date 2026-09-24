@@ -27,6 +27,20 @@ public class Medicine
 
     public bool RequiresPrescription { get; set; }
 
+    [MaxLength(150)]
+    public string? BrandName { get; set; }
+
+    [MaxLength(100)]
+    public string? StorageCondition { get; set; } = "Normal Room Temperature";
+
+    public int PillsPerCard { get; set; } = 10;
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal CardPrice { get; set; }
+
+    [Column(TypeName = "text")]
+    public string? AdditionalImagesJson { get; set; }
+
     [Column(TypeName = "text")]
     public string? ImageUrl { get; set; }
 

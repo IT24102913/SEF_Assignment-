@@ -12,6 +12,11 @@ public class MedicineResponse
     public DateTime ExpiryDate { get; set; }
     public bool RequiresPrescription { get; set; }
     public string? ImageUrl { get; set; }
+    public string? BrandName { get; set; }
+    public string? StorageCondition { get; set; }
+    public int PillsPerCard { get; set; }
+    public decimal CardPrice { get; set; }
+    public string? AdditionalImagesJson { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

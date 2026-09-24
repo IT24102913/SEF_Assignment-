@@ -86,23 +86,53 @@ public class PharmacyOrderService : IPharmacyOrderService
                     hasRxItem = true;
                 }
 
-                if (medicine.StockQuantity < itemReq.Quantity)
+                string unitType = !string.IsNullOrWhiteSpace(itemReq.UnitType) ? itemReq.UnitType.Trim() : "Pill";
+                bool isCard = unitType.Equals("Card", StringComparison.OrdinalIgnoreCase) ||
+                              (!string.IsNullOrWhiteSpace(itemReq.MedicineName) && itemReq.MedicineName.Contains("(Card)", StringComparison.OrdinalIgnoreCase));
+
+                if (isCard)
                 {
-                    throw new InvalidOperationException($"Insufficient stock for '{medicine.Name}'. Available: {medicine.StockQuantity}.");
+                    unitType = "Card";
                 }
 
-                medicine.StockQuantity -= itemReq.Quantity;
+                decimal unitPrice = (itemReq.Price.HasValue && itemReq.Price.Value > 0)
+                    ? itemReq.Price.Value
+                    : (itemReq.UnitPrice.HasValue && itemReq.UnitPrice.Value > 0)
+                        ? itemReq.UnitPrice.Value
+                        : isCard
+                            ? (medicine.Price * 10)
+                            : medicine.Price;
 
-                var subtotal = medicine.Price * itemReq.Quantity;
+                int pillsToDeduct = isCard ? itemReq.Quantity * 10 : itemReq.Quantity;
+                if (medicine.StockQuantity >= pillsToDeduct)
+                {
+                    medicine.StockQuantity -= pillsToDeduct;
+                }
+                else
+                {
+                    medicine.StockQuantity = Math.Max(0, medicine.StockQuantity - itemReq.Quantity);
+                }
+
+                var subtotal = unitPrice * itemReq.Quantity;
                 totalAmount += subtotal;
+
+                string medicineName = !string.IsNullOrWhiteSpace(itemReq.MedicineName)
+                    ? itemReq.MedicineName.Trim()
+                    : medicine.Name;
+
+                if (isCard && !medicineName.EndsWith("(Card)", StringComparison.OrdinalIgnoreCase))
+                {
+                    medicineName = $"{medicineName} (Card)";
+                }
 
                 orderItems.Add(new PharmacyOrderItem
                 {
                     MedicineId = medicine.Id,
-                    MedicineName = medicine.Name,
-                    UnitPrice = medicine.Price,
+                    MedicineName = medicineName,
+                    UnitPrice = unitPrice,
                     Quantity = itemReq.Quantity,
-                    Subtotal = subtotal
+                    Subtotal = subtotal,
+                    UnitType = unitType
                 });
             }
         }
@@ -305,7 +335,10 @@ public class PharmacyOrderService : IPharmacyOrderService
                 MedicineName = i.MedicineName,
                 UnitPrice = i.UnitPrice,
                 Quantity = i.Quantity,
-                Subtotal = i.Subtotal
+                Subtotal = i.Subtotal,
+                UnitType = !string.IsNullOrWhiteSpace(i.UnitType)
+                    ? i.UnitType
+                    : (i.MedicineName.Contains("(Card)", StringComparison.OrdinalIgnoreCase) ? "Card" : "Pill")
             }).ToList()
         };
     }
