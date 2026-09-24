@@ -1,27 +1,22 @@
 import React, { useState, useEffect } from 'react';
+import { emrApi } from '../../../api/emrApi';
 import { Calendar, Clock, MapPin, CalendarX, Loader } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5126/api';
-
 export default function ChannelingHistory() {
-  const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
-  const storedUser = JSON.parse(rawUser);
-  const patientCode = storedUser.patientCode || 'PAT-1001';
-
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchAppointments();
-  }, [patientCode]);
+  }, []);
 
   const fetchAppointments = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/emr/channeling-appointments?patientCode=${patientCode}`);
-      if (res.ok) {
-        const data = await res.json();
-        setAppointments(data.map(a => ({
+      const myPatient = await emrApi.getMyPatient();
+      if (myPatient && myPatient.patientCode) {
+        const data = await emrApi.getChannelingAppointments(myPatient.patientCode);
+        setAppointments((data || []).map(a => ({
           id: a.appointmentCode || a.id,
           doctor: a.doctorName,
           specialty: a.specialty,
@@ -31,25 +26,11 @@ export default function ChannelingHistory() {
           status: a.status
         })));
       } else {
-        // Fallback for demo PAT-1001 if API returns empty
-        if (patientCode === 'PAT-1001') {
-          setAppointments([
-            { id: 'APT-3011', doctor: 'Dr. Sarah Jenkins', specialty: 'Cardiologist', date: 'Aug 24, 2026', time: '10:30 AM', room: 'Room 304, West Wing', status: 'Upcoming' },
-            { id: 'APT-2890', doctor: 'Dr. Michael Chang', specialty: 'General Practitioner', date: 'Jul 22, 2026', time: '02:00 PM', room: 'Room 108, Main Clinic', status: 'Completed' }
-          ]);
-        } else {
-          setAppointments([]);
-        }
-      }
-    } catch {
-      if (patientCode === 'PAT-1001') {
-        setAppointments([
-          { id: 'APT-3011', doctor: 'Dr. Sarah Jenkins', specialty: 'Cardiologist', date: 'Aug 24, 2026', time: '10:30 AM', room: 'Room 304, West Wing', status: 'Upcoming' },
-          { id: 'APT-2890', doctor: 'Dr. Michael Chang', specialty: 'General Practitioner', date: 'Jul 22, 2026', time: '02:00 PM', room: 'Room 108, Main Clinic', status: 'Completed' }
-        ]);
-      } else {
         setAppointments([]);
       }
+    } catch (err) {
+      console.error('Error fetching channeling appointments:', err);
+      setAppointments([]);
     } finally {
       setLoading(false);
     }

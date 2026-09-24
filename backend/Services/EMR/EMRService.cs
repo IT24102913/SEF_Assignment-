@@ -43,6 +43,46 @@ public class EMRService : IEMRService
         return patient == null ? null : MapPatientToDto(patient);
     }
 
+    public async Task<PatientDto?> GetPatientByUserIdAsync(int userId)
+    {
+        var patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (patient == null)
+        {
+            var user = await _db.Users.FindAsync(userId);
+            if (user != null)
+            {
+                // Try linking if matched by email
+                var existingByEmail = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == user.Email.ToLower());
+                if (existingByEmail != null)
+                {
+                    existingByEmail.UserId = user.Id;
+                    await _db.SaveChangesAsync();
+                    return MapPatientToDto(existingByEmail);
+                }
+
+                // Auto-create EMR patient for this registered user
+                var profile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
+                var patientCount = await _db.Patients.CountAsync();
+                patient = new Patient
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = user.Id,
+                    PatientCode = $"PAT-{1000 + patientCount + 1}",
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    ContactPhone = profile?.PhoneNumber ?? "",
+                    Gender = profile?.Gender ?? "Other",
+                    DateOfBirth = profile?.DateOfBirth, // null until customer chooses
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.Patients.Add(patient);
+                await _db.SaveChangesAsync();
+            }
+        }
+        return patient == null ? null : MapPatientToDto(patient);
+    }
+
     public async Task<PatientDto?> GetPatientByCodeAsync(string code)
     {
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == code.Trim().ToUpper());
@@ -60,7 +100,7 @@ public class EMRService : IEMRService
             Id = Guid.NewGuid(),
             PatientCode = code,
             FullName = dto.FullName,
-            DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth, DateTimeKind.Utc),
+            DateOfBirth = dto.DateOfBirth.HasValue ? DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc) : null,
             Gender = dto.Gender,
             BloodGroup = dto.BloodGroup,
             ContactPhone = dto.ContactPhone,
@@ -104,7 +144,10 @@ public class EMRService : IEMRService
     private static void ApplyPatientUpdates(Patient patient, UpdatePatientDto dto)
     {
         if (!string.IsNullOrWhiteSpace(dto.FullName)) patient.FullName = dto.FullName;
-        if (dto.DateOfBirth.HasValue) patient.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
+        if (dto.DateOfBirth.HasValue) 
+            patient.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
+        else if (dto.DateOfBirth == null)
+            patient.DateOfBirth = null;
         if (!string.IsNullOrWhiteSpace(dto.Gender)) patient.Gender = dto.Gender;
         if (!string.IsNullOrWhiteSpace(dto.BloodGroup)) patient.BloodGroup = dto.BloodGroup;
         if (dto.ContactPhone != null) patient.ContactPhone = dto.ContactPhone;
@@ -428,7 +471,7 @@ public class EMRService : IEMRService
             .Select(s => s.Trim())
             .ToList();
 
-        var age = (int)((DateTime.UtcNow - patient.DateOfBirth).TotalDays / 365.2425);
+        var age = patient.DateOfBirth.HasValue ? (int)((DateTime.UtcNow - patient.DateOfBirth.Value).TotalDays / 365.2425) : (int?)null;
 
         var overallAssessment = alerts.Count > 0
             ? $"Requires clinical review: {alerts.Count} alert(s) identified in patient record."
@@ -596,5 +639,267 @@ public class EMRService : IEMRService
         CreatedAt = p.CreatedAt,
         UpdatedAt = p.UpdatedAt
     };
+
+    public async Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role)
+    {
+        var user = await _db.Users.FindAsync(userId);
+        if (user == null) return Enumerable.Empty<EMRNotificationDto>();
+
+        var normalizedRole = string.IsNullOrWhiteSpace(role) ? user.Role : role;
+        var notifs = new List<EMRNotificationDto>();
+
+        if (string.Equals(normalizedRole, "Patient", StringComparison.OrdinalIgnoreCase))
+        {
+            var patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == user.Email.ToLower());
+            if (patient == null)
+            {
+                return new List<EMRNotificationDto>
+                {
+                    new()
+                    {
+                        Id = "notif-profile-init",
+                        Title = "EMR Account Initialized",
+                        Message = "Your digital health records are active. Please open your Health Passport to fill in your profile details.",
+                        Category = "Profile",
+                        Priority = "High",
+                        Link = "/emr/profile",
+                        Time = "Just now",
+                        Unread = true,
+                        CreatedAt = DateTime.UtcNow
+                    }
+                };
+            }
+
+            // 1. Real profile gaps for THIS patient
+            if (!patient.DateOfBirth.HasValue)
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-dob-{patient.Id}",
+                    Title = "Set Your Date of Birth",
+                    Message = "Your date of birth is currently empty. You can choose and save your birthday in your Health Passport.",
+                    Category = "Profile",
+                    Priority = "High",
+                    Link = "/emr/profile",
+                    Time = "Action Required",
+                    Unread = true,
+                    CreatedAt = patient.CreatedAt
+                });
+            }
+
+            if (string.IsNullOrWhiteSpace(patient.EmergencyContactPhone))
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-emg-{patient.Id}",
+                    Title = "Add Emergency Contact",
+                    Message = "Emergency contact details are not provided yet. Add a contact for safety during clinical visits.",
+                    Category = "Profile",
+                    Priority = "Normal",
+                    Link = "/emr/profile",
+                    Time = "Profile Notice",
+                    Unread = true,
+                    CreatedAt = patient.CreatedAt
+                });
+            }
+
+            if (!string.IsNullOrWhiteSpace(patient.Allergies))
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-allergy-{patient.Id}",
+                    Title = "Allergy Guard Screening Active",
+                    Message = $"Your recorded allergies ({patient.Allergies}) are actively screened against doctor prescriptions.",
+                    Category = "Clinical Safety",
+                    Priority = "Normal",
+                    Link = "/emr/profile",
+                    Time = "Active Guard",
+                    Unread = false,
+                    CreatedAt = patient.UpdatedAt
+                });
+            }
+
+            // 2. Real Channeling Appointments for THIS patient
+            var appointments = await _db.ChannelingAppointments
+                .Where(a => a.PatientId == patient.Id)
+                .OrderByDescending(a => a.AppointmentDate)
+                .Take(5)
+                .ToListAsync();
+
+            foreach (var a in appointments)
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-apt-{a.Id}",
+                    Title = $"Doctor Session: Dr. {a.DoctorName}",
+                    Message = $"{a.Specialty} on {a.AppointmentDate:MMM dd, yyyy} at {a.AppointmentDate:hh:mm tt}, Room {a.Room}. Status: {a.Status}",
+                    Category = "Appointments",
+                    Priority = a.Status == "Upcoming" ? "High" : "Normal",
+                    Link = "/emr/channeling-history",
+                    Time = a.AppointmentDate.ToString("MMM dd, yyyy"),
+                    Unread = a.Status == "Upcoming",
+                    CreatedAt = a.AppointmentDate
+                });
+            }
+
+            // 3. Real Prescriptions for THIS patient
+            var prescriptions = await _db.Prescriptions
+                .Where(p => p.PatientId == patient.Id)
+                .OrderByDescending(p => p.CreatedAt)
+                .Take(5)
+                .ToListAsync();
+
+            foreach (var p in prescriptions)
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-rx-{p.Id}",
+                    Title = p.Status == "Active" ? $"Active Medication: {p.MedicationName}" : $"Medication: {p.MedicationName} ({p.Status})",
+                    Message = $"Prescribed by Dr. {p.PrescribedDoctor}. Dosage: {p.Dosage}. Duration: {p.Duration}.",
+                    Category = "Prescriptions",
+                    Priority = p.Status == "Active" ? "High" : "Normal",
+                    Link = "/emr/pharmacy",
+                    Time = p.CreatedAt.ToString("MMM dd, yyyy"),
+                    Unread = p.Status == "Active",
+                    CreatedAt = p.CreatedAt
+                });
+            }
+
+            // 4. Real Lab Reports for THIS patient
+            var labReports = await _db.LabReports
+                .Where(l => l.PatientId == patient.Id)
+                .OrderByDescending(l => l.ReportDate)
+                .Take(5)
+                .ToListAsync();
+
+            foreach (var l in labReports)
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-lab-{l.Id}",
+                    Title = l.Status == "Completed" ? $"Lab Report Ready: {l.TestTitle}" : $"Lab Diagnostic: {l.TestTitle} ({l.Status})",
+                    Message = $"Ordered by Dr. {l.OrderedDoctor}. {l.ResultsSummary}",
+                    Category = "Lab Diagnostics",
+                    Priority = l.Status == "Completed" ? "Normal" : "High",
+                    Link = "/emr/lab-reports",
+                    Time = l.ReportDate.ToString("MMM dd, yyyy"),
+                    Unread = l.Status == "Completed",
+                    CreatedAt = l.ReportDate
+                });
+            }
+
+            // 5. Real Consultation Notes for THIS patient
+            var consults = await _db.ConsultationNotes
+                .Where(c => c.PatientId == patient.Id)
+                .OrderByDescending(c => c.ConsultationDate)
+                .Take(5)
+                .ToListAsync();
+
+            foreach (var c in consults)
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = $"notif-cn-{c.Id}",
+                    Title = $"Clinical Note: Dr. {c.DoctorName}",
+                    Message = $"Diagnosis: {c.Diagnosis}. Clinical notes recorded in your patient history.",
+                    Category = "Consultations",
+                    Priority = "Normal",
+                    Link = "/emr/consultation-notes",
+                    Time = c.ConsultationDate.ToString("MMM dd, yyyy"),
+                    Unread = false,
+                    CreatedAt = c.ConsultationDate
+                });
+            }
+        }
+        else if (string.Equals(normalizedRole, "Doctor", StringComparison.OrdinalIgnoreCase))
+        {
+            var activePatientCount = await _db.Patients.CountAsync();
+            var pendingLabs = await _db.LabReports.CountAsync(l => l.Status == "Pending");
+
+            notifs.Add(new EMRNotificationDto
+            {
+                Id = "notif-doc-patients",
+                Title = "Registered Clinical Patients",
+                Message = $"There are currently {activePatientCount} active patient charts in the EMR system.",
+                Category = "Patients",
+                Priority = "Normal",
+                Link = "/emr/staff",
+                Time = "Active System",
+                Unread = false,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            if (pendingLabs > 0)
+            {
+                notifs.Add(new EMRNotificationDto
+                {
+                    Id = "notif-doc-labs",
+                    Title = "Pending Diagnostic Tests",
+                    Message = $"{pendingLabs} lab test(s) are currently undergoing laboratory analysis.",
+                    Category = "Diagnostics",
+                    Priority = "High",
+                    Link = "/emr/staff",
+                    Time = "Lab Queue",
+                    Unread = true,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+        else if (string.Equals(normalizedRole, "Pharmacist", StringComparison.OrdinalIgnoreCase))
+        {
+            var activeRxCount = await _db.Prescriptions.CountAsync(p => p.Status == "Active");
+            notifs.Add(new EMRNotificationDto
+            {
+                Id = "notif-ph-rx",
+                Title = "Active Prescriptions Queue",
+                Message = activeRxCount > 0
+                    ? $"{activeRxCount} active prescription(s) registered in the clinical dispensary."
+                    : "No active prescriptions waiting in dispensary queue.",
+                Category = "Dispensing",
+                Priority = activeRxCount > 0 ? "High" : "Low",
+                Link = "/pharmacy/dashboard",
+                Time = "Realtime",
+                Unread = activeRxCount > 0,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        else if (string.Equals(normalizedRole, "Laboratory", StringComparison.OrdinalIgnoreCase))
+        {
+            var pendingTests = await _db.LabReports.CountAsync(l => l.Status == "Pending");
+            notifs.Add(new EMRNotificationDto
+            {
+                Id = "notif-lab-pending",
+                Title = "Lab Requisitions Queue",
+                Message = pendingTests > 0
+                    ? $"{pendingTests} diagnostic investigation(s) awaiting completion."
+                    : "All ordered lab diagnostics are completed. No pending requisitions.",
+                Category = "Laboratory",
+                Priority = pendingTests > 0 ? "High" : "Low",
+                Link = "/lab/staff/dashboard",
+                Time = "Realtime",
+                Unread = pendingTests > 0,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+        else if (string.Equals(normalizedRole, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            var totalUsers = await _db.Users.CountAsync();
+            var totalPatients = await _db.Patients.CountAsync();
+            notifs.Add(new EMRNotificationDto
+            {
+                Id = "notif-adm-stats",
+                Title = "PostgreSQL EMR Database Active",
+                Message = $"{totalPatients} registered EMR patients and {totalUsers} total system accounts synchronized.",
+                Category = "System",
+                Priority = "Normal",
+                Link = "/admin/dashboard",
+                Time = "Live",
+                Unread = false,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        return notifs;
+    }
 }
 

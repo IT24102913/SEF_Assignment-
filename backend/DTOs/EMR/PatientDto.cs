@@ -5,8 +5,8 @@ public class PatientDto
     public Guid Id { get; set; }
     public string PatientCode { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
-    public DateTime DateOfBirth { get; set; }
-    public int Age => (int)((DateTime.UtcNow - DateOfBirth).TotalDays / 365.2425);
+    public DateTime? DateOfBirth { get; set; }
+    public int? Age => DateOfBirth.HasValue ? (int)((DateTime.UtcNow - DateOfBirth.Value).TotalDays / 365.2425) : null;
     public string Gender { get; set; } = string.Empty;
     public string BloodGroup { get; set; } = string.Empty;
     public string ContactPhone { get; set; } = string.Empty;
@@ -24,7 +24,7 @@ public class CreatePatientDto
 {
     public string PatientCode { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
-    public DateTime DateOfBirth { get; set; }
+    public DateTime? DateOfBirth { get; set; }
     public string Gender { get; set; } = "Other";
     public string BloodGroup { get; set; } = "Unknown";
     public string ContactPhone { get; set; } = string.Empty;

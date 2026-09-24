@@ -17,7 +17,7 @@ export default function PatientSelector({ selectedPatient, onSelectPatient }) {
   const filteredPatients = patients.filter(p => 
     p.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.age.toString().includes(searchTerm)
+    (p.age != null && p.age.toString().includes(searchTerm))
   );
 
   return (
@@ -113,7 +113,7 @@ export default function PatientSelector({ selectedPatient, onSelectPatient }) {
                   </span>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: '12px' }}>
-                  <span>Age: <strong>{p.age}</strong></span>
+                  <span>Age: <strong>{p.age != null ? p.age : '—'}</strong></span>
                   <span>Gender: <strong>{p.gender}</strong></span>
                   <span>Blood: <strong>{p.bloodGroup}</strong></span>
                 </div>

@@ -1,124 +1,10 @@
 // Central Shared EMR Store with PostgreSQL Live Sync & LocalStorage Fallback
 import { emrApi } from '../api/emrApi.js';
 
-const INITIAL_PATIENTS = [
-  { id: 'PAT-1001', name: 'John Anderson', age: 41, gender: 'Male', phone: '+1 555-0192', bloodGroup: 'O+', allergies: 'Penicillin, Peanuts', chronicConditions: 'Stage 1 Hypertension, Mild Asthma' },
-  { id: 'PAT-1002', name: 'Maria Garcia', age: 34, gender: 'Female', phone: '+1 555-0284', bloodGroup: 'A+', allergies: 'Sulfa antibiotics', chronicConditions: 'Type 2 Diabetes Mellitus' },
-  { id: 'PAT-1003', name: 'Robert Kim', age: 57, gender: 'Male', phone: '+1 555-0371', bloodGroup: 'B+', allergies: 'None reported', chronicConditions: 'Hyperlipidemia' },
-];
-
-const INITIAL_CONSULTATIONS = [
-  {
-    id: 'c1111111-1111-1111-1111-111111111111',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    doctorName: 'Dr. Sarah Chen',
-    doctorDesignation: 'Senior Consultant Cardiologist',
-    date: '2026-08-10',
-    diagnosis: 'Stage 1 Essential Hypertension with sinus rhythm',
-    recommendedTests: ['Complete Blood Count (CBC)', 'Lipid Panel', 'Resting ECG'],
-    medicines: [
-      { name: 'Lisinopril', dosage: '10mg once daily in morning', duration: '30 Days' },
-      { name: 'Amlodipine', dosage: '5mg once daily', duration: '30 Days' }
-    ],
-    notes: 'Patient presented with mild morning headaches and recorded BP 142/92 mmHg over 3 consecutive clinic visits. Denies chest pain, palpitation, or dyspnea. Advised DASH diet, sodium restriction < 2g/day, and routine aerobic exercise. Follow-up in 4 weeks.'
-  },
-  {
-    id: 'c2222222-2222-2222-2222-222222222222',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    doctorName: 'Dr. Michael Chang',
-    doctorDesignation: 'Consultant Pulmonologist',
-    date: '2026-07-18',
-    diagnosis: 'Mild Seasonal Allergic Asthma exacerbation',
-    recommendedTests: ['Chest X-Ray', 'Total Serum IgE'],
-    medicines: [
-      { name: 'Salbutamol (Ventolin) Inhaler', dosage: '2 puffs as needed for wheeze', duration: 'As needed' }
-    ],
-    notes: 'Occasional nocturnal dry cough following high pollen exposure. Spirometry showed FEV1 84% predicted, fully responsive to bronchodilators. Avoid known triggers.'
-  }
-];
-
-const INITIAL_LAB_REPORTS = [
-  {
-    id: 'b1111111-1111-1111-1111-111111111111',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    testTitle: 'Complete Blood Count (CBC)',
-    category: 'Haematology',
-    orderedDoctor: 'Dr. Sarah Chen',
-    date: '2026-08-11',
-    status: 'Completed',
-    fileName: 'CBC_Report_PAT1001.pdf',
-    resultsSummary: 'WBC: 6.8 x10^3/uL (Normal), RBC: 4.9 x10^6/uL, Hemoglobin: 14.8 g/dL, Platelets: 240 x10^3/uL.'
-  },
-  {
-    id: 'b2222222-2222-2222-2222-222222222222',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    testTitle: 'Fasting Lipid Profile',
-    category: 'Biochemistry',
-    orderedDoctor: 'Dr. Sarah Chen',
-    date: '2026-08-11',
-    status: 'Completed',
-    fileName: 'Lipid_Profile_PAT1001.pdf',
-    resultsSummary: 'Total Cholesterol: 185 mg/dL (Normal < 200), HDL: 48 mg/dL, LDL: 112 mg/dL, Triglycerides: 125 mg/dL.'
-  },
-  {
-    id: 'b3333333-3333-3333-3333-333333333333',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    testTitle: 'Resting 12-Lead Electrocardiogram (ECG)',
-    category: 'Cardiology',
-    orderedDoctor: 'Dr. Sarah Chen',
-    date: '2026-08-15',
-    status: 'Pending',
-    fileName: 'ECG_Order_PAT1001.pdf',
-    resultsSummary: 'Specimen collected; awaiting cardiologist interpretation signature.'
-  }
-];
-
-const INITIAL_PRESCRIPTIONS = [
-  {
-    id: 'd1111111-1111-1111-1111-111111111111',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    medication: 'Lisinopril 10mg',
-    unitPrice: '$12.50',
-    dosage: 'Take 1 tablet by mouth daily in the morning with water',
-    duration: '30 Days',
-    startDate: '2026-08-10',
-    endDate: '2026-09-09',
-    prescribedDoctor: 'Dr. Sarah Chen',
-    status: 'Active'
-  },
-  {
-    id: 'd2222222-2222-2222-2222-222222222222',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    medication: 'Amlodipine 5mg',
-    unitPrice: '$10.00',
-    dosage: 'Take 1 tablet daily with or without food',
-    duration: '30 Days',
-    startDate: '2026-08-10',
-    endDate: '2026-09-09',
-    prescribedDoctor: 'Dr. Sarah Chen',
-    status: 'Active'
-  },
-  {
-    id: 'd3333333-3333-3333-3333-333333333333',
-    patientId: 'PAT-1001',
-    patientName: 'John Anderson',
-    medication: 'Amoxicillin 500mg',
-    unitPrice: '$15.00',
-    dosage: 'Take 1 capsule every 8 hours for 7 days',
-    duration: '7 Days',
-    startDate: '2026-06-01',
-    endDate: '2026-06-08',
-    prescribedDoctor: 'Dr. Michael Chang',
-    status: 'Completed'
-  }
-];
+const INITIAL_PATIENTS = [];
+const INITIAL_CONSULTATIONS = [];
+const INITIAL_LAB_REPORTS = [];
+const INITIAL_PRESCRIPTIONS = [];
 
 class EmrStore {
   constructor() {
@@ -129,6 +15,16 @@ class EmrStore {
   }
 
   loadData() {
+    try {
+      const stored = localStorage.getItem('emr_patients');
+      if (stored && (stored.includes('PAT-1001') || stored.includes('John Anderson'))) {
+        localStorage.removeItem('emr_patients');
+        localStorage.removeItem('emr_consultations');
+        localStorage.removeItem('emr_labReports');
+        localStorage.removeItem('emr_prescriptions');
+      }
+    } catch {}
+
     this.patients = JSON.parse(localStorage.getItem('emr_patients')) || INITIAL_PATIENTS;
     this.consultations = JSON.parse(localStorage.getItem('emr_consultations')) || INITIAL_CONSULTATIONS;
     this.labReports = JSON.parse(localStorage.getItem('emr_labReports')) || INITIAL_LAB_REPORTS;
@@ -163,7 +59,7 @@ class EmrStore {
     try {
       // 1. Fetch Patients
       const apiPatients = await emrApi.getPatients();
-      if (Array.isArray(apiPatients) && apiPatients.length > 0) {
+      if (Array.isArray(apiPatients)) {
         this.patients = apiPatients.map(p => ({
           id: p.patientCode,
           backendGuid: p.id,

@@ -1,6 +1,8 @@
 using HealthBridge.Api.DTOs.EMR;
 using HealthBridge.Api.Services.EMR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace HealthBridge.Api.Controllers.EMR;
 
@@ -30,6 +32,46 @@ public class EMRController : ControllerBase
     {
         var patients = await _emrService.GetAllPatientsAsync(search);
         return Ok(patients);
+    }
+
+    /// <summary>
+    /// Get the current logged-in patient's own EMR record (from JWT token)
+    /// </summary>
+    [HttpGet("patients/me")]
+    [Authorize]
+    public async Task<ActionResult<PatientDto>> GetMyPatient()
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                       ?? User.FindFirstValue("sub")
+                       ?? User.FindFirstValue("nameid");
+
+        if (!int.TryParse(userIdClaim, out var userId))
+            return Unauthorized(new { message = "Invalid token: cannot identify user." });
+
+        var patient = await _emrService.GetPatientByUserIdAsync(userId);
+        if (patient == null)
+            return NotFound(new { message = "No EMR patient record found for your account." });
+
+        return Ok(patient);
+    }
+
+    /// <summary>
+    /// Get personalized, real notifications for the logged-in user based strictly on their actual records
+    /// </summary>
+    [HttpGet("notifications")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<EMRNotificationDto>>> GetMyNotifications()
+    {
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                       ?? User.FindFirstValue("sub")
+                       ?? User.FindFirstValue("nameid");
+
+        if (!int.TryParse(userIdClaim, out var userId))
+            return Unauthorized(new { message = "Invalid token: cannot identify user." });
+
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? "Patient";
+        var notifications = await _emrService.GetUserNotificationsAsync(userId, role);
+        return Ok(notifications);
     }
 
     /// <summary>
