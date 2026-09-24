@@ -14,20 +14,20 @@ public interface IEMRService
     Task<PatientDto?> UpdatePatientByCodeAsync(string patientCode, UpdatePatientDto dto);
 
     // Consultation Notes
-    Task<IEnumerable<ConsultationNoteDto>> GetConsultationsAsync(string? patientCode = null);
+    Task<IEnumerable<ConsultationNoteDto>> GetConsultationsAsync(string? patientCode = null, string? search = null, string? doctorName = null);
     Task<ConsultationNoteDto?> GetConsultationByIdAsync(Guid id);
     Task<ConsultationNoteDto> CreateConsultationAsync(CreateConsultationNoteDto dto);
     Task<bool> DeleteConsultationAsync(Guid id);
 
     // Lab Reports
-    Task<IEnumerable<LabReportDto>> GetLabReportsAsync(string? patientCode = null);
+    Task<IEnumerable<LabReportDto>> GetLabReportsAsync(string? patientCode = null, string? search = null, string? category = null, string? status = null);
     Task<LabReportDto?> GetLabReportByIdAsync(Guid id);
     Task<LabReportDto> CreateLabReportAsync(CreateLabReportDto dto);
     Task<LabReportDto?> UpdateLabReportStatusAsync(Guid id, UpdateLabReportStatusDto dto);
     Task<bool> DeleteLabReportAsync(Guid id);
 
     // Prescriptions
-    Task<IEnumerable<PrescriptionDto>> GetPrescriptionsAsync(string? patientCode = null);
+    Task<IEnumerable<PrescriptionDto>> GetPrescriptionsAsync(string? patientCode = null, string? search = null, string? status = null, string? doctorName = null);
     Task<PrescriptionDto?> GetPrescriptionByIdAsync(Guid id);
     Task<PrescriptionDto> CreatePrescriptionAsync(CreatePrescriptionDto dto);
     Task<IEnumerable<PrescriptionDto>> CreatePrescriptionsBatchAsync(BatchCreatePrescriptionsDto dto);

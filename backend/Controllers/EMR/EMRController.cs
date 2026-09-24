@@ -140,12 +140,15 @@ public class EMRController : ControllerBase
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Get consultation notes, optionally filtered by patient code
+    /// Get consultation notes, optionally filtered by patient code, search keyword, or doctor
     /// </summary>
     [HttpGet("consultations")]
-    public async Task<ActionResult<IEnumerable<ConsultationNoteDto>>> GetConsultations([FromQuery] string? patientCode)
+    public async Task<ActionResult<IEnumerable<ConsultationNoteDto>>> GetConsultations(
+        [FromQuery] string? patientCode,
+        [FromQuery] string? search,
+        [FromQuery] string? doctorName)
     {
-        var notes = await _emrService.GetConsultationsAsync(patientCode);
+        var notes = await _emrService.GetConsultationsAsync(patientCode, search, doctorName);
         return Ok(notes);
     }
 
@@ -200,12 +203,16 @@ public class EMRController : ControllerBase
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Get lab reports, optionally filtered by patient code
+    /// Get lab reports, optionally filtered by patient code, search keyword, category, or status
     /// </summary>
     [HttpGet("lab-reports")]
-    public async Task<ActionResult<IEnumerable<LabReportDto>>> GetLabReports([FromQuery] string? patientCode)
+    public async Task<ActionResult<IEnumerable<LabReportDto>>> GetLabReports(
+        [FromQuery] string? patientCode,
+        [FromQuery] string? search,
+        [FromQuery] string? category,
+        [FromQuery] string? status)
     {
-        var reports = await _emrService.GetLabReportsAsync(patientCode);
+        var reports = await _emrService.GetLabReportsAsync(patientCode, search, category, status);
         return Ok(reports);
     }
 
@@ -273,12 +280,16 @@ public class EMRController : ControllerBase
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Get prescriptions, optionally filtered by patient code
+    /// Get prescriptions, optionally filtered by patient code, search keyword, status, or doctor
     /// </summary>
     [HttpGet("prescriptions")]
-    public async Task<ActionResult<IEnumerable<PrescriptionDto>>> GetPrescriptions([FromQuery] string? patientCode)
+    public async Task<ActionResult<IEnumerable<PrescriptionDto>>> GetPrescriptions(
+        [FromQuery] string? patientCode,
+        [FromQuery] string? search,
+        [FromQuery] string? status,
+        [FromQuery] string? doctorName)
     {
-        var prescriptions = await _emrService.GetPrescriptionsAsync(patientCode);
+        var prescriptions = await _emrService.GetPrescriptionsAsync(patientCode, search, status, doctorName);
         return Ok(prescriptions);
     }
 
