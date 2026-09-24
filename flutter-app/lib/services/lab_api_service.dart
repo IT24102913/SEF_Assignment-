@@ -45,8 +45,6 @@ class LabBooking {
   final String? paidAt;
   final String createdAt;
 
-  String? get prescriptionUrl => prescriptionImageUrl;
-
   LabBooking({required this.id, required this.patientId, required this.patientName,
     required this.patientEmail, required this.status, required this.bookingDate,
     required this.timeSlot, this.labTest, this.prescriptionImageUrl,
@@ -71,7 +69,7 @@ class LabBooking {
     bookingDate: j['bookingDate']?.toString() ?? '',
     timeSlot: j['timeSlot']?.toString() ?? '',
     labTest: j['labTest'] != null ? LabTest.fromJson(j['labTest'] as Map<String, dynamic>) : null,
-    prescriptionImageUrl: (j['prescriptionImageUrl'] ?? j['prescriptionUrl'])?.toString(),
+    prescriptionImageUrl: j['prescriptionImageUrl']?.toString(),
     aiVerification: j['aiVerification']?.toString(),
     aiVerificationNotes: j['aiVerificationNotes']?.toString(),
     resultFileUrl: j['resultFileUrl']?.toString(),
@@ -99,7 +97,7 @@ class LabApiService {
 
   // Lab Tests
   static Future<List<LabTest>> getTests({String search = '', String category = ''}) async {
-    final res = await _client.get(Uri.parse('$baseUrl/tests?search=$search&category=$category')).timeout(const Duration(seconds: 5));
+    final res = await _client.get(Uri.parse('$baseUrl/tests?search=$search&category=$category'));
     if (res.statusCode == 200) {
       return (jsonDecode(res.body) as List).map((j) => LabTest.fromJson(j)).toList();
     }
@@ -107,31 +105,19 @@ class LabApiService {
   }
 
   static Future<List<String>> getCategories() async {
-    final res = await _client.get(Uri.parse('$baseUrl/tests/categories')).timeout(const Duration(seconds: 5));
+    final res = await _client.get(Uri.parse('$baseUrl/tests/categories'));
     if (res.statusCode == 200) return List<String>.from(jsonDecode(res.body));
     throw Exception('Failed to load categories');
   }
 
   // Bookings
-  static Future<List<LabBooking>> getMyBookings(String patientId, {String? email}) async {
-    final parsedId = int.tryParse(patientId);
-    String query = '';
-    if (email != null && email.isNotEmpty) {
-      query = 'email=${Uri.encodeComponent(email)}';
-      if (parsedId != null && parsedId > 0) {
-        query += '&patientId=$parsedId';
-      }
-    } else if (parsedId != null && parsedId > 0) {
-      query = 'patientId=$parsedId';
-    } else {
-      query = 'patientId=0';
-    }
-
-    final res = await _client.get(Uri.parse('$baseUrl/bookings/my?$query')).timeout(const Duration(seconds: 5));
+  static Future<List<LabBooking>> getMyBookings(String patientId) async {
+    final parsedId = int.tryParse(patientId) ?? 1;
+    final res = await _client.get(Uri.parse('$baseUrl/bookings/my?patientId=$parsedId'));
     if (res.statusCode == 200) {
       return (jsonDecode(res.body) as List).map((j) => LabBooking.fromJson(j)).toList();
     }
-    return [];
+    throw Exception('Failed to load bookings');
   }
 
   static Future<List<Map<String, dynamic>>> getSlots(String date) async {

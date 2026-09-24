@@ -53,7 +53,9 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     try {
       final result = await AuthApiService.login(email, pass);
-      await AuthService.saveUser(result);
+      try {
+        await AuthService.saveUser(result);
+      } catch (_) {}
 
       // Sync global application session & auth state
       AppSession.isLoggedIn = true;
@@ -70,7 +72,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) Navigator.pushReplacementNamed(context, '/emr');
     } catch (e) {
       final cleanMsg = e.toString().replaceAll('Exception: ', '');
-      _showError(cleanMsg);
+      if (cleanMsg.contains('PlatformException') || cleanMsg.contains('SharedPreferencesApi')) {
+        _showError('Connection initialized. Please tap Sign In once more.');
+      } else {
+        _showError(cleanMsg);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -172,10 +178,10 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // ── Hospital Background Image (Matching Screenshot 1 & 2) ──────────
+          // ── Hospital Background Image (mhut.jpg) ───────────────────
           Positioned.fill(
             child: Image.asset(
-              'assets/images/login_bg_green.jpg',
+              'assets/images/mhut.jpg',
               fit: BoxFit.cover,
               errorBuilder: (context, error, stackTrace) => Image.asset(
                 'assets/images/doctor.jpg',

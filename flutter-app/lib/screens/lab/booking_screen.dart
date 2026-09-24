@@ -23,10 +23,10 @@ class _BookingScreenState extends State<BookingScreen> {
 
   // Payment Selection
   String _paymentOption = 'OnlineCard'; // 'OnlineCard' or 'CounterCash'
-  final _cardHolderController = TextEditingController();
-  final _cardNumberController = TextEditingController();
-  final _expiryController = TextEditingController();
-  final _cvvController = TextEditingController();
+  final _cardHolderController = TextEditingController(text: 'John Doe');
+  final _cardNumberController = TextEditingController(text: '4242 4242 4242 4242');
+  final _expiryController = TextEditingController(text: '12/28');
+  final _cvvController = TextEditingController(text: '123');
   Map<String, dynamic>? _lastPaymentReceipt;
 
   final List<String> _defaultTimeSlots = [
@@ -164,7 +164,6 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Future<void> _confirmBooking() async {
-    if (_loading) return;
     if (_selectedDate == null) return _showError('Please select an appointment date');
     if (_selectedTime == null) return _showError('Please select a time slot');
     if (_requiresPrescription && _prescriptionImageUrl == null) {
@@ -215,7 +214,7 @@ class _BookingScreenState extends State<BookingScreen> {
           booking = await LabApiService.uploadPrescription(booking.id, _prescriptionImageUrl!);
         }
 
-        // Process payment selection ONLY for unrestricted tests
+        // Process payment selection only if not deferred
         if (!_requiresPrescription) {
           if (_paymentOption == 'OnlineCard') {
             try {
@@ -282,52 +281,24 @@ class _BookingScreenState extends State<BookingScreen> {
             Container(
               width: 64,
               height: 64,
-              decoration: BoxDecoration(
-                color: _requiresPrescription ? const Color(0xFFDBEAFE) : const Color(0xFFD1FAE5),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                _requiresPrescription ? Icons.document_scanner_outlined : Icons.check_circle,
-                color: _requiresPrescription ? const Color(0xFF2563EB) : kSuccess,
-                size: 38,
-              ),
+              decoration: const BoxDecoration(color: Color(0xFFD1FAE5), shape: BoxShape.circle),
+              child: const Icon(Icons.check_circle, color: kSuccess, size: 40),
             ),
             const SizedBox(height: 16),
-            Text(
-              _requiresPrescription ? 'Prescription Submitted!' : 'Appointments Scheduled!',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText),
+            const Text(
+              'Appointments Scheduled!',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
               _requiresPrescription
-                  ? 'Your prescription has been submitted. Gemini Vision AI and our laboratory staff are reviewing it. Once verified, you will receive an email notification to choose your payment method and finalize your appointment.'
+                  ? 'Your prescription has been submitted. Gemini Vision AI and our laboratory staff are reviewing it.'
                   : 'Your bookings have been confirmed! Please proceed to the clinic at your scheduled appointment time.',
               style: const TextStyle(color: kTextMuted, fontSize: 13, height: 1.4),
               textAlign: TextAlign.center,
             ),
-            if (_requiresPrescription) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFBFDBFE)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_clock, color: Color(0xFF2563EB), size: 16),
-                    SizedBox(width: 6),
-                    Text(
-                      'Pending Verification • Payment Deferred',
-                      style: TextStyle(color: Color(0xFF1E40AF), fontWeight: FontWeight.w800, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ] else if (_paymentOption == 'OnlineCard' && _lastPaymentReceipt != null) ...[
+            if (_paymentOption == 'OnlineCard' && _lastPaymentReceipt != null) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -711,70 +682,32 @@ class _BookingScreenState extends State<BookingScreen> {
               const SizedBox(height: 24),
             ],
 
-            // Payment Selection vs Deferred Verification Notice
+            // Payment Method Selection or Deferred Notice
             if (_requiresPrescription) ...[
               Container(
-                width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF0F7FF),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFBFDBFE), width: 1.2),
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
                 ),
-                child: Column(
+                child: const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2563EB),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(Icons.verified_user_outlined, color: Colors.white, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Payment Deferred Pending Approval',
-                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Color(0xFF1E3A8A)),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                'AI Verification & Clinical Review Required',
-                                style: TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Because this diagnostic test requires a doctor\'s prescription, upfront payment is not required at booking time. Our Gemini Vision AI and certified laboratory staff will review your uploaded prescription document.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF334155), height: 1.45),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFDBEAFE)),
-                      ),
-                      child: const Row(
+                    Icon(Icons.info_outline, color: Color(0xFFD97706), size: 22),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.mark_email_read_outlined, size: 16, color: Color(0xFF2563EB)),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Once approved, you will receive an email and can select your payment method (Pay Online or Pay at Counter) directly in the app.',
-                              style: TextStyle(fontSize: 11.5, color: Color(0xFF1E40AF), fontWeight: FontWeight.w600),
-                            ),
+                          Text(
+                            'Payment Deferred Pending Clinical Approval',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: Color(0xFF92400E)),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'This restricted diagnostic procedure requires clinical verification by Gemini Vision AI and certified laboratory staff. Payment is not required at this time.\n\nOnce approved, you will receive an approval email notification and can settle payment (Online Card or Counter Cash) directly from My Bookings.',
+                            style: TextStyle(color: Color(0xFF78350F), fontSize: 12, height: 1.4),
                           ),
                         ],
                       ),
@@ -784,7 +717,7 @@ class _BookingScreenState extends State<BookingScreen> {
               ),
               const SizedBox(height: 20),
             ] else ...[
-              // Standard Payment Method Selection
+              // 3. Choose Payment Method (Only for unrestricted tests)
               const Text(
                 '3. Choose Payment Method',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: kText),
@@ -921,27 +854,6 @@ class _BookingScreenState extends State<BookingScreen> {
                                 _expiryController.text = '08/29';
                                 _cvvController.text = '888';
                               });
-                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Row(
-                                    children: [
-                                      Icon(Icons.credit_card, color: Colors.white, size: 16),
-                                      SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Demo card details filled. Tap "Confirm Lab Appointments" when ready.',
-                                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  backgroundColor: const Color(0xFF1E40AF),
-                                  duration: const Duration(seconds: 2),
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                              );
                             },
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1102,16 +1014,13 @@ class _BookingScreenState extends State<BookingScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        _requiresPrescription ? 'Amount Payable Now' : 'Total Amount Payable',
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kText),
-                      ),
+                      const Text('Total Amount Payable Now', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: kText)),
                       Text(
                         _requiresPrescription ? 'LKR 0 (Deferred)' : 'LKR ${_totalPrice.toStringAsFixed(0)}',
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
-                          fontSize: _requiresPrescription ? 14 : 18,
-                          color: _requiresPrescription ? const Color(0xFF059669) : kPrimaryDark,
+                          fontSize: _requiresPrescription ? 15 : 18,
+                          color: _requiresPrescription ? const Color(0xFFD97706) : kPrimaryDark,
                         ),
                       ),
                     ],

@@ -2,13 +2,33 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/lab_api_service.dart';
-import '../../utils/config.dart';
+import 'package:lab_patient_app/utils/config.dart';
 import '../../utils/theme.dart';
 
 class BookingTrackingScreen extends StatelessWidget {
   final LabBooking booking;
+  final List<LabBooking>? relatedBookings;
 
-  const BookingTrackingScreen({super.key, required this.booking});
+  const BookingTrackingScreen({
+    super.key, 
+    required this.booking,
+    this.relatedBookings,
+  });
+
+  List<LabBooking> get _allBookings => (relatedBookings != null && relatedBookings!.isNotEmpty)
+      ? relatedBookings!
+      : [booking];
+
+  bool get _isMultiTest => _allBookings.length > 1;
+
+  double get _totalDue => _allBookings.fold(
+      0.0, (sum, b) => sum + (b.labTest?.price ?? 0.0));
+
+  double get _totalPaid => _allBookings.fold(
+      0.0, (sum, b) => sum + (b.amountPaid > 0 ? b.amountPaid : (b.labTest?.price ?? 0.0)));
+
+  bool get _allPaid => _allBookings.every(
+      (b) => b.paymentStatus == 'PaidOnline' || b.paymentStatus == 'PaidAtCounter');
 
   int _getStatusRank(String status) {
     const ranks = {
@@ -31,74 +51,89 @@ class BookingTrackingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = booking.status;
-    final isRestricted = booking.labTest?.isRestricted == true || (booking.prescriptionUrl != null && booking.prescriptionUrl!.isNotEmpty);
+    final isRestricted = _allBookings.any((b) => b.labTest?.isRestricted == true);
     final currentRank = _getStatusRank(status);
     final isFailed = status == 'Rejected' || status == 'Cancelled';
-    final isPaid = booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter';
-    final isPendingVerification = booking.status == 'PendingPrescriptionUpload' ||
-        booking.status == 'PendingAIVerification' ||
-        booking.status == 'PendingLabApproval';
 
     // Build timeline stages
     List<Map<String, dynamic>> stages = [];
 
     if (isRestricted) {
-      stages.add({
-        'title': 'Appointment & Rx Submitted',
-        'subtitle': 'Booking requested & prescription uploaded for review',
-        'icon': Icons.description_outlined,
-        'rank': 0
-      });
-      stages.add({
-        'title': 'AI & Lab Verification',
-        'subtitle': 'Gemini Vision AI & clinical lab staff approval',
-        'icon': Icons.psychology_outlined,
-        'rank': 2
-      });
-      stages.add({
-        'title': 'Prescription Approved • Payment Selection',
-        'subtitle': 'Approval granted! Select payment method to confirm',
-        'icon': Icons.verified_outlined,
-        'rank': 3
-      });
+      stages = [
+        {
+          'title': 'Appointment & Rx Submitted',
+          'subtitle': 'Doctor prescription uploaded for clinical review',
+          'icon': Icons.description_outlined,
+          'rank': 0
+        },
+        {
+          'title': 'AI & Lab Verification',
+          'subtitle': 'Gemini Vision AI & laboratory staff verification',
+          'icon': Icons.verified_outlined,
+          'rank': 1
+        },
+        {
+          'title': 'Prescription Approved • Payment Selection',
+          'subtitle': 'Prescription verified! Choose online card or counter payment',
+          'icon': Icons.payment_outlined,
+          'rank': 3
+        },
+        {
+          'title': 'Specimen Collected',
+          'subtitle': 'Sample received and barcode tagged',
+          'icon': Icons.biotech_outlined,
+          'rank': 4
+        },
+        {
+          'title': 'Testing Active',
+          'subtitle': 'Clinical diagnostics & analyzer processing',
+          'icon': Icons.science_outlined,
+          'rank': 5
+        },
+        {
+          'title': 'Results Ready',
+          'subtitle': 'Official diagnostic report signed & ready for download',
+          'icon': Icons.task_alt,
+          'rank': 7
+        },
+      ];
     } else {
-      stages.add({
-        'title': 'Appointment Requested',
-        'subtitle': 'Booking submitted by patient',
-        'icon': Icons.edit_calendar,
-        'rank': 0
-      });
-      stages.add({
-        'title': 'Appointment Confirmed',
-        'subtitle': 'Slot confirmed at laboratory clinic',
-        'icon': Icons.check_circle_outline,
-        'rank': 3
-      });
+      stages = [
+        {
+          'title': 'Appointment Requested',
+          'subtitle': 'Booking submitted by patient',
+          'icon': Icons.edit_calendar,
+          'rank': 0
+        },
+        {
+          'title': 'Appointment Confirmed',
+          'subtitle': 'Slot confirmed at laboratory clinic',
+          'icon': Icons.check_circle_outline,
+          'rank': 3
+        },
+        {
+          'title': 'Specimen Collected',
+          'subtitle': 'Sample received and barcode tagged',
+          'icon': Icons.biotech_outlined,
+          'rank': 4
+        },
+        {
+          'title': 'Diagnostic Testing Active',
+          'subtitle': 'Clinical analysis and analyzer processing',
+          'icon': Icons.science_outlined,
+          'rank': 5
+        },
+        {
+          'title': 'Results Ready & Completed',
+          'subtitle': 'Official diagnostic report signed & ready for download',
+          'icon': Icons.task_alt,
+          'rank': 7
+        },
+      ];
     }
 
-    stages.addAll([
-      {
-        'title': 'Specimen Collected',
-        'subtitle': 'Sample received and barcode tagged',
-        'icon': Icons.biotech_outlined,
-        'rank': 4
-      },
-      {
-        'title': 'Diagnostic Testing Active',
-        'subtitle': 'Clinical analysis and analyzer processing',
-        'icon': Icons.science_outlined,
-        'rank': 5
-      },
-      {
-        'title': 'Results Ready & Completed',
-        'subtitle': 'Official diagnostic report signed & ready for download',
-        'icon': Icons.task_alt,
-        'rank': 7
-      },
-    ]);
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Specimen & Order Tracker')),
+      appBar: AppBar(title: Text(_isMultiTest ? 'Multi-Test Appointment Tracker' : 'Specimen & Order Tracker')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(18),
         child: Column(
@@ -120,7 +155,9 @@ class BookingTrackingScreen extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            booking.labTest?.category ?? 'Diagnostic Test',
+                            _isMultiTest 
+                                ? 'Multi-Test Appointment (${_allBookings.length} Tests)'
+                                : (booking.labTest?.category ?? 'Diagnostic Test'),
                             style: const TextStyle(color: kPrimary, fontWeight: FontWeight.w800, fontSize: 11),
                           ),
                         ),
@@ -132,11 +169,54 @@ class BookingTrackingScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      booking.labTest?.name ?? 'Lab Test',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText),
-                    ),
-                    const SizedBox(height: 4),
+                    if (_isMultiTest) ...[
+                      const Text(
+                        'Scheduled Laboratory Diagnostic Tests',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kText),
+                      ),
+                      const SizedBox(height: 8),
+                      ..._allBookings.map((b) => Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: kBorder.withOpacity(0.5)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.science_outlined, size: 16, color: kPrimary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    b.labTest?.name ?? 'Lab Test',
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: kText),
+                                  ),
+                                  if (b.labTest?.category != null)
+                                    Text(
+                                      b.labTest!.category,
+                                      style: const TextStyle(color: kTextMuted, fontSize: 11),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              'LKR ${(b.labTest?.price ?? 0).toStringAsFixed(2)}',
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5, color: kPrimaryDark),
+                            ),
+                          ],
+                        ),
+                      )),
+                    ] else ...[
+                      Text(
+                        booking.labTest?.name ?? 'Lab Test',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kText),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
                     Row(
                       children: [
                         const Icon(Icons.schedule, size: 14, color: kTextMuted),
@@ -152,85 +232,79 @@ class BookingTrackingScreen extends StatelessWidget {
               ),
             ),
 
-            // Payment Milestone Card (Only when not cancelled/rejected)
-            if (!isFailed) ...[
-              FadeSlideAnimation(
-                child: Container(
-                  margin: const EdgeInsets.only(top: 14),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: isPaid
-                        ? const Color(0xFFECFDF5)
-                        : (isPendingVerification ? const Color(0xFFFFFBEB) : const Color(0xFFEFF6FF)),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: isPaid
-                          ? const Color(0xFFA7F3D0)
-                          : (isPendingVerification ? const Color(0xFFFDE68A) : const Color(0xFFBFDBFE)),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: isPaid
-                              ? const Color(0xFF059669)
-                              : (isPendingVerification ? const Color(0xFFD97706) : const Color(0xFF2563EB)),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          isPaid
-                              ? Icons.check_circle_outline
-                              : (isPendingVerification ? Icons.hourglass_top_rounded : Icons.payment_outlined),
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isPaid
-                                  ? 'Payment Settled (LKR ${(booking.amountPaid > 0 ? booking.amountPaid : (booking.labTest?.price ?? 0)).toStringAsFixed(2)})'
-                                  : (isPendingVerification
-                                      ? 'Payment Deferred Pending Approval'
-                                      : (isRestricted ? 'Prescription Approved • Action Required' : 'Payment: LKR ${(booking.labTest?.price ?? 0).toStringAsFixed(2)} Due')),
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
-                                color: isPaid
-                                    ? const Color(0xFF065F46)
-                                    : (isPendingVerification ? const Color(0xFF92400E) : const Color(0xFF1E40AF)),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              isPaid
-                                  ? 'Method: ${booking.paymentMethod ?? 'Card'} • Receipt: #${booking.receiptNumber ?? 'MEDIX-RCP'}'
-                                  : (isPendingVerification
-                                      ? 'AI & lab staff are reviewing your prescription. Payment will unlock once approved.'
-                                      : (booking.paymentMethod == 'CashOnArrival'
-                                          ? 'Selected: Pay at Lab Counter (Cash / POS Card)'
-                                          : 'Select online card payment or pay at counter in My Bookings')),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: isPaid
-                                    ? const Color(0xFF047857)
-                                    : (isPendingVerification ? const Color(0xFF78350F) : const Color(0xFF1E3A8A)),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+            // Payment Milestone Card
+            FadeSlideAnimation(
+              child: Container(
+                margin: const EdgeInsets.only(top: 14),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
+                      ? const Color(0xFFECFDF5)
+                      : const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
+                        ? const Color(0xFFA7F3D0)
+                        : const Color(0xFFBFDBFE),
                   ),
                 ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
+                            ? const Color(0xFF059669)
+                            : const Color(0xFF2563EB),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        (booking.paymentStatus == 'PaidOnline' || booking.paymentStatus == 'PaidAtCounter')
+                            ? Icons.check_circle_outline
+                            : Icons.payment_outlined,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _allPaid
+                                ? 'Payment Settled (LKR ${_totalPaid.toStringAsFixed(2)})'
+                                : 'Payment: LKR ${_totalDue.toStringAsFixed(2)} Due',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                              color: _allPaid
+                                  ? const Color(0xFF065F46)
+                                  : const Color(0xFF1E40AF),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _allPaid
+                                ? 'Method: ${booking.paymentMethod ?? 'Card'} • Receipt: #${booking.receiptNumber ?? 'MEDIX-RCP'}'
+                                : booking.paymentMethod == 'CashOnArrival'
+                                    ? 'Selected: Pay at Lab Counter on Arrival (LKR ${_totalDue.toStringAsFixed(2)})'
+                                    : 'Payable online via My Bookings or at counter on arrival',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _allPaid
+                                  ? const Color(0xFF047857)
+                                  : const Color(0xFF1E3A8A),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ],
+            ),
 
             const SizedBox(height: 20),
 
@@ -240,9 +314,9 @@ class BookingTrackingScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
-                  color: kDanger.withOpacity(0.08),
+                  color: kDanger.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: kDanger.withOpacity(0.3)),
+                  border: Border.all(color: kDanger.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,14 +327,23 @@ class BookingTrackingScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Booking Cancelled', style: TextStyle(color: kDanger, fontWeight: FontWeight.w800, fontSize: 14)),
-                          const SizedBox(height: 4),
                           Text(
-                            booking.technicianNotes != null && booking.technicianNotes!.trim().isNotEmpty
-                                ? 'Prescription was rejected by clinical staff: "${booking.technicianNotes}".\nNo further actions can be taken for this request.'
-                                : 'Prescription rejected or appointment cancelled. No further actions can be taken for this request.',
-                            style: const TextStyle(color: Color(0xFF991B1B), fontSize: 12.5, height: 1.3),
+                            (booking.technicianNotes != null && booking.technicianNotes!.isNotEmpty)
+                                ? 'Cancelled (Prescription Rejected)'
+                                : 'Order $status',
+                            style: const TextStyle(color: kDanger, fontWeight: FontWeight.w800, fontSize: 14),
                           ),
+                          const SizedBox(height: 4),
+                          if (booking.technicianNotes != null && booking.technicianNotes!.isNotEmpty)
+                            Text(
+                              'Clinical Reason: ${booking.technicianNotes}',
+                              style: const TextStyle(color: Color(0xFF7F1D1D), fontSize: 12.5, fontWeight: FontWeight.w600),
+                            )
+                          else
+                            const Text(
+                              'Please schedule a new appointment or contact support.',
+                              style: TextStyle(color: kTextMuted, fontSize: 12),
+                            ),
                         ],
                       ),
                     ),

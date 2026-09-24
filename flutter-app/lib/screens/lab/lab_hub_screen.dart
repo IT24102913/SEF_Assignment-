@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/lab_api_service.dart';
+import '../../services/emr_api_service.dart';
+import '../../main.dart';
 import '../../utils/theme.dart';
+import '../../widgets/health_bridge_footer.dart';
 import 'my_bookings_screen.dart';
 import 'booking_tracking_screen.dart';
 
@@ -30,15 +33,27 @@ class _LabHubScreenState extends State<LabHubScreen> {
   Future<void> _loadData() async {
     try {
       final user = await AuthService.getUser();
-      final loggedIn = (user != null);
+      final hasAuthState = (AuthState.token != null && AuthState.token!.isNotEmpty) ||
+          (AuthState.userId != null && AuthState.userId!.isNotEmpty);
+      final loggedIn = (user != null) || hasAuthState || AppSession.isLoggedIn;
+
+      final rawName = (user != null && user.name.isNotEmpty)
+          ? user.name
+          : (AuthState.name?.isNotEmpty == true
+              ? AuthState.name!
+              : (AppSession.userName?.isNotEmpty == true ? AppSession.userName! : 'Patient'));
+      final userId = (user != null && user.userId.isNotEmpty)
+          ? user.userId
+          : (AuthState.userId ?? '');
+
       if (mounted) {
         setState(() {
           _isLoggedIn = loggedIn;
-          _userName = loggedIn ? user.name.split(' ').first : 'Guest';
+          _userName = loggedIn ? rawName.split(' ').first : 'Guest';
         });
       }
 
-      if (!loggedIn) {
+      if (!loggedIn || userId.isEmpty) {
         if (mounted) {
           setState(() {
             _loading = false;
@@ -52,11 +67,8 @@ class _LabHubScreenState extends State<LabHubScreen> {
         return;
       }
 
-      final rawBookings = await LabApiService.getMyBookings(user.userId, email: user.email);
-      final emailLower = user.email.trim().toLowerCase();
-      final bookings = emailLower.isNotEmpty
-          ? rawBookings.where((b) => b.patientEmail.trim().toLowerCase() == emailLower).toList()
-          : rawBookings;
+      final bookings = await LabApiService.getMyBookings(userId)
+          .timeout(const Duration(seconds: 5), onTimeout: () => []);
       if (mounted) {
         setState(() {
           _recentBookings = bookings;
@@ -137,9 +149,16 @@ class _LabHubScreenState extends State<LabHubScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final latestActive = _recentBookings.where((b) => 
+    final activeBookings = _recentBookings.where((b) => 
       b.status != 'Completed' && b.status != 'Cancelled' && b.status != 'Rejected'
-    ).firstOrNull;
+    ).toList();
+    final latestActive = activeBookings.firstOrNull;
+    final latestActiveSiblings = latestActive != null
+        ? activeBookings.where((b) => b.id != latestActive.id && b.bookingDate == latestActive.bookingDate && b.timeSlot == latestActive.timeSlot).toList()
+        : <LabBooking>[];
+    final allLatestActive = latestActive != null ? [latestActive, ...latestActiveSiblings] : <LabBooking>[];
+    final isMultiLatest = allLatestActive.length > 1;
+    final isPaidLatest = allLatestActive.isNotEmpty && allLatestActive.every((b) => b.paymentStatus == 'PaidOnline' || b.paymentStatus == 'PaidAtCounter');
 
     return Scaffold(
       appBar: AppBar(
@@ -231,7 +250,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       Text(
                         _isLoggedIn
                             ? 'Book lab tests, track sample analysis live, and download verified digital medical reports.'
-                            : 'Explore 50+ accredited pathology & diagnostic tests with transparent pricing. Log in to book slots and access medical reports.',
+                            : 'Explore 50+ accredited pathology & diagnostic tests with transparent pricing.',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.9),
                           fontSize: 13,
@@ -240,30 +259,15 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       ),
                       if (!_isLoggedIn) ...[
                         const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () => Navigator.pushNamed(context, '/catalogue'),
-                              icon: const Icon(Icons.search, size: 16, color: kPrimaryDark),
-                              label: const Text('Explore Lab Tests', style: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.bold, fontSize: 13)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            OutlinedButton.icon(
-                              onPressed: () => Navigator.pushNamed(context, '/login').then((_) => _loadData()),
-                              icon: const Icon(Icons.login, size: 16, color: Colors.white),
-                              label: const Text('Sign In', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Colors.white70),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            ),
-                          ],
+                        ElevatedButton.icon(
+                          onPressed: () => Navigator.pushNamed(context, '/catalogue'),
+                          icon: const Icon(Icons.search, size: 16, color: kPrimaryDark),
+                          label: const Text('Explore Lab Tests', style: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.bold, fontSize: 13)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
                         ),
                       ],
                     ],
@@ -331,54 +335,169 @@ class _LabHubScreenState extends State<LabHubScreen> {
                       ),
 
                 // Live Tracking Card for active booking
-                if (latestActive != null) ...[
+                if (allLatestActive.isNotEmpty) ...[
                   const SizedBox(height: 20),
-                  FadeSlideAnimation(
-                    child: AppCard(
-                      color: const Color(0xFFF8FAFC),
-                      border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
-                      onTap: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => BookingTrackingScreen(booking: latestActive)),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [kPrimary, Color(0xFF00BCD4)]),
-                              borderRadius: BorderRadius.circular(12),
+                  if (!isPaidLatest && isMultiLatest) ...[
+                    // Combined intake card before payment is confirmed
+                    FadeSlideAnimation(
+                      child: AppCard(
+                        color: const Color(0xFFF8FAFC),
+                        border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => BookingTrackingScreen(
+                              booking: latestActive,
+                              relatedBookings: allLatestActive,
                             ),
-                            child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
                           ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    const Text('Active Test: ', style: TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600)),
-                                    Expanded(
-                                      child: Text(
-                                        latestActive.labTest?.name ?? 'Lab Test',
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
-                                        overflow: TextOverflow.ellipsis,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(colors: [kPrimary, Color(0xFF00BCD4)]),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'Active Tests (${allLatestActive.length}): ',
+                                        style: const TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
                                       ),
+                                      Expanded(
+                                        child: Text(
+                                          allLatestActive.map((b) => b.labTest?.name ?? 'Lab Test').join(' + '),
+                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      StatusBadge(status: latestActive!.status),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF3E8FF),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: const Color(0xFFD8B4FE)),
+                                        ),
+                                        child: Text(
+                                          'Combined (${allLatestActive.length} Tests)',
+                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF7E22CE)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    // Once payment is confirmed, show each active test as its own live tracking card!
+                    for (int i = 0; i < allLatestActive.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 10),
+                      FadeSlideAnimation(
+                        child: AppCard(
+                          color: const Color(0xFFF8FAFC),
+                          border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1.2),
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => BookingTrackingScreen(
+                                booking: allLatestActive[i],
+                                relatedBookings: const [],
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: i == 0
+                                        ? [kPrimary, const Color(0xFF00BCD4)]
+                                        : [const Color(0xFF2563EB), const Color(0xFF38BDF8)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.track_changes, color: Colors.white, size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          allLatestActive.length > 1 ? 'Active Test #${i + 1}: ' : 'Active Test: ',
+                                          style: const TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
+                                        ),
+                                        Expanded(
+                                          child: Text(
+                                            allLatestActive[i].labTest?.name ?? 'Lab Test',
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kText),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        StatusBadge(status: allLatestActive[i].status),
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFECFDF5),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.check_circle, size: 10, color: Color(0xFF059669)),
+                                              SizedBox(width: 3),
+                                              Text(
+                                                'Paid & Verified',
+                                                style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 4),
-                                StatusBadge(status: latestActive.status),
-                              ],
-                            ),
+                              ),
+                              const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
+                            ],
                           ),
-                          const Icon(Icons.arrow_forward_ios, size: 14, color: kPrimary),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
+                    ],
+                  ],
                 ],
               ],
 
@@ -391,18 +510,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 1. Explore Lab Tests (Available for EVERYONE, including non-logged-in users)
-              _ActionCard(
-                icon: Icons.manage_search_outlined,
-                title: 'Explore Lab Tests & Pricing',
-                description: 'Browse 50+ clinical diagnostics, fasting preparation rules & costs.',
-                gradient: const [Color(0xFF00897B), Color(0xFF26A69A)],
-                badgeText: 'Open to All',
-                onTap: () => Navigator.pushNamed(context, '/catalogue'),
-              ),
-              const SizedBox(height: 12),
-
-              // 2. Book Laboratory Test (Requires logged-in user)
+              // 1. Book Laboratory Test (Requires logged-in user)
               _ActionCard(
                 icon: Icons.add_circle_outline,
                 title: 'Book Laboratory Test',
@@ -416,7 +524,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 3. Track Specimen & Status (Requires logged-in user)
+              // 2. Track Specimen & Status (Requires logged-in user)
               _ActionCard(
                 icon: Icons.track_changes_outlined,
                 title: 'Track Specimen & Status',
@@ -433,7 +541,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 4. Download Test Reports (Requires logged-in user)
+              // 3. Download Test Reports (Requires logged-in user)
               _ActionCard(
                 icon: Icons.file_download_done_outlined,
                 title: 'Download Test Reports',
@@ -450,7 +558,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 5. Full Booking History (Requires logged-in user)
+              // 4. Full Booking History (Requires logged-in user)
               _ActionCard(
                 icon: Icons.receipt_long_outlined,
                 title: 'Full Booking History',
@@ -466,6 +574,8 @@ class _LabHubScreenState extends State<LabHubScreen> {
               ),
 
               const SizedBox(height: 20),
+              const HealthBridgeFooter(),
+              const SizedBox(height: 16),
             ],
           ),
         ),
@@ -548,7 +658,7 @@ class _ActionCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: gradient[0].withOpacity(0.3),
+              color: gradient[0].withValues(alpha: 0.3),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -560,7 +670,7 @@ class _ActionCard extends StatelessWidget {
               width: 46,
               height: 46,
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(icon, color: Colors.white, size: 24),
@@ -607,7 +717,7 @@ class _ActionCard extends StatelessWidget {
                   Text(
                     description,
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.88),
+                      color: Colors.white.withValues(alpha: 0.88),
                       fontSize: 12,
                       height: 1.3,
                     ),
@@ -616,7 +726,7 @@ class _ActionCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Icon(Icons.arrow_forward_ios, color: Colors.white.withOpacity(0.7), size: 14),
+            Icon(Icons.arrow_forward_ios, color: Colors.white.withValues(alpha: 0.7), size: 14),
           ],
         ),
       ),

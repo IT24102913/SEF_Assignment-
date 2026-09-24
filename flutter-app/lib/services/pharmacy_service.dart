@@ -6,6 +6,7 @@ import '../utils/config.dart';
 class MedicineModel {
   final int id;
   final String name;
+  final String? brandName;
   final int categoryId;
   final String categoryName;
   final String description;
@@ -20,6 +21,7 @@ class MedicineModel {
   MedicineModel({
     required this.id,
     required this.name,
+    this.brandName,
     required this.categoryId,
     required this.categoryName,
     required this.description,
@@ -48,6 +50,7 @@ class MedicineModel {
     return MedicineModel(
       id: json['id'] is int ? json['id'] : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
       name: json['name']?.toString() ?? 'Unknown Medicine',
+      brandName: json['brandName']?.toString(),
       categoryId: json['categoryId'] is int ? json['categoryId'] : int.tryParse(json['categoryId']?.toString() ?? '0') ?? 0,
       categoryName: json['categoryName']?.toString() ?? (json['category'] != null ? json['category']['name']?.toString() ?? 'General' : 'General'),
       description: json['description']?.toString() ?? 'No description available.',
@@ -282,7 +285,10 @@ class PharmacyService {
 
   /// Fetch all live admin-inserted medicines directly from PostgreSQL database
   static Future<List<MedicineModel>> getMedicines() async {
-    for (final host in ApiConfig.candidateHosts) {
+    final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
+    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
+
+    for (final host in hosts) {
       try {
         final response = await http
             .get(Uri.parse('$host/api/Medicines'))
@@ -301,7 +307,10 @@ class PharmacyService {
 
   /// Fetch all live categories from backend database
   static Future<List<CategoryModel>> getCategories() async {
-    for (final host in ApiConfig.candidateHosts) {
+    final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
+    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
+
+    for (final host in hosts) {
       try {
         final response = await http
             .get(Uri.parse('$host/api/Categories'))
@@ -396,7 +405,10 @@ class PharmacyService {
       'items': items,
     };
 
-    for (final host in ApiConfig.candidateHosts) {
+    final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
+    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
+
+    for (final host in hosts) {
       try {
         final response = await http.post(
           Uri.parse('$host/api/PharmacyOrders'),
@@ -443,7 +455,10 @@ class PharmacyService {
   /// Fetch patient orders from backend database
   static Future<List<PharmacyOrderModel>> getPatientOrders(String email) async {
     List<PharmacyOrderModel> remoteOrders = [];
-    for (final host in ApiConfig.candidateHosts) {
+    final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
+    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
+
+    for (final host in hosts) {
       try {
         final response = await http
             .get(Uri.parse('$host/api/PharmacyOrders'))

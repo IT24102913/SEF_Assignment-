@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { getAllBookings, markCollected, updateBookingStatus, deleteBookingAdmin, approveBooking, uploadResult, uploadFile } from '../../../api/labApi';
-import LabLayout from '../../../components/LabLayout';
+import LabLayout from '../../../components/layout/LabLayout';
 import { useAuth } from '../../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { FlaskConical, Search, RefreshCw, Microscope, FileText, Send, Check, Trash2, CheckCircle, Upload, X, FileUp, CheckCircle2, Link as LinkIcon, ShieldCheck } from 'lucide-react';
@@ -84,6 +84,12 @@ export default function AllBookings() {
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (file) {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (!isPdf) {
+        toast.error('Only PDF documents (.pdf) can be uploaded as test results.');
+        e.target.value = '';
+        return;
+      }
       setSelectedFile(file);
     }
   };
@@ -94,6 +100,12 @@ export default function AllBookings() {
     }
     if (useManualUrl && !manualUrl.trim()) {
       return toast.error('Please enter a result file URL');
+    }
+    if (useManualUrl) {
+      const cleanUrl = manualUrl.trim().split('?')[0].toLowerCase();
+      if (!cleanUrl.endsWith('.pdf')) {
+        return toast.error('Result document URL must point directly to a PDF file (.pdf)');
+      }
     }
 
     setIsUploading(true);
@@ -285,7 +297,14 @@ export default function AllBookings() {
                     </td>
                     <td>
                       <div style={{ fontWeight: 600, color: '#064E3B' }}>{b.labTest?.name}</div>
-                      <span className="text-muted" style={{ fontSize: 12 }}>{b.labTest?.category}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
+                        <span className="text-muted" style={{ fontSize: 12 }}>{b.labTest?.category}</span>
+                        {bookings.some(sb => sb.id !== b.id && sb.bookingDate === b.bookingDate && sb.timeSlot === b.timeSlot && (sb.patientEmail === b.patientEmail || (sb.patientId && sb.patientId === b.patientId))) && (
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7E22CE', background: '#F3E8FF', padding: '1px 6px', borderRadius: 4 }}>
+                            🔗 Bundle
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{b.bookingDate}</div>
@@ -349,14 +368,14 @@ export default function AllBookings() {
             {!useManualUrl ? (
               <div className="form-group">
                 <label className="form-label" style={{ fontWeight: 700 }}>
-                  Select PDF / Document Report File *
+                  Select PDF Report File *
                 </label>
                 
                 <input 
                   type="file" 
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept=".pdf,.jpg,.jpeg,.png,.docx"
+                  accept=".pdf,application/pdf"
                   style={{ display: 'none' }}
                 />
 
@@ -395,7 +414,7 @@ export default function AllBookings() {
                         Click or drag PDF report here
                       </div>
                       <div style={{ color: '#64748B', fontSize: 12.5, marginTop: 4 }}>
-                        Supports PDF, PNG, JPG documents up to 25MB
+                        Only official PDF documents (.pdf) up to 25MB
                       </div>
                     </div>
                   )}

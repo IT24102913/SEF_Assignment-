@@ -1,16 +1,58 @@
-import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, FlaskConical, CalendarCheck, ClipboardList, 
   TestTube, LogOut, ArrowLeft, ShieldCheck, Sparkles, UserCheck
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
+import { getAllBookings } from '../../api/labApi';
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
+
+  const [counts, setCounts] = useState({
+    pendingApprovals: 0,
+    pendingTests: 0,
+  });
+
+  const fetchCounts = () => {
+    getAllBookings('')
+      .then(res => {
+        const all = res.data || [];
+        const pendingApprovals = all.filter(b => 
+          b.status === 'PendingLabApproval' ||
+          b.status === 'PendingPrescriptionUpload' ||
+          b.status === 'PendingAIVerification'
+        ).length;
+        const pendingTests = all.filter(b => 
+          b.status === 'PendingLabApproval' ||
+          b.status === 'PendingPrescriptionUpload' ||
+          b.status === 'PendingAIVerification' ||
+          b.status === 'Confirmed' ||
+          b.status === 'SampleCollected' ||
+          b.status === 'TestingInProgress' ||
+          b.status === 'ResultVerification' ||
+          b.status === 'ResultsReady' ||
+          b.status === 'ReportDelivered'
+        ).length;
+        setCounts({ pendingApprovals, pendingTests });
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 8000);
+    window.addEventListener('lab-booking-updated', fetchCounts);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('lab-booking-updated', fetchCounts);
+    };
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -20,8 +62,26 @@ export default function Sidebar() {
   // Group 1: Clinical Diagnostic Operations
   const clinicalItems = [
     { to: '/laboratory/dashboard', altTo: '/admin/lab', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/laboratory/pending', altTo: '/pending', icon: ClipboardList, label: 'Pending Approvals' },
-    { to: '/laboratory/pending-tests', altTo: '/pending-tests', icon: FlaskConical, label: 'Pending Tests' },
+    { 
+      to: '/laboratory/pending', 
+      altTo: '/pending', 
+      icon: ClipboardList, 
+      label: 'Pending Approvals',
+      badgeKey: 'pendingApprovals',
+      badgeColor: '#B45309',
+      badgeBg: '#FEF3C7',
+      badgeBorder: '#FDE68A'
+    },
+    { 
+      to: '/laboratory/pending-tests', 
+      altTo: '/pending-tests', 
+      icon: FlaskConical, 
+      label: 'Pending Tests',
+      badgeKey: 'pendingTests',
+      badgeColor: '#065F46',
+      badgeBg: '#ECFDF5',
+      badgeBorder: '#A7F3D0'
+    },
   ];
 
   // Group 2: Records & Configuration (differentiated label by role)
@@ -94,7 +154,7 @@ export default function Sidebar() {
         }}>
           Clinical Operations
         </div>
-        {clinicalItems.map(({ to, altTo, icon: Icon, label }) => (
+        {clinicalItems.map(({ to, altTo, icon: Icon, label, badgeKey, badgeColor, badgeBg, badgeBorder }) => (
           <NavLink
             key={to}
             to={to}
@@ -105,7 +165,31 @@ export default function Sidebar() {
             }}
           >
             <Icon size={18} />
-            <span>{label}</span>
+            <span style={{ flex: 1 }}>{label}</span>
+            {badgeKey && counts[badgeKey] !== undefined && (
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: counts[badgeKey] > 0 ? badgeBg : 'rgba(100, 116, 139, 0.08)',
+                  color: counts[badgeKey] > 0 ? badgeColor : 'var(--text-muted)',
+                  border: `1px solid ${counts[badgeKey] > 0 ? badgeBorder : 'var(--border)'}`,
+                  minWidth: '22px',
+                  textAlign: 'center',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  lineHeight: '16px',
+                  boxShadow: counts[badgeKey] > 0 ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                  transition: 'all 0.2s ease',
+                }}
+                title={`${counts[badgeKey]} ${label}`}
+              >
+                {counts[badgeKey]}
+              </span>
+            )}
           </NavLink>
         ))}
 
