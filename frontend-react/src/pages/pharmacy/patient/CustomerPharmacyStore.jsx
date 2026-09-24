@@ -36,6 +36,12 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [orderSuccessData, setOrderSuccessData] = useState(null);
     const [rxModalMedicine, setRxModalMedicine] = useState(null);
 
+    // Advanced UI & Detailed Daraz Modal State
+    const [viewMode, setViewMode] = useState('web'); // 'web' | 'mobile'
+    const [selectedDetailMed, setSelectedDetailMed] = useState(null);
+    const [activeDetailImageIndex, setActiveDetailImageIndex] = useState(0);
+    const [detailQty, setDetailQty] = useState(1);
+
     // Checkout Form state
     const [customerName, setCustomerName] = useState(user?.fullName || '');
     const [customerPhone, setCustomerPhone] = useState(user?.phoneNumber || '0771234567');
@@ -52,6 +58,27 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [customerNotes, setCustomerNotes] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const [addedCartNotification, setAddedCartNotification] = useState(null);
+
+    const getGalleryImages = (med) => {
+        if (!med) return [];
+        const mainImg = med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop';
+        const list = [mainImg];
+        if (med.additionalImagesJson) {
+            try {
+                const parsed = JSON.parse(med.additionalImagesJson);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(url => {
+                        if (url && !list.includes(url)) list.push(url);
+                    });
+                }
+            } catch (e) { }
+        }
+        if (list.length === 1) {
+            list.push('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
+            list.push('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
+        }
+        return list;
+    };
 
     useEffect(() => {
         fetchCatalog();
@@ -248,8 +275,8 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         return sum + (itemPrice * item.quantity);
     }, 0);
 
-    const deliveryFee = (cart.length > 0 && deliveryMethod === 'HomeDelivery') ? 250 : 0;
-    const cartTotal = cartSubtotal + deliveryFee;
+    const deliveryFee = 0;
+    const cartTotal = cartSubtotal;
 
     const handlePlaceOrder = async (e) => {
         e.preventDefault();
@@ -302,13 +329,21 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                 ? [] // No items — pharmacist reads prescription and adds medicines themselves
                 : cart.map(item => {
                     const medId = Number(item.id);
+                    const isCard = item.unitType === 'Card';
+                    const unitP = isCard
+                        ? (item.cardPrice || (item.price * (item.pillsPerCard || 10)))
+                        : item.price;
+                    const medName = (isCard && !item.name.toLowerCase().includes('(card)'))
+                        ? `${item.name} (Card)`
+                        : item.name;
                     return {
                         medicineId: (Number.isInteger(medId) && medId > 0 && medId <= 2147483647) ? medId : 1,
-                        medicineName: item.name,
+                        medicineName: medName,
                         requiresPrescription: item.requiresPrescription || item.RequiresPrescription || item.unitType === 'RxQuote',
                         unitType: item.unitType || 'Pill',
                         quantity: Math.max(1, Number(item.quantity) || 1),
-                        price: isRx ? 0 : (item.price || 0)
+                        price: isRx ? 0 : (unitP || 0),
+                        unitPrice: isRx ? 0 : (unitP || 0)
                     };
                 });
 
@@ -372,7 +407,36 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     });
 
     return (
-        <div style={ps.container}>
+        <div style={{
+            ...ps.container,
+            ...(viewMode === 'mobile' ? {
+                maxWidth: '430px',
+                margin: '0 auto',
+                border: '12px solid #0F172A',
+                borderRadius: '40px',
+                padding: '16px',
+                boxShadow: '0 25px 60px -15px rgba(0,0,0,0.4)',
+                backgroundColor: '#F8FAFC',
+                position: 'relative'
+            } : {})
+        }}>
+            {viewMode === 'mobile' && (
+                <div style={{
+                    display: 'flex',
+                    justify: 'space-between',
+                    alignItems: 'center',
+                    padding: '4px 12px 12px',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: '#64748B',
+                    borderBottom: '1px solid #E2E8F0',
+                    marginBottom: '16px'
+                }}>
+                    <span>📱 HealthBridge Mobile App</span>
+                    <span style={{ color: '#059669', background: '#ECFDF5', padding: '2px 8px', borderRadius: '10px' }}>5G Live</span>
+                </div>
+            )}
+
             {/* Toast */}
             {toast.show && (
                 <div style={{
@@ -417,6 +481,91 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     </button>
                 </div>
             )}
+
+            {/* Antigravity floating motion keyframes style */}
+            <style>{`
+                @keyframes antigravityFloat {
+                    0% { transform: translateY(0px) rotate(0deg); }
+                    50% { transform: translateY(-7px) rotate(0.4deg); }
+                    100% { transform: translateY(0px) rotate(0deg); }
+                }
+                .antigravity-card {
+                    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+                }
+                .antigravity-card:hover {
+                    animation: antigravityFloat 4s ease-in-out infinite;
+                    transform: translateY(-8px) scale(1.015) !important;
+                    box-shadow: 0 20px 35px -10px rgba(5, 150, 105, 0.25), 0 10px 15px -5px rgba(0,0,0,0.08) !important;
+                }
+                .animate-scale-up {
+                    animation: scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                }
+                @keyframes scaleUp {
+                    from { opacity: 0; transform: scale(0.95); }
+                    to { opacity: 1; transform: scale(1); }
+                }
+            `}</style>
+
+            {/* View Mode Mode Switcher (Web Desktop Storefront vs Mobile App View) */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justify: 'space-between',
+                backgroundColor: '#0F172A',
+                color: '#FFFFFF',
+                padding: '10px 20px',
+                borderRadius: '14px',
+                marginBottom: '20px',
+                boxShadow: '0 4px 15px rgba(15, 23, 42, 0.15)'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800 }}>
+                    <Sparkles size={16} color="#10B981" />
+                    <span>STOREFRONT PLATFORM VIEW DISPLAY MODE</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', backgroundColor: '#1E293B', padding: '4px', borderRadius: '10px' }}>
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('web')}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            backgroundColor: viewMode === 'web' ? '#059669' : 'transparent',
+                            color: viewMode === 'web' ? '#FFFFFF' : '#94A3B8',
+                            fontWeight: 700,
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        🖥️ Web Desktop View
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('mobile')}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            backgroundColor: viewMode === 'mobile' ? '#059669' : 'transparent',
+                            color: viewMode === 'mobile' ? '#FFFFFF' : '#94A3B8',
+                            fontWeight: 700,
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        📱 Mobile App View
+                    </button>
+                </div>
+            </div>
 
             {/* Store Topbar Banner */}
             <div style={ps.banner}>
@@ -508,15 +657,24 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                 ) : (
                     filteredMedicines.map(med => {
                         const isRx = med.requiresPrescription === true || med.RequiresPrescription === true;
+                        const storageCondition = med.storageCondition || 'Normal Room Temperature (Below 25°C)';
+                        const isRefrigerated = storageCondition.includes('Refrigerated');
+                        const brandName = med.brandName || med.BrandName || 'Cipla Laboratories';
+
                         return (
                             <div
                                 key={med.id}
+                                className="antigravity-card"
                                 style={{
                                     ...ps.card,
                                     border: isRx ? '1.5px solid #FCA5A5' : ps.card.border,
-                                    cursor: isRx ? 'pointer' : 'default'
+                                    cursor: 'pointer'
                                 }}
-                                onClick={() => { if (isRx) setRxModalMedicine(med); }}
+                                onClick={() => {
+                                    setSelectedDetailMed(med);
+                                    setActiveDetailImageIndex(0);
+                                    setDetailQty(1);
+                                }}
                             >
                                 <div style={ps.imgWrapper}>
                                     <img
@@ -529,10 +687,34 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                             <FileCheck size={12} /> Rx Required
                                         </span>
                                     )}
+
+                                    {/* Storage condition floating badge */}
+                                    <span style={{
+                                        position: 'absolute',
+                                        bottom: '8px',
+                                        left: '8px',
+                                        padding: '3px 8px',
+                                        borderRadius: '6px',
+                                        fontSize: '10.5px',
+                                        fontWeight: 800,
+                                        backdropFilter: 'blur(4px)',
+                                        backgroundColor: isRefrigerated ? 'rgba(30, 64, 175, 0.85)' : 'rgba(15, 23, 42, 0.75)',
+                                        color: '#FFFFFF',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}>
+                                        {isRefrigerated ? '❄️ 2°C - 8°C' : '🌡️ Room Temp'}
+                                    </span>
                                 </div>
 
                                 <div style={ps.cardBody}>
-                                    <span style={ps.cardCat}>{med.categoryName || 'General'}</span>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                        <span style={ps.cardCat}>{med.categoryName || 'General'}</span>
+                                        <span style={{ fontSize: '10.5px', fontWeight: 800, color: '#3B82F6', textTransform: 'uppercase' }}>
+                                            {brandName}
+                                        </span>
+                                    </div>
                                     <h3 style={ps.cardTitle}>{med.name}</h3>
                                     <p style={ps.cardDesc}>{med.description || 'Quality pharmaceuticals.'}</p>
 
@@ -545,59 +727,70 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 Card ({med.pillsPerCard || 10} pills): <span style={{ color: '#0F172A', fontWeight: 700 }}>Rs. {(med.cardPrice || med.price * (med.pillsPerCard || 10))?.toFixed(2)}</span>
                                             </div>
                                         </div>
-                                        {isRx ? (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setRxModalMedicine(med);
-                                                }}
-                                                disabled={med.stockQuantity <= 0}
-                                                style={{
-                                                    ...ps.addBtn,
-                                                    padding: '8px 12px',
-                                                    fontSize: '12px',
-                                                    backgroundColor: med.stockQuantity > 0 ? '#D97706' : '#CBD5E1',
-                                                    cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '5px'
-                                                }}
-                                                title="Doctor Prescription Required: Tap to view details & request quote"
-                                            >
-                                                <FileCheck size={14} /> Request Quote
-                                            </button>
-                                        ) : (
-                                            <div style={{ display: 'flex', gap: '6px' }}>
+
+                                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                            {isRx ? (
                                                 <button
-                                                    onClick={() => addToCart(med, 'Pill')}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setRxModalMedicine(med);
+                                                    }}
                                                     disabled={med.stockQuantity <= 0}
                                                     style={{
                                                         ...ps.addBtn,
-                                                        padding: '7px 10px',
-                                                        fontSize: '12px',
-                                                        backgroundColor: med.stockQuantity > 0 ? '#059669' : '#CBD5E1',
-                                                        cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
+                                                        padding: '7px 12px',
+                                                        fontSize: '11.5px',
+                                                        backgroundColor: med.stockQuantity > 0 ? '#D97706' : '#CBD5E1',
+                                                        cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
                                                     }}
-                                                    title="Add 1 Individual Pill / Unit"
+                                                    title="Doctor Prescription Required: Tap to view details & request quote"
                                                 >
-                                                    <Plus size={13} /> Pill
+                                                    <FileCheck size={13} /> Quote
                                                 </button>
-                                                <button
-                                                    onClick={() => addToCart(med, 'Card')}
-                                                    disabled={med.stockQuantity <= 0}
-                                                    style={{
-                                                        ...ps.addBtn,
-                                                        padding: '7px 10px',
-                                                        fontSize: '12px',
-                                                        backgroundColor: med.stockQuantity > 0 ? '#047857' : '#CBD5E1',
-                                                        cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                                                    }}
-                                                    title={`Add 1 Card (${med.pillsPerCard || 10} Pills)`}
-                                                >
-                                                    <Plus size={13} /> Card
-                                                </button>
-                                            </div>
-                                        )}
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            addToCart(med, 'Pill');
+                                                        }}
+                                                        disabled={med.stockQuantity <= 0}
+                                                        style={{
+                                                            ...ps.addBtn,
+                                                            padding: '6px 10px',
+                                                            fontSize: '11.5px',
+                                                            backgroundColor: med.stockQuantity > 0 ? '#059669' : '#CBD5E1',
+                                                            cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
+                                                        }}
+                                                        title="Add 1 Pill to Cart"
+                                                    >
+                                                        + Pill
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            addToCart(med, 'Card');
+                                                        }}
+                                                        disabled={med.stockQuantity <= 0}
+                                                        style={{
+                                                            ...ps.addBtn,
+                                                            padding: '6px 10px',
+                                                            fontSize: '11.5px',
+                                                            backgroundColor: med.stockQuantity > 0 ? '#047857' : '#CBD5E1',
+                                                            cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
+                                                        }}
+                                                        title={`Add 1 Card (${med.pillsPerCard || 10} pills) to Cart`}
+                                                    >
+                                                        + Card
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -720,7 +913,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 cursor: 'pointer'
                                             }}
                                         >
-                                            🚚 Home Delivery (+Rs. 250)
+                                            {"🚚 Home Delivery (+ Delivery Charges < 500)"}
                                         </button>
                                         <button
                                             type="button"
@@ -761,7 +954,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: '#64748B', marginBottom: '8px' }}>
                                                 <span>Delivery Charge:</span>
                                                 <span style={{ fontWeight: 700, color: '#059669' }}>
-                                                    {deliveryMethod === 'HomeDelivery' ? '+ Rs. 250.00' : 'FREE'}
+                                                    {deliveryMethod === 'HomeDelivery' ? 'Payable on Delivery (< Rs. 500)' : 'FREE'}
                                                 </span>
                                             </div>
                                             <div style={ps.subtotalRow}>
@@ -1114,7 +1307,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                                 <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
-                                <span>Pharmacist calculates total cost for medicines and home delivery (+Rs. 250 if selected).</span>
+                                <span>Pharmacist calculates total cost for medicines and home delivery charges (payable on delivery &lt; Rs. 500).</span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
                                 <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
@@ -1232,6 +1425,187 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             >
                                 <Upload size={16} /> Request Quote
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Daraz-Style Detailed Product Specification & Multi-Image Gallery Modal */}
+            {selectedDetailMed && (
+                <div style={ps.modalOverlay} onClick={() => setSelectedDetailMed(null)}>
+                    <div style={ps.darazModalCard} onClick={e => e.stopPropagation()} className="animate-scale-up">
+                        {/* Header Toolbar */}
+                        <div style={ps.darazModalHeader}>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedDetailMed(null)}
+                                style={ps.darazBackBtn}
+                            >
+                                ← Back to Products
+                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={ps.darazCatBadge}>
+                                    {selectedDetailMed.categoryName?.toUpperCase() || 'GENERAL'}
+                                </span>
+                                <button type="button" onClick={() => setSelectedDetailMed(null)} style={ps.closeBtn}>
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Body Grid */}
+                        <div style={ps.darazModalGrid}>
+                            {/* Left Column: Multi-Angle Gallery */}
+                            <div style={ps.darazGallerySection}>
+                                <div style={ps.darazMainImgContainer}>
+                                    <img
+                                        src={getGalleryImages(selectedDetailMed)[activeDetailImageIndex] || selectedDetailMed.imageUrl}
+                                        alt={selectedDetailMed.name}
+                                        style={ps.darazMainImg}
+                                    />
+                                    <div style={ps.genuineSeal}>
+                                        <Sparkles size={12} color="#059669" /> 100% Genuine Medicine
+                                    </div>
+                                </div>
+
+                                {/* Thumbnail Selector */}
+                                <div style={ps.darazThumbStrip}>
+                                    {getGalleryImages(selectedDetailMed).map((url, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => setActiveDetailImageIndex(idx)}
+                                            style={{
+                                                ...ps.darazThumbBtn,
+                                                borderColor: activeDetailImageIndex === idx ? '#059669' : '#E2E8F0',
+                                                transform: activeDetailImageIndex === idx ? 'scale(1.05)' : 'scale(1)'
+                                            }}
+                                        >
+                                            <img src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg} />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Right Column: Detailed Product Specs */}
+                            <div style={ps.darazSpecsSection}>
+                                <div style={ps.darazBrandHeader}>
+                                    <span style={ps.darazBrandBadge}>
+                                        {(selectedDetailMed.brandName || selectedDetailMed.BrandName || 'CIPLA LABORATORIES').toUpperCase()}
+                                    </span>
+                                    <span style={ps.darazVerifiedText}>• Verified Pharmaceutical Brand</span>
+                                </div>
+
+                                <h2 style={ps.darazProductTitle}>{selectedDetailMed.name}</h2>
+
+                                {/* Product Description Box */}
+                                <div style={ps.darazDescContainer}>
+                                    <div style={ps.darazSectionHeading}>PRODUCT DESCRIPTION</div>
+                                    <p style={ps.darazDescParagraph}>
+                                        {selectedDetailMed.description || 'Broad spectrum medical formulation produced under strict clinical quality standards.'}
+                                    </p>
+                                </div>
+
+                                {/* Price & Pill Spec Card */}
+                                <div style={ps.darazPriceBox}>
+                                    <div style={ps.darazPriceItem}>
+                                        <span style={ps.darazPriceLabel}>UNIT PRICE (PER PILL):</span>
+                                        <span style={ps.darazPriceValue}>Rs. {selectedDetailMed.price?.toFixed(2)}</span>
+                                    </div>
+                                    <div style={ps.darazPriceItem}>
+                                        <span style={ps.darazPriceLabel}>ONE CARD PRICE:</span>
+                                        <span style={ps.darazCardPriceValue}>Rs. {(selectedDetailMed.cardPrice || selectedDetailMed.price * (selectedDetailMed.pillsPerCard || 10))?.toFixed(2)}</span>
+                                    </div>
+                                    <div style={ps.darazPriceItem}>
+                                        <span style={ps.darazPriceLabel}>PILLS IN ONE CARD:</span>
+                                        <span style={ps.darazPillsPill}>{selectedDetailMed.pillsPerCard || 10} pills in one card</span>
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <CheckCircle2 size={14} /> In stock ({selectedDetailMed.stockQuantity} available) • Express Dispatch Ready
+                                    </div>
+                                </div>
+
+                                {/* Storage Requirement */}
+                                <div style={{ marginBottom: '16px' }}>
+                                    <div style={ps.darazSectionHeading}>STORAGE REQUIREMENT</div>
+                                    <div style={{
+                                        padding: '10px 14px',
+                                        borderRadius: '10px',
+                                        fontSize: '12.5px',
+                                        fontWeight: 700,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        backgroundColor: selectedDetailMed.storageCondition?.includes('Refrigerated') ? '#EFF6FF' : '#ECFDF5',
+                                        color: selectedDetailMed.storageCondition?.includes('Refrigerated') ? '#1E40AF' : '#047857',
+                                        border: selectedDetailMed.storageCondition?.includes('Refrigerated') ? '1px solid #BFDBFE' : '1px solid #A7F3D0'
+                                    }}>
+                                        {selectedDetailMed.storageCondition || 'Normal Room Temperature (Store in a cool, dry place below 25°C)'}
+                                    </div>
+                                </div>
+
+                                {/* Google Search Drug Details Button */}
+                                <a
+                                    href={`https://www.google.com/search?q=${encodeURIComponent((selectedDetailMed.brandName || 'Cipla') + ' ' + selectedDetailMed.name + ' medicine dosage indication')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={ps.googleIdentifyBtn}
+                                >
+                                    🔍 Search &amp; Identify More Details on Google ↗
+                                </a>
+
+                                {/* Add to Cart Buttons */}
+                                <div style={ps.darazCartBar}>
+                                    <div style={ps.darazQtyWrap}>
+                                        <button type="button" onClick={() => setDetailQty(q => Math.max(1, q - 1))} style={ps.darazQtyBtn}>-</button>
+                                        <span style={ps.darazQtyNum}>{detailQty}</span>
+                                        <button type="button" onClick={() => setDetailQty(q => q + 1)} style={ps.darazQtyBtn}>+</button>
+                                    </div>
+
+                                    {selectedDetailMed.requiresPrescription ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const med = selectedDetailMed;
+                                                setSelectedDetailMed(null);
+                                                setRxModalMedicine(med);
+                                            }}
+                                            style={ps.darazRxRequestBtn}
+                                        >
+                                            <FileCheck size={16} /> Request Doctor Quote
+                                        </button>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    for (let i = 0; i < detailQty; i++) {
+                                                        addToCart(selectedDetailMed, 'Pill');
+                                                    }
+                                                    showToastMessage(`Added ${detailQty} pill unit(s) of ${selectedDetailMed.name} to cart!`, 'success');
+                                                    setSelectedDetailMed(null);
+                                                }}
+                                                style={ps.darazAddPillsBtn}
+                                            >
+                                                <Plus size={15} /> Add Pill ({detailQty})
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    for (let i = 0; i < detailQty; i++) {
+                                                        addToCart(selectedDetailMed, 'Card');
+                                                    }
+                                                    showToastMessage(`Added ${detailQty} card (${selectedDetailMed.pillsPerCard || 10}s) of ${selectedDetailMed.name} to cart!`, 'success');
+                                                    setSelectedDetailMed(null);
+                                                }}
+                                                style={ps.darazAddCardsBtn}
+                                            >
+                                                <Plus size={15} /> Add Card ({selectedDetailMed.pillsPerCard || 10}s)
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1769,6 +2143,288 @@ const ps = {
         textAlign: 'center',
         padding: '60px 0',
         color: '#64748B',
+    },
+    // Daraz-Style Detailed Modal Styles
+    darazModalCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: '24px',
+        width: '100%',
+        maxWidth: '920px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+        border: '1px solid #E2E8F0',
+        padding: '24px'
+    },
+    darazModalHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        justify: 'space-between',
+        paddingBottom: '16px',
+        marginBottom: '20px',
+        borderBottom: '1px solid #E2E8F0'
+    },
+    darazBackBtn: {
+        background: 'none',
+        border: 'none',
+        color: '#059669',
+        fontWeight: 800,
+        fontSize: '13.5px',
+        cursor: 'pointer',
+        padding: 0
+    },
+    darazCatBadge: {
+        backgroundColor: '#ECFDF5',
+        color: '#047857',
+        border: '1px solid #A7F3D0',
+        padding: '4px 10px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: 800,
+        letterSpacing: '0.5px'
+    },
+    darazModalGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+        gap: '28px',
+        alignItems: 'start'
+    },
+    darazGallerySection: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px'
+    },
+    darazMainImgContainer: {
+        position: 'relative',
+        width: '100%',
+        height: '320px',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        border: '1px solid #E2E8F0',
+        backgroundColor: '#F8FAFC',
+        display: 'flex',
+        alignItems: 'center',
+        justify: 'center'
+    },
+    darazMainImg: {
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        padding: '12px'
+    },
+    genuineSeal: {
+        position: 'absolute',
+        top: '12px',
+        left: '12px',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        color: '#047857',
+        fontSize: '11px',
+        fontWeight: 800,
+        padding: '4px 10px',
+        borderRadius: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px'
+    },
+    darazThumbStrip: {
+        display: 'flex',
+        gap: '10px',
+        overflowX: 'auto',
+        paddingBottom: '4px'
+    },
+    darazThumbBtn: {
+        width: '64px',
+        height: '64px',
+        borderRadius: '12px',
+        border: '2px solid',
+        backgroundColor: '#FFFFFF',
+        cursor: 'pointer',
+        overflow: 'hidden',
+        padding: '2px',
+        transition: 'all 0.2s ease',
+        flexShrink: 0
+    },
+    darazThumbImg: {
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        borderRadius: '8px'
+    },
+    darazSpecsSection: {
+        display: 'flex',
+        flexDirection: 'column'
+    },
+    darazBrandHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginBottom: '6px'
+    },
+    darazBrandBadge: {
+        fontSize: '11.5px',
+        fontWeight: 900,
+        color: '#2563EB',
+        backgroundColor: '#EFF6FF',
+        padding: '3px 8px',
+        borderRadius: '6px',
+        letterSpacing: '0.5px'
+    },
+    darazVerifiedText: {
+        fontSize: '11.5px',
+        color: '#64748B',
+        fontWeight: 600
+    },
+    darazProductTitle: {
+        fontSize: '22px',
+        fontWeight: 900,
+        color: '#0F172A',
+        margin: '0 0 14px',
+        lineHeight: 1.3
+    },
+    darazDescContainer: {
+        marginBottom: '16px'
+    },
+    darazSectionHeading: {
+        fontSize: '11px',
+        fontWeight: 800,
+        color: '#64748B',
+        letterSpacing: '0.5px',
+        marginBottom: '6px'
+    },
+    darazDescParagraph: {
+        fontSize: '13px',
+        color: '#334155',
+        lineHeight: 1.55,
+        margin: 0
+    },
+    darazPriceBox: {
+        backgroundColor: '#F8FAFC',
+        border: '1px solid #E2E8F0',
+        borderRadius: '14px',
+        padding: '16px',
+        marginBottom: '16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px'
+    },
+    darazPriceItem: {
+        display: 'flex',
+        justify: 'space-between',
+        alignItems: 'center',
+        fontSize: '12.5px'
+    },
+    darazPriceLabel: {
+        color: '#64748B',
+        fontWeight: 700,
+        fontSize: '11.5px'
+    },
+    darazPriceValue: {
+        color: '#059669',
+        fontWeight: 800,
+        fontSize: '14px'
+    },
+    darazCardPriceValue: {
+        color: '#0F172A',
+        fontWeight: 900,
+        fontSize: '15px'
+    },
+    darazPillsPill: {
+        backgroundColor: '#E2E8F0',
+        color: '#334155',
+        fontSize: '11.5px',
+        fontWeight: 800,
+        padding: '2px 8px',
+        borderRadius: '6px'
+    },
+    googleIdentifyBtn: {
+        display: 'block',
+        textAlign: 'center',
+        backgroundColor: '#F1F5F9',
+        color: '#1E293B',
+        border: '1px solid #CBD5E1',
+        borderRadius: '10px',
+        padding: '10px 14px',
+        fontSize: '12px',
+        fontWeight: 800,
+        textDecoration: 'none',
+        marginBottom: '20px',
+        transition: 'all 0.2s ease'
+    },
+    darazCartBar: {
+        display: 'flex',
+        gap: '12px',
+        alignItems: 'center'
+    },
+    darazQtyWrap: {
+        display: 'flex',
+        alignItems: 'center',
+        border: '1px solid #CBD5E1',
+        borderRadius: '10px',
+        backgroundColor: '#F8FAFC',
+        padding: '4px'
+    },
+    darazQtyBtn: {
+        width: '28px',
+        height: '28px',
+        borderRadius: '6px',
+        border: 'none',
+        backgroundColor: '#FFFFFF',
+        color: '#0F172A',
+        fontWeight: 800,
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+    },
+    darazQtyNum: {
+        padding: '0 12px',
+        fontWeight: 800,
+        fontSize: '14px',
+        color: '#0F172A'
+    },
+    darazRxRequestBtn: {
+        flex: 1,
+        padding: '12px',
+        borderRadius: '10px',
+        border: 'none',
+        backgroundColor: '#D97706',
+        color: '#FFFFFF',
+        fontWeight: 800,
+        fontSize: '13px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justify: 'center',
+        gap: '6px'
+    },
+    darazAddPillsBtn: {
+        flex: 1,
+        padding: '12px 10px',
+        borderRadius: '10px',
+        border: 'none',
+        backgroundColor: '#059669',
+        color: '#FFFFFF',
+        fontWeight: 800,
+        fontSize: '12.5px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justify: 'center',
+        gap: '4px'
+    },
+    darazAddCardsBtn: {
+        flex: 1,
+        padding: '12px 10px',
+        borderRadius: '10px',
+        border: 'none',
+        backgroundColor: '#047857',
+        color: '#FFFFFF',
+        fontWeight: 800,
+        fontSize: '12.5px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justify: 'center',
+        gap: '4px'
     }
 };
 

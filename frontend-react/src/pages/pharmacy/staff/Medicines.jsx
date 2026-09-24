@@ -35,16 +35,22 @@ const Medicines = () => {
     const [selectedCategory, setSelectedCategory] = useState('ALL');
     const [formData, setFormData] = useState({
         name: '',
+        brandName: 'Cipla Laboratories',
         categoryId: '',
         description: '',
         price: '',
+        cardPrice: '',
+        pillsPerCard: '10',
         stockQuantity: '',
         expiryDate: '',
+        storageCondition: 'Normal Room Temperature (Store in a cool, dry place below 25°C)',
         requiresPrescription: false,
         imageUrl: '',
+        additionalImages: []
     });
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const [uploadingImage, setUploadingImage] = useState(false);
+    const [uploadingGallery, setUploadingGallery] = useState(false);
 
     const handleImageFileUpload = async (e) => {
         const file = e.target.files?.[0];
@@ -65,13 +71,57 @@ const Medicines = () => {
             });
             if (res.data?.fileUrl) {
                 setFormData(prev => ({ ...prev, imageUrl: res.data.fileUrl }));
-                showToastMessage('Medicine image uploaded to storage!', 'success');
+                showToastMessage('Main medicine image uploaded to storage!', 'success');
             }
         } catch (err) {
             console.warn('Storage upload fallback to preview:', err);
         } finally {
             setUploadingImage(false);
         }
+    };
+
+    const handleGalleryFileUpload = async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+
+        setUploadingGallery(true);
+        try {
+            const newUrls = [];
+            for (const file of files) {
+                const reader = new FileReader();
+                await new Promise((res) => {
+                    reader.onloadend = () => {
+                        newUrls.push(reader.result);
+                        res();
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+            setFormData(prev => ({
+                ...prev,
+                additionalImages: [...prev.additionalImages, ...newUrls]
+            }));
+            showToastMessage(`${files.length} gallery image(s) added from storage!`, 'success');
+        } catch (err) {
+            console.warn('Gallery upload warning:', err);
+        } finally {
+            setUploadingGallery(false);
+        }
+    };
+
+    const addAdditionalImageUrl = (url) => {
+        if (!url) return;
+        setFormData(prev => ({
+            ...prev,
+            additionalImages: [...prev.additionalImages, url]
+        }));
+    };
+
+    const removeGalleryImage = (index) => {
+        setFormData(prev => ({
+            ...prev,
+            additionalImages: prev.additionalImages.filter((_, i) => i !== index)
+        }));
     };
 
     useEffect(() => {
@@ -116,12 +166,24 @@ const Medicines = () => {
         e.preventDefault();
         setSubmitting(true);
         try {
+            const unitPriceVal = parseFloat(formData.price) || 0;
+            const pillsCountVal = parseInt(formData.pillsPerCard) || 10;
+            const cardPriceVal = formData.cardPrice ? parseFloat(formData.cardPrice) : (unitPriceVal * pillsCountVal);
+
             const data = {
-                ...formData,
-                price: parseFloat(formData.price),
-                stockQuantity: parseInt(formData.stockQuantity),
+                name: formData.name,
+                brandName: formData.brandName || 'Cipla Laboratories',
                 categoryId: parseInt(formData.categoryId),
-                expiryDate: new Date(formData.expiryDate).toISOString()
+                description: formData.description,
+                price: unitPriceVal,
+                cardPrice: cardPriceVal,
+                pillsPerCard: pillsCountVal,
+                stockQuantity: parseInt(formData.stockQuantity) || 100,
+                expiryDate: new Date(formData.expiryDate).toISOString(),
+                storageCondition: formData.storageCondition,
+                requiresPrescription: formData.requiresPrescription,
+                imageUrl: formData.imageUrl,
+                additionalImagesJson: JSON.stringify(formData.additionalImages)
             };
 
             if (editingId) {
@@ -136,17 +198,26 @@ const Medicines = () => {
         } catch (error) {
             console.warn('Backend API save warning, saving medicine to state:', error);
             const matchedCat = categories.find(c => String(c.id) === String(formData.categoryId));
+            const unitPriceVal = parseFloat(formData.price) || 0;
+            const pillsCountVal = parseInt(formData.pillsPerCard) || 10;
+            const cardPriceVal = formData.cardPrice ? parseFloat(formData.cardPrice) : (unitPriceVal * pillsCountVal);
+
             const newMed = {
                 id: editingId || Date.now(),
                 name: formData.name,
+                brandName: formData.brandName || 'Cipla Laboratories',
                 categoryId: formData.categoryId,
                 categoryName: matchedCat ? matchedCat.name : 'General',
                 description: formData.description,
-                price: parseFloat(formData.price) || 0,
+                price: unitPriceVal,
+                cardPrice: cardPriceVal,
+                pillsPerCard: pillsCountVal,
                 stockQuantity: parseInt(formData.stockQuantity) || 0,
                 expiryDate: formData.expiryDate,
+                storageCondition: formData.storageCondition,
                 requiresPrescription: formData.requiresPrescription,
-                imageUrl: formData.imageUrl
+                imageUrl: formData.imageUrl,
+                additionalImagesJson: JSON.stringify(formData.additionalImages)
             };
 
             if (editingId) {
@@ -179,13 +250,18 @@ const Medicines = () => {
     const resetForm = () => {
         setFormData({
             name: '',
+            brandName: 'Cipla Laboratories',
             categoryId: '',
             description: '',
             price: '',
+            cardPrice: '',
+            pillsPerCard: '10',
             stockQuantity: '',
             expiryDate: '',
+            storageCondition: 'Normal Room Temperature (Store in a cool, dry place below 25°C)',
             requiresPrescription: false,
             imageUrl: '',
+            additionalImages: []
         });
         setEditingId(null);
         setShowForm(false);
@@ -371,10 +447,10 @@ const Medicines = () => {
                             <form onSubmit={handleSubmit}>
                                 <div style={styles.formGrid}>
                                     <div style={styles.formGroup}>
-                                        <label style={styles.formLabel}>Medicine Name *</label>
+                                        <label style={styles.formLabel}>MEDICINE NAME *</label>
                                         <input
                                             type="text"
-                                            placeholder="e.g. Amoxicillin 500mg"
+                                            placeholder="e.g. Amoxicillin Trihydrate 500mg"
                                             value={formData.name}
                                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                             required
@@ -383,7 +459,19 @@ const Medicines = () => {
                                     </div>
 
                                     <div style={styles.formGroup}>
-                                        <label style={styles.formLabel}>Category *</label>
+                                        <label style={styles.formLabel}>BRAND / MANUFACTURER NAME *</label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. CIPLA LABORATORIES"
+                                            value={formData.brandName}
+                                            onChange={(e) => setFormData({ ...formData, brandName: e.target.value })}
+                                            required
+                                            style={styles.input}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>CATEGORY *</label>
                                         <select
                                             value={formData.categoryId}
                                             onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
@@ -396,32 +484,72 @@ const Medicines = () => {
                                     </div>
 
                                     <div style={styles.formGroup}>
-                                        <label style={styles.formLabel}>Unit Price (Rs.) *</label>
+                                        <label style={styles.formLabel}>UNIT PRICE (PER PILL RS.) *</label>
                                         <input
                                             type="number"
                                             step="0.01"
-                                            placeholder="0.00"
+                                            placeholder="e.g. 32.00"
                                             value={formData.price}
-                                            onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                                            onChange={(e) => {
+                                                const p = e.target.value;
+                                                const pills = parseInt(formData.pillsPerCard) || 10;
+                                                setFormData({
+                                                    ...formData,
+                                                    price: p,
+                                                    cardPrice: p ? (parseFloat(p) * pills).toFixed(2) : ''
+                                                });
+                                            }}
                                             required
                                             style={styles.input}
                                         />
                                     </div>
 
                                     <div style={styles.formGroup}>
-                                        <label style={styles.formLabel}>Initial Stock Quantity *</label>
+                                        <label style={styles.formLabel}>PILLS IN ONE CARD *</label>
                                         <input
                                             type="number"
-                                            placeholder="e.g. 100"
-                                            value={formData.stockQuantity}
-                                            onChange={(e) => setFormData({ ...formData, stockQuantity: e.target.value })}
+                                            placeholder="e.g. 10 or 15"
+                                            value={formData.pillsPerCard}
+                                            onChange={(e) => {
+                                                const pills = e.target.value;
+                                                const uPrice = parseFloat(formData.price) || 0;
+                                                setFormData({
+                                                    ...formData,
+                                                    pillsPerCard: pills,
+                                                    cardPrice: uPrice && pills ? (uPrice * parseInt(pills)).toFixed(2) : formData.cardPrice
+                                                });
+                                            }}
                                             required
                                             style={styles.input}
                                         />
                                     </div>
 
                                     <div style={styles.formGroup}>
-                                        <label style={styles.formLabel}>Expiry Date *</label>
+                                        <label style={styles.formLabel}>ONE CARD PRICE (RS.)</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="e.g. 480.00"
+                                            value={formData.cardPrice}
+                                            onChange={(e) => setFormData({ ...formData, cardPrice: e.target.value })}
+                                            style={styles.input}
+                                        />
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>STORAGE REQUIREMENT *</label>
+                                        <select
+                                            value={formData.storageCondition}
+                                            onChange={(e) => setFormData({ ...formData, storageCondition: e.target.value })}
+                                            style={styles.input}
+                                        >
+                                            <option value="Normal Room Temperature (Store in a cool, dry place below 25°C)">🌡️ Normal Room Temperature (Below 25°C)</option>
+                                            <option value="Refrigerated Storage (Store at 2°C - 8°C)">❄️ Refrigerated Storage (2°C - 8°C)</option>
+                                        </select>
+                                    </div>
+
+                                    <div style={styles.formGroup}>
+                                        <label style={styles.formLabel}>EXPIRY DATE *</label>
                                         <input
                                             type="date"
                                             value={formData.expiryDate}
@@ -431,8 +559,9 @@ const Medicines = () => {
                                         />
                                     </div>
 
+                                    {/* Main Product Image Section */}
                                     <div style={styles.formGroupFull}>
-                                        <label style={styles.formLabel}>Medicine Image (Upload from Storage / Select Asset)</label>
+                                        <label style={styles.formLabel}>MAIN PRODUCT IMAGE (PRIMARY DISPLAY)</label>
 
                                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '8px' }}>
                                             <label style={{
@@ -448,7 +577,7 @@ const Medicines = () => {
                                                 cursor: 'pointer',
                                                 boxShadow: '0 2px 4px rgba(5,150,105,0.2)'
                                             }}>
-                                                📁 Browse & Upload from Device Storage
+                                                📁 Browse & Upload Main Image from Device Storage
                                                 <input
                                                     type="file"
                                                     accept="image/*"
@@ -461,27 +590,112 @@ const Medicines = () => {
 
                                         {formData.imageUrl && (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', background: '#F8FAFC', padding: '8px 12px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                                                <img src={formData.imageUrl} alt="Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
+                                                <img src={formData.imageUrl} alt="Main Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
                                                 <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {formData.imageUrl}
                                                 </div>
-                                                <button type="button" onClick={() => setFormData({ ...formData, imageUrl: '' })} style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#DC2626', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Remove</button>
+                                                <button type="button" onClick={() => setFormData({ ...formData, imageUrl: '' })} style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#DC2626', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Remove Main</button>
                                             </div>
                                         )}
 
                                         <input
                                             type="text"
-                                            placeholder="Or enter Image URL / Relative Path directly"
+                                            placeholder="Or enter Main Image URL / Asset Path directly"
                                             value={formData.imageUrl}
                                             onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
                                             style={styles.input}
                                         />
                                         <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
                                             <span style={{ fontSize: '11px', color: '#64748B', alignSelf: 'center' }}>Presets:</span>
-                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Capsules</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Blister Pack</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Tablets</button>
-                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Bottle</button>
-                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Syrup</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, imageUrl: 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop' })} style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '6px', border: '1px solid #D1FAE5', background: '#ECFDF5', cursor: 'pointer' }}>Syrup Bottle</button>
+                                        </div>
+                                    </div>
+
+                                    {/* Multi-Image Gallery Support */}
+                                    <div style={{ ...styles.formGroupFull, background: '#F8FAFC', padding: '14px', borderRadius: '12px', border: '1px border #E2E8F0' }}>
+                                        <label style={{ ...styles.formLabel, color: '#0F172A', fontWeight: 800 }}>ADDITIONAL GALLERY IMAGES (MULTI-IMAGE PREVIEW ANGLES)</label>
+                                        <p style={{ fontSize: '12px', color: '#64748B', margin: '0 0 10px 0' }}>Add extra photos (e.g. box packaging, back angle, bamboo/leaf lifestyle) displayed in patient detail gallery modal.</p>
+
+                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '10px' }}>
+                                            <label style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                padding: '8px 16px',
+                                                backgroundColor: '#3B82F6',
+                                                color: '#FFFFFF',
+                                                borderRadius: '8px',
+                                                fontSize: '12.5px',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                            }}>
+                                                📸 Upload Gallery Photos from Device Storage
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    multiple
+                                                    onChange={handleGalleryFileUpload}
+                                                    style={{ display: 'none' }}
+                                                />
+                                            </label>
+                                            {uploadingGallery && <span style={{ fontSize: '12px', color: '#3B82F6', fontWeight: 600 }}>Adding images...</span>}
+                                        </div>
+
+                                        {/* Gallery thumbnails list */}
+                                        {formData.additionalImages && formData.additionalImages.length > 0 && (
+                                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                                                {formData.additionalImages.map((imgUrl, idx) => (
+                                                    <div key={idx} style={{ position: 'relative', width: '64px', height: '64px', borderRadius: '8px', overflow: 'hidden', border: '2px solid #3B82F6' }}>
+                                                        <img src={imgUrl} alt={`Angle ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeGalleryImage(idx)}
+                                                            style={{
+                                                                position: 'absolute',
+                                                                top: 2,
+                                                                right: 2,
+                                                                background: 'rgba(220, 38, 38, 0.9)',
+                                                                color: '#FFF',
+                                                                border: 'none',
+                                                                borderRadius: '50%',
+                                                                width: '18px',
+                                                                height: '18px',
+                                                                fontSize: '11px',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center'
+                                                            }}
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                                type="text"
+                                                id="additionalUrlInput"
+                                                placeholder="Or paste image URL for extra gallery angle..."
+                                                style={{ ...styles.input, flex: 1 }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const inp = document.getElementById('additionalUrlInput');
+                                                    if (inp && inp.value) {
+                                                        addAdditionalImageUrl(inp.value);
+                                                        inp.value = '';
+                                                    }
+                                                }}
+                                                style={{ padding: '8px 14px', background: '#0F172A', color: '#FFF', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '12px', cursor: 'pointer' }}
+                                            >
+                                                Add Angle
+                                            </button>
                                         </div>
                                     </div>
 
@@ -622,15 +836,27 @@ const Medicines = () => {
                                                             style={styles.editActionBtn}
                                                             title="Edit Medicine"
                                                             onClick={() => {
+                                                                let extraImgs = [];
+                                                                try {
+                                                                    if (med.additionalImagesJson) {
+                                                                        extraImgs = JSON.parse(med.additionalImagesJson);
+                                                                    }
+                                                                } catch (e) { }
+
                                                                 setFormData({
                                                                     name: med.name,
+                                                                    brandName: med.brandName || 'Cipla Laboratories',
                                                                     categoryId: med.categoryId || '',
                                                                     description: med.description || '',
                                                                     price: med.price || '',
+                                                                    cardPrice: med.cardPrice || '',
+                                                                    pillsPerCard: med.pillsPerCard || '10',
                                                                     stockQuantity: med.stockQuantity || '',
                                                                     expiryDate: med.expiryDate?.split('T')[0] || '',
+                                                                    storageCondition: med.storageCondition || 'Normal Room Temperature (Store in a cool, dry place below 25°C)',
                                                                     requiresPrescription: med.requiresPrescription || false,
                                                                     imageUrl: med.imageUrl || '',
+                                                                    additionalImages: Array.isArray(extraImgs) ? extraImgs : []
                                                                 });
                                                                 setEditingId(med.id);
                                                                 setShowForm(true);
@@ -1067,7 +1293,9 @@ const styles = {
         borderRadius: '20px',
         padding: '28px 32px',
         width: '100%',
-        maxWidth: '560px',
+        maxWidth: '620px',
+        maxHeight: '88vh',
+        overflowY: 'auto',
         boxShadow: '0 24px 60px rgba(6, 78, 59, 0.25)',
         border: '1px solid #D1FAE5',
     },
