@@ -22,6 +22,7 @@ export default function MyLabBookingsSection({
   const [activeTab, setActiveTab] = useState(initialFilter || 'ACTIVE'); // 'ACTIVE' | 'RESULTS' | 'HISTORY' | 'ALL'
   const [search, setSearch] = useState('');
   const [selectedTrackingBooking, setSelectedTrackingBooking] = useState(null);
+  const [trackingRelatedBookings, setTrackingRelatedBookings] = useState([]);
   const [cancellingId, setCancellingId] = useState(null);
   const [paymentModalBooking, setPaymentModalBooking] = useState(null);
   const [payingCard, setPayingCard] = useState(false);
@@ -54,16 +55,26 @@ export default function MyLabBookingsSection({
     }
   };
 
-  const handleCancelBooking = async (booking) => {
-    if (!window.confirm(`Are you sure you want to cancel appointment #${booking.tokenNumber || 'LAB'}?`)) {
+  const handleCancelBooking = async (booking, siblings = []) => {
+    const isMulti = siblings && siblings.length > 0;
+    const confirmMsg = isMulti
+      ? `Are you sure you want to cancel this appointment containing ${siblings.length + 1} diagnostic tests?`
+      : `Are you sure you want to cancel appointment #${booking.tokenNumber || 'LAB'}?`;
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
     setCancellingId(booking.id);
     try {
       await cancelBooking(booking.id, patientId);
+      if (isMulti) {
+        for (const s of siblings) {
+          try { await cancelBooking(s.id, patientId); } catch (_) {}
+        }
+      }
       toast.success('Appointment cancelled successfully.');
-      setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, status: 'Cancelled' } : b));
+      fetchBookings();
     } catch (err) {
       console.error('Cancel booking error:', err);
       toast.error('Could not cancel booking.');
@@ -72,10 +83,15 @@ export default function MyLabBookingsSection({
     }
   };
 
-  const handleSelectCounterPayment = async (booking) => {
+  const handleSelectCounterPayment = async (booking, siblings = []) => {
     try {
       await selectPayAtCounter(booking.id);
-      toast.success('Payment method set to Pay at Counter. Settle in cash or card POS at phlebotomy counter.');
+      if (siblings && siblings.length > 0) {
+        for (const s of siblings) {
+          try { await selectPayAtCounter(s.id); } catch (_) {}
+        }
+      }
+      toast.success('Payment method set to Pay at Counter for this appointment. Settle on arrival.');
       fetchBookings();
     } catch (err) {
       toast.error('Failed to set pay at counter: ' + (err.response?.data?.message || err.message));
@@ -87,17 +103,36 @@ export default function MyLabBookingsSection({
     if (!paymentModalBooking) return;
     setPayingCard(true);
     try {
-      const amountToPay = paymentModalBooking._combinedAmount || paymentModalBooking.labTest?.price || 0;
+      const siblings = paymentModalBooking._siblings || [];
+      const primaryAmount = Number(paymentModalBooking.labTest?.price || paymentModalBooking._combinedAmount || 0);
+
       await payBookingOnline({
         bookingId: paymentModalBooking.id,
-        amount: amountToPay,
+        amount: primaryAmount,
         cardHolderName: user?.fullName || 'Patient Cardholder',
         cardNumber: '4242 •••• •••• 4242',
         expiryDate: '12/28',
         cvv: '123',
         patientEmail: user?.email || paymentModalBooking.patientEmail,
       });
-      toast.success('Payment settled successfully online!');
+
+      for (const sib of siblings) {
+        try {
+          await payBookingOnline({
+            bookingId: sib.id,
+            amount: Number(sib.labTest?.price || 0),
+            cardHolderName: user?.fullName || 'Patient Cardholder',
+            cardNumber: '4242 •••• •••• 4242',
+            expiryDate: '12/28',
+            cvv: '123',
+            patientEmail: user?.email || sib.patientEmail,
+          });
+        } catch (err) {
+          console.error('Failed paying sibling booking online', sib.id, err);
+        }
+      }
+
+      toast.success('Payment settled successfully online for this appointment!');
       setPaymentModalBooking(null);
       fetchBookings();
     } catch (err) {
@@ -107,11 +142,12 @@ export default function MyLabBookingsSection({
     }
   };
 
-  const handleOpenTracking = (booking) => {
+  const handleOpenTracking = (booking, related = []) => {
     if (onTrackBooking) {
-      onTrackBooking(booking);
+      onTrackBooking(booking, related);
     } else {
       setSelectedTrackingBooking(booking);
+      setTrackingRelatedBookings(related);
     }
   };
 
@@ -159,6 +195,72 @@ export default function MyLabBookingsSection({
       return matchTab && matchSearch;
     });
   }, [bookings, activeTab, search]);
+
+  const consolidatedBookings = useMemo(() => {
+    if (activeTab === 'RESULTS') {
+      return filteredBookings.map(b => ({
+        ...b,
+        _siblingBookings: [b],
+        _isMultiTest: false,
+      }));
+    }
+
+    const groups = new Map();
+    const list = [];
+
+    for (const b of filteredBookings) {
+      // Group tests during intake / awaiting payment stage.
+      // Once payment is confirmed, separate into individual cards so patient can track each test independently!
+      const isPaid = b.paymentStatus === 'PaidOnline' || b.paymentStatus === 'PaidAtCounter';
+      const isAwaitingPayment = !isPaid && ['PendingLabApproval', 'PendingPrescriptionUpload', 'PendingAIVerification', 'PendingPayment', 'Confirmed'].includes(b.status);
+
+      if (isAwaitingPayment) {
+        const createdMs = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        let matched = null;
+        for (const item of list) {
+          if (!item.primary) continue;
+          const p = item.primary;
+          const pCreatedMs = p.createdAt ? new Date(p.createdAt).getTime() : 0;
+          if (
+            p.bookingDate === b.bookingDate &&
+            p.timeSlot === b.timeSlot &&
+            (b.patientEmail === p.patientEmail || b.patientId === p.patientId) &&
+            Math.abs(createdMs - pCreatedMs) <= 90000 // Booked together in the same batch session
+          ) {
+            matched = item;
+            break;
+          }
+        }
+
+        if (matched) {
+          matched.siblings.push(b);
+        } else {
+          list.push({ primary: b, siblings: [b] });
+        }
+      } else {
+        // Individual test card once specimen collected or ready
+        list.push({ primary: b, siblings: [b] });
+      }
+    }
+
+    return list.map(g => {
+      const createdMs = g.primary.createdAt ? new Date(g.primary.createdAt).getTime() : 0;
+      const slotSiblings = bookings.filter(sb =>
+        sb.id !== g.primary.id &&
+        sb.bookingDate === g.primary.bookingDate &&
+        sb.timeSlot === g.primary.timeSlot &&
+        (sb.patientEmail === g.primary.patientEmail || sb.patientId === g.primary.patientId) &&
+        Math.abs((sb.createdAt ? new Date(sb.createdAt).getTime() : 0) - createdMs) <= 90000
+      );
+
+      return {
+        ...g.primary,
+        _siblingBookings: g.siblings,
+        _isMultiTest: g.siblings.length > 1,
+        _slotSiblings: slotSiblings,
+      };
+    });
+  }, [filteredBookings, activeTab, bookings]);
 
   const counts = useMemo(() => {
     const active = bookings.filter(b => 
@@ -275,7 +377,7 @@ export default function MyLabBookingsSection({
         <div style={{ textAlign: 'center', padding: '60px 0', color: '#059669' }}>
           <div style={{ fontSize: '15px', fontWeight: 700 }}>Loading your laboratory bookings...</div>
         </div>
-      ) : filteredBookings.length === 0 ? (
+      ) : consolidatedBookings.length === 0 ? (
         <div style={styles.emptyCard}>
           <Microscope size={48} color="#94a3b8" style={{ margin: '0 auto 12px' }} />
           <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', margin: 0 }}>
@@ -294,36 +396,30 @@ export default function MyLabBookingsSection({
         </div>
       ) : (
         <div style={styles.bookingsGrid}>
-          {filteredBookings.map(b => {
+          {consolidatedBookings.map(b => {
+            const siblingBookings = b._siblingBookings || [b];
+            const isMultiTestAppointment = siblingBookings.length > 1;
+            const otherSiblings = siblingBookings.filter(s => s.id !== b.id);
+
             const badge = getStatusBadge(b.status, b.technicianNotes);
             const isCancelledOrRejected = b.status === 'Cancelled' || b.status === 'Rejected';
             const isPending = ['PendingLabApproval', 'PendingPrescriptionUpload', 'PendingAIVerification'].includes(b.status);
-            const isPaid = b.paymentStatus === 'PaidOnline' || b.paymentStatus === 'PaidAtCounter';
+            const isPaid = siblingBookings.every(sb => sb.paymentStatus === 'PaidOnline' || sb.paymentStatus === 'PaidAtCounter');
+            const isPartiallyPaid = !isPaid && siblingBookings.some(sb => sb.paymentStatus === 'PaidOnline' || sb.paymentStatus === 'PaidAtCounter');
             const isConfirmedUnpaid = b.status === 'Confirmed' && !isPaid;
-            const isCounterChosen = b.paymentMethod === 'CashOnArrival';
+            const isCounterChosen = siblingBookings.some(sb => sb.paymentMethod === 'CashOnArrival');
             const canCancel = ['PendingLabApproval', 'PendingPrescriptionUpload', 'Confirmed'].includes(b.status) && !isPaid;
-            const hasReport = Boolean(b.resultFileUrl) || ['ResultsReady', 'ReportDelivered', 'Completed'].includes(b.status);
-            const price = b.labTest?.price || 0;
-
-            const siblingBookings = bookings.filter(sb =>
-              sb.bookingDate === b.bookingDate &&
-              sb.timeSlot === b.timeSlot &&
-              sb.status !== 'Cancelled' &&
-              sb.status !== 'Rejected'
+            
+            const totalAppointmentPrice = siblingBookings.reduce((sum, sb) => 
+              sum + Number(sb.labTest?.price || (sb.amountPaid > 0 ? sb.amountPaid : 0)), 0
             );
-            const isMultiTestAppointment = siblingBookings.length > 1;
-            const totalAppointmentPrice = isMultiTestAppointment
-              ? siblingBookings.reduce((sum, sb) => sum + Number(sb.labTest?.price || (sb.amountPaid > 0 ? sb.amountPaid : 0)), 0)
-              : Number(price);
-            const combinedTestNames = isMultiTestAppointment
-              ? siblingBookings.map(sb => sb.labTest?.name || 'Lab Test').join(' + ')
-              : (b.labTest?.name || 'Diagnostic Laboratory Test');
+            const combinedTestNames = siblingBookings.map(sb => sb.labTest?.name || 'Lab Test').join(' + ');
 
             return (
               <div key={b.id} style={styles.bookingCard}>
                 {/* Card Top */}
                 <div style={styles.cardHeader}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <div style={styles.tokenPill}>
                       #{b.tokenNumber || b.bookingNumber || `LAB-${b.id?.slice(0, 4)}`}
                     </div>
@@ -334,35 +430,96 @@ export default function MyLabBookingsSection({
                     }}>
                       {badge.label}
                     </span>
+                    {isMultiTestAppointment && (
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        backgroundColor: '#f3e8ff',
+                        color: '#7e22ce',
+                        border: '1px solid #d8b4fe',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        <Sparkles size={11} color="#7e22ce" />
+                        Combined ({siblingBookings.length} Tests)
+                      </span>
+                    )}
                   </div>
 
-                  <div style={styles.priceMeta}>
-                    Rs. {Number(price).toLocaleString()}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={styles.priceMeta}>
+                      Rs. {Number(totalAppointmentPrice).toLocaleString()}
+                    </div>
+                    {isMultiTestAppointment && (
+                      <div style={{ fontSize: '10.5px', color: '#64748b', fontWeight: 600 }}>
+                        Total for {siblingBookings.length} Tests
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Combined Appointment Indicator */}
-                {isMultiTestAppointment && (
-                  <div style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '4px 10px',
-                    borderRadius: '8px',
-                    backgroundColor: '#f3e8ff',
-                    border: '1px solid #d8b4fe',
-                    fontSize: '11.5px',
-                    color: '#6b21a8',
-                    fontWeight: 700,
-                    marginBottom: '10px',
-                  }}>
-                    <Sparkles size={13} color="#7e22ce" />
-                    <span>Combined Appointment ({siblingBookings.length} Tests): {combinedTestNames}</span>
+                {/* Test Title / Multi-Test Items */}
+                {isMultiTestAppointment ? (
+                  <div style={{ marginBottom: '14px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#475569', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Diagnostic Tests in Appointment ({siblingBookings.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {siblingBookings.map(sb => (
+                        <div key={sb.id} style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 12px',
+                          backgroundColor: '#F8FAFC',
+                          borderRadius: '8px',
+                          border: '1px solid #E2E8F0'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#059669', flexShrink: 0 }} />
+                            <div>
+                              <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#0F172A' }}>
+                                {sb.labTest?.name || 'Lab Test'}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#64748B' }}>
+                                Sample: {sb.labTest?.sampleType || 'Specimen'}
+                                {sb.labTest?.isRestricted && <span style={{ color: '#D97706', fontWeight: 700, marginLeft: '6px' }}>• Rx Required</span>}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: '#059669' }}>
+                            Rs. {Number(sb.labTest?.price || 0).toLocaleString()}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    {b._slotSiblings && b._slotSiblings.length > 0 && (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        backgroundColor: '#f3e8ff',
+                        color: '#7e22ce',
+                        border: '1px solid #d8b4fe',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        marginBottom: '8px',
+                      }}>
+                        <Sparkles size={11} color="#7e22ce" />
+                        <span>Part of Appointment (with {b._slotSiblings.map(s => s.labTest?.name).filter(Boolean).join(', ')})</span>
+                      </div>
+                    )}
+                    <h3 style={styles.testName}>{b.labTest?.name || 'Diagnostic Laboratory Test'}</h3>
                   </div>
                 )}
-
-                {/* Test Title & Meta */}
-                <h3 style={styles.testName}>{b.labTest?.name || 'Diagnostic Laboratory Test'}</h3>
 
                 <div style={styles.metaRow}>
                   <div style={styles.metaItem}>
@@ -373,14 +530,16 @@ export default function MyLabBookingsSection({
                     <Clock size={14} color="#64748b" />
                     <span>{b.timeSlot || '09:00'}</span>
                   </div>
-                  <div style={styles.metaItem}>
-                    <Microscope size={14} color="#059669" />
-                    <span>{b.labTest?.sampleType || 'Blood Specimen'}</span>
-                  </div>
+                  {!isMultiTestAppointment && (
+                    <div style={styles.metaItem}>
+                      <Microscope size={14} color="#059669" />
+                      <span>{b.labTest?.sampleType || 'Blood Specimen'}</span>
+                    </div>
+                  )}
                 </div>
 
-                {/* AI / Prescription Verification Tag */}
-                {b.labTest?.isRestricted && (
+                {/* Prescription Required & AI Monitored Tag for single test */}
+                {!isMultiTestAppointment && b.labTest?.isRestricted && (
                   <div style={styles.aiTagRow}>
                     <Sparkles size={14} color="#059669" />
                     <span>Doctor Prescription Required & AI Monitored</span>
@@ -478,6 +637,7 @@ export default function MyLabBookingsSection({
                           _combinedAmount: totalAppointmentPrice,
                           _combinedTestNames: combinedTestNames,
                           _siblingCount: siblingBookings.length,
+                          _siblings: otherSiblings,
                         })}
                         style={{
                           flex: 1,
@@ -501,7 +661,7 @@ export default function MyLabBookingsSection({
                       {!isCounterChosen && (
                         <button
                           type="button"
-                          onClick={() => handleSelectCounterPayment(b)}
+                          onClick={() => handleSelectCounterPayment(b, otherSiblings)}
                           style={{
                             flex: 1,
                             padding: '7px 12px',
@@ -541,26 +701,39 @@ export default function MyLabBookingsSection({
                               : (isCancelledOrRejected ? '✗ Order Cancelled' : 'Payment Required')))}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                     {/* Track Sample Button */}
                     <button
                       type="button"
                       style={styles.trackBtn}
-                      onClick={() => handleOpenTracking(b)}
+                      onClick={() => {
+                        const allSlotBookings = (siblingBookings && siblingBookings.length > 1)
+                          ? siblingBookings
+                          : (b._slotSiblings && b._slotSiblings.length > 0)
+                            ? [b, ...b._slotSiblings]
+                            : siblingBookings;
+                        handleOpenTracking(b, allSlotBookings);
+                      }}
                     >
                       <Eye size={14} /> Track Sample
                     </button>
 
-                    {/* Download Report Button */}
-                    {hasReport && (
-                      <button
-                        type="button"
-                        style={styles.downloadBtn}
-                        onClick={() => window.open(b.resultFileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', '_blank')}
-                      >
-                        <Download size={14} /> PDF Report
-                      </button>
-                    )}
+                    {/* Download Report Buttons */}
+                    {siblingBookings.map(sb => {
+                      const hasReport = Boolean(sb.resultFileUrl) || ['ResultsReady', 'ReportDelivered', 'Completed'].includes(sb.status);
+                      if (!hasReport) return null;
+                      return (
+                        <button
+                          key={sb.id}
+                          type="button"
+                          style={styles.downloadBtn}
+                          onClick={() => window.open(sb.resultFileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', '_blank')}
+                          title={`Download Report for ${sb.labTest?.name}`}
+                        >
+                          <Download size={14} /> {isMultiTestAppointment ? `${(sb.labTest?.name || 'Test').split(' ')[0]} PDF` : 'PDF Report'}
+                        </button>
+                      );
+                    })}
 
                     {/* Cancel Button */}
                     {canCancel && (
@@ -568,7 +741,7 @@ export default function MyLabBookingsSection({
                         type="button"
                         disabled={cancellingId === b.id}
                         style={styles.cancelBtn}
-                        onClick={() => handleCancelBooking(b)}
+                        onClick={() => handleCancelBooking(b, otherSiblings)}
                         title="Cancel Appointment"
                       >
                         <Trash2 size={14} />
@@ -586,7 +759,11 @@ export default function MyLabBookingsSection({
       {selectedTrackingBooking && (
         <BookingTrackingModal
           booking={selectedTrackingBooking}
-          onClose={() => setSelectedTrackingBooking(null)}
+          relatedBookings={trackingRelatedBookings}
+          onClose={() => {
+            setSelectedTrackingBooking(null);
+            setTrackingRelatedBookings([]);
+          }}
         />
       )}
 

@@ -131,6 +131,16 @@ flutter-app/ios/Flutter/app.flx
 flutter-app/ios/Flutter/ephemeral/
 *.ipa
 
+# Desktop Generated Plugin Registrants (Windows, Linux, macOS)
+**/linux/flutter/generated_plugin_registrant.*
+**/linux/flutter/generated_plugins.cmake
+**/windows/flutter/generated_plugin_registrant.*
+**/windows/flutter/generated_plugins.cmake
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral/
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+
 # Symbolication & Obfuscation
 app.*.symbols
 app.*.map.json

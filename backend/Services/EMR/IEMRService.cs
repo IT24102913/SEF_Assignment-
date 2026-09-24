@@ -1,6 +1,6 @@
-using LabManagement.API.DTOs.EMR;
+using HealthBridge.Api.DTOs.EMR;
 
-namespace LabManagement.API.Services.EMR;
+namespace HealthBridge.Api.Services.EMR;
 
 public interface IEMRService
 {

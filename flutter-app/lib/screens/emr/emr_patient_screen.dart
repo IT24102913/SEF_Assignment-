@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
+import '../../widgets/health_bridge_footer.dart';
 
 // Health Bridge teal color palette
 const Color kPrimary = Color(0xFF095E51);
@@ -38,7 +39,10 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
   Future<void> _loadData() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      final summary = await EmrApiService.getClinicalSummary(widget.patientCode);
+      final code = (widget.patientCode.isNotEmpty && widget.patientCode != 'PAT-1001')
+          ? widget.patientCode
+          : (AuthState.patientCode ?? 'PAT-1001');
+      final summary = await EmrApiService.getClinicalSummary(code);
       setState(() { _summary = summary; _isLoading = false; });
     } catch (e) {
       setState(() { _error = e.toString(); _isLoading = false; });
@@ -237,6 +241,9 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
             child: Text(s.emergencyContact, style: const TextStyle(fontSize: 14)),
           ),
         ),
+        const SizedBox(height: 20),
+        const HealthBridgeFooter(),
+        const SizedBox(height: 16),
       ],
     );
   }

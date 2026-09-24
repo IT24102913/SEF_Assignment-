@@ -1,21 +1,75 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
+import { getAllBookings } from '../../api/labApi';
 import { 
   Activity, Clock, ClipboardList, TestTube, 
   Microscope, ArrowLeft, LogOut, Sparkles, FlaskConical 
 } from 'lucide-react';
-import logoImage from '../assets/mediz.png';
+import logoImage from '../../assets/mediz.png';
 
 export default function LabHeader() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
 
+  const [counts, setCounts] = useState({
+    pendingApprovals: 0,
+    pendingTests: 0,
+  });
+
+  const fetchCounts = () => {
+    getAllBookings('')
+      .then(res => {
+        const all = res.data || [];
+        const pendingApprovals = all.filter(b => 
+          b.status === 'PendingLabApproval' ||
+          b.status === 'PendingPrescriptionUpload' ||
+          b.status === 'PendingAIVerification'
+        ).length;
+        const pendingTests = all.filter(b => 
+          b.status === 'Confirmed' ||
+          b.status === 'SampleCollected' ||
+          b.status === 'TestingInProgress' ||
+          b.status === 'ResultVerification' ||
+          b.status === 'ResultsReady' ||
+          b.status === 'ReportDelivered'
+        ).length;
+        setCounts({ pendingApprovals, pendingTests });
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 8000);
+    window.addEventListener('lab-booking-updated', fetchCounts);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('lab-booking-updated', fetchCounts);
+    };
+  }, [location.pathname]);
+
   const navItems = [
     { path: '/laboratory/dashboard', label: 'Clinical Overview', icon: Activity },
-    { path: '/laboratory/pending', label: 'Pending Approvals', icon: Clock },
-    { path: '/laboratory/pending-tests', label: 'Pending Tests', icon: FlaskConical },
+    { 
+      path: '/laboratory/pending', 
+      label: 'Pending Approvals', 
+      icon: Clock,
+      badgeKey: 'pendingApprovals',
+      badgeColor: '#B45309',
+      badgeBg: '#FEF3C7',
+      badgeBorder: '#FDE68A'
+    },
+    { 
+      path: '/laboratory/pending-tests', 
+      label: 'Pending Tests', 
+      icon: FlaskConical,
+      badgeKey: 'pendingTests',
+      badgeColor: '#065F46',
+      badgeBg: '#ECFDF5',
+      badgeBorder: '#A7F3D0'
+    },
     { path: '/laboratory/bookings', label: 'All Lab Bookings', icon: ClipboardList },
     { path: '/laboratory/tests', label: 'Test Catalogue', icon: Microscope },
   ];
@@ -86,7 +140,7 @@ export default function LabHeader() {
       {/* Lab Navigation Bar */}
       <div style={styles.navBar}>
         <div style={styles.navLinks}>
-          {navItems.map(({ path, label, icon: Icon }) => {
+          {navItems.map(({ path, label, icon: Icon, badgeKey, badgeColor, badgeBg, badgeBorder }) => {
             const active = isCurrentActive(path);
             return (
               <button
@@ -95,10 +149,31 @@ export default function LabHeader() {
                 style={{
                   ...styles.navLink,
                   ...(active ? styles.navLinkActive : {}),
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
                 }}
               >
                 <Icon size={16} />
                 <span>{label}</span>
+                {badgeKey && counts[badgeKey] !== undefined && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      padding: '1px 7px',
+                      borderRadius: '12px',
+                      background: counts[badgeKey] > 0 ? badgeBg : 'rgba(100, 116, 139, 0.08)',
+                      color: counts[badgeKey] > 0 ? badgeColor : '#64748B',
+                      border: `1px solid ${counts[badgeKey] > 0 ? badgeBorder : '#E2E8F0'}`,
+                      minWidth: '20px',
+                      textAlign: 'center',
+                      lineHeight: '16px',
+                    }}
+                  >
+                    {counts[badgeKey]}
+                  </span>
+                )}
               </button>
             );
           })}

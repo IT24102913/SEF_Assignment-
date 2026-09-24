@@ -1,17 +1,17 @@
-using LabManagement.API.Data;
-using LabManagement.API.DTOs.EMR;
-using LabManagement.API.Models.EMR;
+using HealthBridge.Api.Data;
+using HealthBridge.Api.DTOs.EMR;
+using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace LabManagement.API.Services.EMR;
+namespace HealthBridge.Api.Services.EMR;
 
 public class EMRService : IEMRService
 {
-    private readonly AppDbContext _db;
+    private readonly ApplicationDbContext _db;
     private readonly ILogger<EMRService> _logger;
 
-    public EMRService(AppDbContext db, ILogger<EMRService> logger)
+    public EMRService(ApplicationDbContext db, ILogger<EMRService> logger)
     {
         _db = db;
         _logger = logger;

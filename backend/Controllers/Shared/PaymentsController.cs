@@ -63,16 +63,20 @@ public class PaymentsController : ControllerBase
             patientName = booking.PatientName;
             patientEmail = booking.PatientEmail;
 
-            // Find all unpaid bookings for this patient, date & time slot to settle together
-            var appointmentBookings = await _db.LabBookings
+            // Find all unpaid bookings for this patient, date & time slot created in the same booking batch to settle together
+            var candidateBookings = await _db.LabBookings
                 .Include(b => b.LabTest)
-                .Where(b => b.PatientId == booking.PatientId
+                .Where(b => (b.PatientId == booking.PatientId || b.PatientEmail == booking.PatientEmail)
                          && b.BookingDate == booking.BookingDate
                          && b.TimeSlot == booking.TimeSlot
                          && b.PaymentStatus == PaymentStatus.Unpaid
                          && b.Status != BookingStatus.Cancelled
                          && b.Status != BookingStatus.Rejected)
                 .ToListAsync();
+
+            var appointmentBookings = candidateBookings
+                .Where(b => Math.Abs((b.CreatedAt - booking.CreatedAt).TotalSeconds) <= 90)
+                .ToList();
 
             if (!appointmentBookings.Any(b => b.Id == booking.Id))
             {
@@ -257,14 +261,18 @@ public class PaymentsController : ControllerBase
             var booking = await _db.LabBookings.FindAsync(bookingId);
             if (booking != null && booking.PaymentStatus == PaymentStatus.Unpaid)
             {
-                var appointmentBookings = await _db.LabBookings
-                    .Where(b => b.PatientId == booking.PatientId
+                var candidateBookings = await _db.LabBookings
+                    .Where(b => (b.PatientId == booking.PatientId || b.PatientEmail == booking.PatientEmail)
                              && b.BookingDate == booking.BookingDate
                              && b.TimeSlot == booking.TimeSlot
                              && b.PaymentStatus == PaymentStatus.Unpaid
                              && b.Status != BookingStatus.Cancelled
                              && b.Status != BookingStatus.Rejected)
                     .ToListAsync();
+
+                var appointmentBookings = candidateBookings
+                    .Where(b => Math.Abs((b.CreatedAt - booking.CreatedAt).TotalSeconds) <= 90)
+                    .ToList();
 
                 if (!appointmentBookings.Any(b => b.Id == booking.Id))
                 {

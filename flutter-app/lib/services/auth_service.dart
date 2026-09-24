@@ -9,49 +9,107 @@ class AuthService {
   static const _keyRole = 'auth_role';
   static const _keyPicture = 'auth_picture';
 
+  // In-memory fallback storage if native SharedPreferences channel fails
+  static final Map<String, String> _memStorage = {};
+
+  static Future<SharedPreferences?> _getPrefs() async {
+    try {
+      final Future<SharedPreferences?> prefsFuture = SharedPreferences.getInstance();
+      return await prefsFuture.timeout(
+        const Duration(milliseconds: 500),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Save user after login/register
   static Future<void> saveUser(AuthUser user) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyToken, user.token);
-    await prefs.setString(_keyUserId, user.userId);
-    await prefs.setString(_keyName, user.name);
-    await prefs.setString(_keyEmail, user.email);
-    await prefs.setString(_keyRole, user.role);
+    _memStorage[_keyToken] = user.token;
+    _memStorage[_keyUserId] = user.userId;
+    _memStorage[_keyName] = user.name;
+    _memStorage[_keyEmail] = user.email;
+    _memStorage[_keyRole] = user.role;
     if (user.profilePicture != null) {
-      await prefs.setString(_keyPicture, user.profilePicture!);
+      _memStorage[_keyPicture] = user.profilePicture!;
+    }
+
+    try {
+      final prefs = await _getPrefs();
+      if (prefs != null) {
+        await prefs.setString(_keyToken, user.token);
+        await prefs.setString(_keyUserId, user.userId);
+        await prefs.setString(_keyName, user.name);
+        await prefs.setString(_keyEmail, user.email);
+        await prefs.setString(_keyRole, user.role);
+        if (user.profilePicture != null) {
+          await prefs.setString(_keyPicture, user.profilePicture!);
+        }
+      }
+    } on Object catch (_) {
+      // Safe fallback to _memStorage
     }
   }
 
   /// Load saved user from storage
   static Future<AuthUser?> getUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_keyToken);
-    if (token == null) return null;
+    String? token = _memStorage[_keyToken];
+    String userId = _memStorage[_keyUserId] ?? '';
+    String name = _memStorage[_keyName] ?? '';
+    String email = _memStorage[_keyEmail] ?? '';
+    String role = _memStorage[_keyRole] ?? 'Patient';
+    String? picture = _memStorage[_keyPicture];
+
+    try {
+      final prefs = await _getPrefs();
+      if (prefs != null) {
+        token ??= prefs.getString(_keyToken);
+        if (userId.isEmpty) userId = prefs.getString(_keyUserId) ?? '';
+        if (name.isEmpty) name = prefs.getString(_keyName) ?? '';
+        if (email.isEmpty) email = prefs.getString(_keyEmail) ?? '';
+        if (role == 'Patient') role = prefs.getString(_keyRole) ?? 'Patient';
+        picture ??= prefs.getString(_keyPicture);
+      }
+    } catch (_) {}
+
+    if (token == null || token.isEmpty) return null;
     return AuthUser(
       token: token,
-      userId: prefs.getString(_keyUserId) ?? '',
-      name: prefs.getString(_keyName) ?? '',
-      email: prefs.getString(_keyEmail) ?? '',
-      role: prefs.getString(_keyRole) ?? 'Patient',
-      profilePicture: prefs.getString(_keyPicture),
+      userId: userId,
+      name: name,
+      email: email,
+      role: role,
+      profilePicture: picture,
     );
   }
 
   /// Get the JWT token for API calls
   static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keyToken);
+    if (_memStorage.containsKey(_keyToken) && _memStorage[_keyToken]!.isNotEmpty) {
+      return _memStorage[_keyToken];
+    }
+    try {
+      final prefs = await _getPrefs();
+      return prefs?.getString(_keyToken);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Log out — clears all stored data
   static Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyToken);
-    await prefs.remove(_keyUserId);
-    await prefs.remove(_keyName);
-    await prefs.remove(_keyEmail);
-    await prefs.remove(_keyRole);
-    await prefs.remove(_keyPicture);
+    _memStorage.clear();
+    try {
+      final prefs = await _getPrefs();
+      if (prefs != null) {
+        await prefs.remove(_keyToken);
+        await prefs.remove(_keyUserId);
+        await prefs.remove(_keyName);
+        await prefs.remove(_keyEmail);
+        await prefs.remove(_keyRole);
+        await prefs.remove(_keyPicture);
+      }
+    } catch (_) {}
   }
 
   /// Returns true if a user is logged in

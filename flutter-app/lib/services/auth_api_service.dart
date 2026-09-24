@@ -37,7 +37,7 @@ class AuthApiService {
               ?? 'Invalid email or password.';
           throw Exception(msg.toString());
         }
-      } on Exception catch (e) {
+      } catch (e) {
         lastException = e;
         final msg = e.toString();
         // If this is a real server error (not a connection/timeout) stop retrying
@@ -87,7 +87,7 @@ class AuthApiService {
           final msg = body['message'] ?? 'Registration failed. Please check details.';
           throw Exception(msg);
         }
-      } on Exception catch (e) {
+      } catch (e) {
         lastException = e;
         final msg = e.toString();
         // If real server error, stop retrying hosts
