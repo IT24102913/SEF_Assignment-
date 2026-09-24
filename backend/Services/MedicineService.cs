@@ -62,6 +62,11 @@ public class MedicineService : IMedicineService
             ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate, DateTimeKind.Utc),
             RequiresPrescription = request.RequiresPrescription,
             ImageUrl = request.ImageUrl?.Trim(),
+            BrandName = request.BrandName?.Trim() ?? "Cipla Laboratories",
+            StorageCondition = request.StorageCondition?.Trim() ?? "Normal Room Temperature",
+            PillsPerCard = request.PillsPerCard > 0 ? request.PillsPerCard : 10,
+            CardPrice = request.CardPrice > 0 ? request.CardPrice : (request.Price * (request.PillsPerCard > 0 ? request.PillsPerCard : 10)),
+            AdditionalImagesJson = request.AdditionalImagesJson?.Trim(),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -107,6 +112,11 @@ public class MedicineService : IMedicineService
         medicine.ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate, DateTimeKind.Utc);
         medicine.RequiresPrescription = request.RequiresPrescription;
         medicine.ImageUrl = request.ImageUrl?.Trim();
+        medicine.BrandName = request.BrandName?.Trim() ?? medicine.BrandName;
+        medicine.StorageCondition = request.StorageCondition?.Trim() ?? medicine.StorageCondition;
+        medicine.PillsPerCard = request.PillsPerCard > 0 ? request.PillsPerCard : medicine.PillsPerCard;
+        medicine.CardPrice = request.CardPrice > 0 ? request.CardPrice : medicine.CardPrice;
+        medicine.AdditionalImagesJson = request.AdditionalImagesJson?.Trim() ?? medicine.AdditionalImagesJson;
         medicine.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
@@ -138,6 +148,11 @@ public class MedicineService : IMedicineService
             ExpiryDate = medicine.ExpiryDate,
             RequiresPrescription = medicine.RequiresPrescription,
             ImageUrl = medicine.ImageUrl,
+            BrandName = medicine.BrandName ?? "Cipla Laboratories",
+            StorageCondition = medicine.StorageCondition ?? "Normal Room Temperature",
+            PillsPerCard = medicine.PillsPerCard > 0 ? medicine.PillsPerCard : 10,
+            CardPrice = medicine.CardPrice > 0 ? medicine.CardPrice : (medicine.Price * (medicine.PillsPerCard > 0 ? medicine.PillsPerCard : 10)),
+            AdditionalImagesJson = medicine.AdditionalImagesJson,
             CreatedAt = medicine.CreatedAt,
             UpdatedAt = medicine.UpdatedAt
         };

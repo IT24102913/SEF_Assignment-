@@ -28,4 +28,6 @@ public class PharmacyOrderItem
 
     [Column(TypeName = "decimal(18,2)")]
     public decimal Subtotal { get; set; }
+
+    public string UnitType { get; set; } = "Pill";
 }

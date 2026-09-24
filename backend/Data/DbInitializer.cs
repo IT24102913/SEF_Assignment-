@@ -7,7 +7,17 @@ public static class DbInitializer
 {
     public static async Task SeedAsync(ApplicationDbContext context)
     {
-        // Ensure database is created/migrated
+        // Ensure database is created/migrated and schema contains UnitType and Medicine columns
+        try
+        {
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"PharmacyOrderItems\" ADD COLUMN IF NOT EXISTS \"UnitType\" text DEFAULT 'Pill';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"BrandName\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"StorageCondition\" text DEFAULT 'Normal Room Temperature';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"PillsPerCard\" integer DEFAULT 10;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"CardPrice\" numeric(18,2) DEFAULT 0;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"AdditionalImagesJson\" text;");
+        }
+        catch { }
         await context.Database.MigrateAsync();
 
         // 1. Seed Initial Admin Accounts if none exist

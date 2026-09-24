@@ -9,6 +9,11 @@ public class CreatePharmacyOrderItemRequest
 
     [Required]
     public int Quantity { get; set; }
+
+    public string? UnitType { get; set; }
+    public string? MedicineName { get; set; }
+    public decimal? Price { get; set; }
+    public decimal? UnitPrice { get; set; }
 }
 
 public class CreatePharmacyOrderRequest
@@ -39,6 +44,7 @@ public class PharmacyOrderItemResponse
     public decimal UnitPrice { get; set; }
     public int Quantity { get; set; }
     public decimal Subtotal { get; set; }
+    public string UnitType { get; set; } = "Pill";
 }
 
 public class PharmacyOrderResponse

@@ -29,4 +29,14 @@ public class UpdateMedicineRequest
     public bool RequiresPrescription { get; set; }
 
     public string? ImageUrl { get; set; }
+
+    public string? BrandName { get; set; }
+
+    public string? StorageCondition { get; set; }
+
+    public int PillsPerCard { get; set; } = 10;
+
+    public decimal CardPrice { get; set; }
+
+    public string? AdditionalImagesJson { get; set; }
 }
