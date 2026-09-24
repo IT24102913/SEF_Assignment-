@@ -142,21 +142,19 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             };
 
             var jsonPayload = JsonSerializer.Serialize(requestBody);
-            var configuredModel = _config["Gemini:Model"] ?? "gemini-2.0-flash-lite";
+            var configuredModel = _config["Gemini:Model"] ?? "gemini-3.5-flash-lite";
 
             var endpointsList = new List<string>();
-            if (!string.IsNullOrWhiteSpace(apiKey) && (apiKey.StartsWith("AQ.") || apiKey.StartsWith("ya29.")))
+            if (!string.IsNullOrWhiteSpace(apiKey) && apiKey.StartsWith("ya29."))
             {
                 endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/{configuredModel}:generateContent");
-                endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent");
-                endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent");
-                endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent");
+                endpointsList.Add("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent");
+                endpointsList.Add("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent");
             }
 
             endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/{configuredModel}:generateContent?key={apiKey}");
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={apiKey}");
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={apiKey}");
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}");
+            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={apiKey}");
+            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={apiKey}");
 
             var endpoints = endpointsList.Distinct().ToArray();
             HttpResponseMessage? response = null;
@@ -170,7 +168,7 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
                 if (!string.IsNullOrWhiteSpace(apiKey))
                 {
                     requestMsg.Headers.TryAddWithoutValidation("x-goog-api-key", apiKey);
-                    if (apiKey.StartsWith("AQ.") || apiKey.StartsWith("ya29."))
+                    if (apiKey.StartsWith("ya29."))
                     {
                         requestMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
                     }
@@ -186,9 +184,11 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             {
                 _logger.LogWarning("[{Agent}] Gemini API returned status {StatusCode}. Fallback engaged.", AgentName, response?.StatusCode);
 
-                if (!string.IsNullOrEmpty(responseBody) && responseBody.Contains("API_KEY_SERVICE_BLOCKED"))
+                if (response?.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                    response?.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                    (!string.IsNullOrEmpty(responseBody) && (responseBody.Contains("API_KEY_SERVICE_BLOCKED") || responseBody.Contains("API_KEY_INVALID"))))
                 {
-                    return BuildAutonomousClinicalResult(input.TestName, "Autonomous Clinical Parser engaged due to API key restriction.");
+                    return BuildAutonomousClinicalResult(input.TestName, $"Autonomous Clinical Parser engaged ({response?.StatusCode}: API Key invalid or unauthorized).");
                 }
 
                 return BuildFallback(input.TestName, $"AI API response status {response?.StatusCode}. Queued for technician inspection.");
