@@ -16,9 +16,30 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"PillsPerCard\" integer DEFAULT 10;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"CardPrice\" numeric(18,2) DEFAULT 0;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"AdditionalImagesJson\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Patients\" ADD COLUMN IF NOT EXISTS \"UserId\" integer;");
+
+            // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
+            await context.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""__EFMigrationsHistory"" (
+                    ""MigrationId"" character varying(150) NOT NULL,
+                    ""ProductVersion"" character varying(32) NOT NULL,
+                    CONSTRAINT ""PK___EFMigrationsHistory"" PRIMARY KEY (""MigrationId"")
+                );
+                INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                VALUES ('20260924175311_InitialCreate', '8.0.4')
+                ON CONFLICT (""MigrationId"") DO NOTHING;
+                INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                VALUES ('20260924183649_AddUserIdToEMRPatient', '8.0.4')
+                ON CONFLICT (""MigrationId"") DO NOTHING;
+            ");
         }
         catch { }
-        await context.Database.MigrateAsync();
+
+        try
+        {
+            await context.Database.MigrateAsync();
+        }
+        catch { }
 
         // 1. Seed Initial Admin Accounts if none exist
         if (!await context.Users.AnyAsync(u => u.Email == "nirwan@gmail.com"))

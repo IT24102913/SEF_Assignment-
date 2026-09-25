@@ -63,17 +63,7 @@ public class LabAgentOrchestrator
 
         _logger.LogInformation("[LabAgentOrchestrator] Starting 2-Agent clinical workflow for Booking ID {Id}", bookingId);
 
-        // 1. Fetch recent patient history for duplicate screening
-        var recentTests = await db.LabBookings
-            .Where(b => b.PatientId == booking.PatientId && b.Id != bookingId && b.CreatedAt >= DateTime.UtcNow.AddDays(-30))
-            .Include(b => b.LabTest)
-            .Select(b => b.LabTest.Name)
-            .ToListAsync();
-
-        // 2. Tally slot and daily counts for phlebotomy chair load balancing
-        var existingCount = await db.LabBookings
-            .CountAsync(b => b.BookingDate == booking.BookingDate && b.TimeSlot == booking.TimeSlot);
-
+        // Tally daily counts for phlebotomy chair load balancing
         var dailySeqCount = await db.LabBookings
             .CountAsync(b => b.BookingDate == booking.BookingDate);
 
@@ -157,15 +147,12 @@ public class LabAgentOrchestrator
         {
             BookingId = booking.Id,
             PatientName = booking.PatientName,
-            PatientAge = 35, // Default age
             TestName = booking.LabTest.Name,
             TestCategory = booking.LabTest.Category,
             TestIsRestricted = booking.LabTest.IsRestricted,
             BookingDate = booking.BookingDate,
             TimeSlot = booking.TimeSlot,
-            ExistingBookingsInSlot = existingCount,
-            DailySequenceNo = dailySeqCount + 1,
-            RecentPatientTests = recentTests
+            DailySequenceNo = dailySeqCount + 1
         };
 
         var queueSafetyResult = await _queueSafetyAgent.EvaluateAndOptimizeAsync(queueSafetyInput);
@@ -182,7 +169,6 @@ public class LabAgentOrchestrator
                 queueSafetyResult.QueueToken,
                 queueSafetyResult.PriorityTier,
                 queueSafetyResult.AssignedChairNo,
-                queueSafetyResult.EstimatedWaitMinutes,
                 queueSafetyResult.RequiresFasting,
                 queueSafetyResult.RequiredFastingHours,
                 queueSafetyResult.SafetyFlags,
@@ -193,8 +179,8 @@ public class LabAgentOrchestrator
         // Apply queueing and chair allocations to booking entity
         booking.QueueToken = queueSafetyResult.QueueToken;
         booking.PriorityTier = queueSafetyResult.PriorityTier;
-        booking.EstimatedServiceDurationMinutes = queueSafetyResult.EstimatedServiceDurationMinutes;
-        booking.EstimatedWaitMinutes = queueSafetyResult.EstimatedWaitMinutes;
+        booking.EstimatedServiceDurationMinutes = 0;
+        booking.EstimatedWaitMinutes = 0;
         booking.AssignedChairNo = queueSafetyResult.AssignedChairNo;
 
         // =========================================================================

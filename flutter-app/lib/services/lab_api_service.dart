@@ -165,8 +165,21 @@ class LabApiService {
   }
 
   static Future<void> cancelBooking(String bookingId, String patientId) async {
-    final res = await _client.delete(Uri.parse('$baseUrl/bookings/$bookingId?patientId=$patientId'));
-    if (res.statusCode != 204) throw Exception('Failed to cancel booking');
+    final parsedId = int.tryParse(patientId) ?? 1;
+    final res = await _client.delete(
+      Uri.parse('$baseUrl/bookings/$bookingId?patientId=$parsedId'),
+      headers: _headers,
+    );
+    if (res.statusCode != 204 && res.statusCode != 200) {
+      String msg = 'Failed to cancel booking (${res.statusCode})';
+      try {
+        final data = jsonDecode(res.body);
+        if (data is Map && data['message'] != null) {
+          msg = data['message'];
+        }
+      } catch (_) {}
+      throw Exception(msg);
+    }
   }
 
   // Payments (Centralized Subsystem)

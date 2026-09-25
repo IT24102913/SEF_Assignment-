@@ -6,12 +6,13 @@ namespace HealthBridge.Api.Services;
 public interface IEmailService
 {
     Task SendBookingReceivedAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, bool requiresPrescription);
-    Task SendBookingConfirmationAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time);
+    Task SendBookingConfirmationAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, int? assignedChairNo = null, string? queueToken = null);
     Task SendBookingRejectionAsync(string toEmail, string patientName, string testName, string reason);
-    Task SendPrescriptionApprovedAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, decimal price);
+    Task SendPrescriptionApprovedAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, decimal price, int? assignedChairNo = null, string? queueToken = null);
     Task SendPrescriptionRejectedAsync(string toEmail, string patientName, string testName, string reason);
     Task SendResultsReadyAsync(string toEmail, string patientName, string testName);
     Task SendStatusUpdateAsync(string toEmail, string patientName, string testName, string newStatus);
+    Task SendBookingCancelledAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, string? queueToken = null);
 }
 
 public class EmailService : IEmailService
@@ -86,9 +87,16 @@ public class EmailService : IEmailService
         await SendEmailAsync(toEmail, patientName, subject, html);
     }
 
-    public async Task SendBookingConfirmationAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time)
+    public async Task SendBookingConfirmationAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, int? assignedChairNo = null, string? queueToken = null)
     {
         var subject = "✅ Your Lab Test Appointment is Confirmed";
+        var chairHtml = assignedChairNo.HasValue && assignedChairNo.Value > 0
+            ? $"<tr><td><strong>Assigned Seat / Station:</strong></td><td style='font-weight: 700; color: #059669;'>Phlebotomy Chair #{assignedChairNo.Value}</td></tr>"
+            : "";
+        var tokenHtml = !string.IsNullOrWhiteSpace(queueToken)
+            ? $"<tr><td><strong>Smart Queue Token:</strong></td><td style='font-weight: 800; color: #1e40af;'>#{queueToken}</td></tr>"
+            : "";
+
         var html = $@"
         <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; background: #f9f9f9;'>
             <h2 style='color: #2E86AB;'>Appointment Confirmed!</h2>
@@ -98,6 +106,8 @@ public class EmailService : IEmailService
                 <tr><td><strong>Test:</strong></td><td>{testName}</td></tr>
                 <tr><td><strong>Date:</strong></td><td>{date:dddd, MMMM d, yyyy}</td></tr>
                 <tr><td><strong>Time:</strong></td><td>{time:hh:mm tt}</td></tr>
+                {chairHtml}
+                {tokenHtml}
             </table>
             <p style='margin-top: 20px;'>Please arrive 10 minutes early. Bring your National ID and any relevant documents.</p>
             <p style='color: #888; font-size: 12px;'>HealthCare Lab System | This is an automated email.</p>
@@ -120,9 +130,16 @@ public class EmailService : IEmailService
         await SendEmailAsync(toEmail, patientName, subject, html);
     }
 
-    public async Task SendPrescriptionApprovedAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, decimal price)
+    public async Task SendPrescriptionApprovedAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, decimal price, int? assignedChairNo = null, string? queueToken = null)
     {
         var subject = "🎉 Prescription Approved: Proceed to Payment for Your Lab Appointment";
+        var chairHtml = assignedChairNo.HasValue && assignedChairNo.Value > 0
+            ? $"<tr><td style='padding: 6px 0; color: #64748b;'><strong>Assigned Seat / Station:</strong></td><td style='color: #059669; font-weight: 800;'>Phlebotomy Chair #{assignedChairNo.Value}</td></tr>"
+            : "";
+        var tokenHtml = !string.IsNullOrWhiteSpace(queueToken)
+            ? $"<tr><td style='padding: 6px 0; color: #64748b;'><strong>Smart Queue Token:</strong></td><td style='color: #1e40af; font-weight: 800;'>#{queueToken}</td></tr>"
+            : "";
+
         var html = $@"
         <div style='font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0;'>
             <div style='background: #059669; color: white; padding: 18px 24px; border-radius: 10px; margin-bottom: 20px;'>
@@ -137,6 +154,8 @@ public class EmailService : IEmailService
                 <tr><td style='padding: 6px 0; color: #64748b;'><strong>Diagnostic Test:</strong></td><td style='color: #0f172a; font-weight: 700;'>{testName}</td></tr>
                 <tr><td style='padding: 6px 0; color: #64748b;'><strong>Appointment Date:</strong></td><td style='color: #0f172a; font-weight: 700;'>{date:dddd, MMMM d, yyyy}</td></tr>
                 <tr><td style='padding: 6px 0; color: #64748b;'><strong>Time Slot:</strong></td><td style='color: #0f172a; font-weight: 700;'>{time:hh:mm tt}</td></tr>
+                {chairHtml}
+                {tokenHtml}
                 <tr><td style='padding: 6px 0; color: #64748b;'><strong>Total Amount Due:</strong></td><td style='color: #059669; font-weight: 800; font-size: 16px;'>LKR {price:N2}</td></tr>
                 <tr><td style='padding: 6px 0; color: #64748b;'><strong>Prescription Status:</strong></td><td><span style='background: #d1fae5; color: #065f46; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 700;'>Verified & Certified</span></td></tr>
             </table>
@@ -207,6 +226,62 @@ public class EmailService : IEmailService
             <p>Track your full order timeline in the HealthCare mobile app.</p>
             <p style='color: #888; font-size: 12px;'>HealthCare Lab System | This is an automated email.</p>
         </div>";
+        await SendEmailAsync(toEmail, patientName, subject, html);
+    }
+
+    public async Task SendBookingCancelledAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, string? queueToken = null)
+    {
+        var subject = $"❌ Appointment Cancelled: {testName}";
+        var tokenHtml = !string.IsNullOrWhiteSpace(queueToken)
+            ? $"<tr><td style='padding: 6px 0; color: #64748b;'><strong>Cancelled Queue Token:</strong></td><td style='color: #475569; font-weight: 700;'>#{queueToken}</td></tr>"
+            : "";
+
+        var html = $@"
+        <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;'>
+            <div style='background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; padding: 20px 24px; border-radius: 10px; margin-bottom: 20px;'>
+                <h2 style='margin: 0; font-size: 20px; font-weight: 800;'>Laboratory Appointment Cancelled</h2>
+                <p style='margin: 6px 0 0 0; font-size: 13px; opacity: 0.9;'>Status: Cancelled by Patient</p>
+            </div>
+            <p style='font-size: 15px; color: #1e293b;'>Dear <strong>{patientName}</strong>,</p>
+            <p style='font-size: 14px; line-height: 1.6; color: #475569;'>
+                As requested, your diagnostic laboratory appointment has been successfully cancelled in our system.
+            </p>
+            <div style='background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0;'>
+                <table style='width: 100%; border-collapse: collapse; font-size: 13.5px;'>
+                    <tr>
+                        <td style='padding: 6px 0; color: #64748b; width: 45%;'><strong>Investigation / Test:</strong></td>
+                        <td style='padding: 6px 0; color: #0f172a; font-weight: 700;'>{testName}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 6px 0; color: #64748b;'><strong>Scheduled Date:</strong></td>
+                        <td style='padding: 6px 0; color: #0f172a;'>{date:yyyy-MM-dd}</td>
+                    </tr>
+                    <tr>
+                        <td style='padding: 6px 0; color: #64748b;'><strong>Scheduled Time:</strong></td>
+                        <td style='padding: 6px 0; color: #0f172a;'>{time:HH:mm}</td>
+                    </tr>
+                    {tokenHtml}
+                    <tr>
+                        <td style='padding: 6px 0; color: #64748b;'><strong>Current Status:</strong></td>
+                        <td style='padding: 6px 0; color: #ef4444; font-weight: 700;'>Cancelled</td>
+                    </tr>
+                </table>
+            </div>
+            <div style='background: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 14px; margin: 16px 0;'>
+                <p style='margin: 0; color: #991b1b; font-size: 13px; line-height: 1.5;'>
+                    <strong>Schedule Released:</strong> Your reserved phlebotomy time slot and station have been released back into the clinical schedule.
+                </p>
+                <p style='margin: 8px 0 0 0; color: #7f1d1d; font-size: 12.5px;'>
+                    If you paid online via card, any refundable authorization will be automatically reversed to your account in accordance with billing policy.
+                </p>
+            </div>
+            <p style='font-size: 13.5px; color: #475569;'>
+                Need to reschedule? You can book a new appointment at your convenience anytime via the Medix mobile app or web portal.
+            </p>
+            <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;' />
+            <p style='color: #94a3b8; font-size: 11px; margin: 0;'>Medix Clinical Healthcare System • Automated Medical Notification</p>
+        </div>";
+
         await SendEmailAsync(toEmail, patientName, subject, html);
     }
 }

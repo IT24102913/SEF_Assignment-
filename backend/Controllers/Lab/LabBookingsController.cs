@@ -179,21 +179,27 @@ public class LabBookingsController : ControllerBase
 
     // DELETE /api/lab/bookings/{id} — Cancel booking (patient)
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Cancel(Guid id, [FromQuery] int patientId)
+    [HttpPost("{id:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid id, [FromQuery] int? patientId)
     {
-        var booking = await _db.LabBookings.FindAsync(id);
-        if (booking == null) return NotFound();
-        if (booking.PatientId != patientId) return Forbid();
+        var booking = await _db.LabBookings
+            .Include(b => b.LabTest)
+            .FirstOrDefaultAsync(b => b.Id == id);
+        if (booking == null) return NotFound(new { message = "Booking not found." });
+        
+        if (patientId.HasValue && patientId.Value > 0 && booking.PatientId > 0 && booking.PatientId != patientId.Value)
+            return Forbid();
 
         var cancellableStatuses = new[]
         {
             BookingStatus.PendingPrescriptionUpload,
             BookingStatus.PendingAIVerification,
-            BookingStatus.PendingLabApproval
+            BookingStatus.PendingLabApproval,
+            BookingStatus.Confirmed
         };
 
         if (!cancellableStatuses.Contains(booking.Status))
-            return BadRequest(new { message = "This booking can no longer be cancelled." });
+            return BadRequest(new { message = "This booking cannot be cancelled because sample collection or laboratory testing is already underway." });
 
         booking.Status = BookingStatus.Cancelled;
         booking.UpdatedAt = DateTime.UtcNow;
@@ -205,6 +211,28 @@ public class LabBookingsController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+
+        // Send cancellation confirmation email to patient
+        if (!string.IsNullOrWhiteSpace(booking.PatientEmail))
+        {
+            try
+            {
+                var testName = booking.LabTest?.Name ?? "Laboratory Test";
+                await _emailService.SendBookingCancelledAsync(
+                    booking.PatientEmail,
+                    booking.PatientName,
+                    testName,
+                    booking.BookingDate,
+                    booking.TimeSlot,
+                    booking.QueueToken
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Email] Could not send cancellation email for booking {BookingId}", booking.Id);
+            }
+        }
+
         return NoContent();
     }
 

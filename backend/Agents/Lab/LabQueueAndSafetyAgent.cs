@@ -7,15 +7,12 @@ public class LabQueueSafetyInput
 {
     public Guid BookingId { get; set; }
     public string PatientName { get; set; } = string.Empty;
-    public int PatientAge { get; set; } = 35;
     public string TestName { get; set; } = string.Empty;
     public string TestCategory { get; set; } = string.Empty;
     public bool TestIsRestricted { get; set; }
     public DateOnly BookingDate { get; set; }
     public TimeOnly TimeSlot { get; set; }
-    public int ExistingBookingsInSlot { get; set; }
     public int DailySequenceNo { get; set; }
-    public List<string> RecentPatientTests { get; set; } = new();
 }
 
 /// <summary>
@@ -28,11 +25,10 @@ public class LabQueueSafetyOutput
     public string QueueToken { get; set; } = string.Empty;
     public string PriorityTier { get; set; } = "ROUTINE";
     public int AssignedChairNo { get; set; } = 1;
-    public int EstimatedServiceDurationMinutes { get; set; } = 10;
+    public int EstimatedServiceDurationMinutes { get; set; } = 0;
     public int EstimatedWaitMinutes { get; set; } = 0;
     public bool RequiresFasting { get; set; }
     public int RequiredFastingHours { get; set; }
-    public bool IsDuplicateRecentTest { get; set; }
     public List<string> SafetyFlags { get; set; } = new();
     public List<string> PatientPrepGuidelines { get; set; } = new();
     public string StatusMessage { get; set; } = string.Empty;
@@ -43,9 +39,9 @@ public class LabQueueSafetyOutput
 /// LabQueueAndSafetyAgent — Specialized Clinical Operations & Patient Safety AI (Agent 2 of 2 in Lab Management).
 /// 
 /// Core Responsibilities:
-/// 1. Deterministic safety evaluation: Fasting requirements (8-12 hrs), duplicate booking detection within 30 days, pediatric & geriatric flags.
-/// 2. Phlebotomy operations optimization: Multi-chair load balancing (Chairs 1–3), slot contention resolution, and wait time calculation.
-/// 3. Intelligent priority tiering: Generates token numbers based on triage urgency (F=Fasting, G=Geriatric, S=Specialized, R=Routine).
+/// 1. Deterministic safety evaluation: Fasting requirements (8-12 hrs) and clinical pre-test instructions.
+/// 2. Phlebotomy operations optimization: Multi-chair load balancing (Chairs 1–3).
+/// 3. Intelligent priority tiering: Generates token numbers based on triage urgency (F=Fasting, S=Specialized, R=Routine).
 /// 4. Patient diagnostic preparation: Generates clear, test-specific preparation protocols (fasting, hydration, medication notices).
 /// </summary>
 public class LabQueueAndSafetyAgent
@@ -77,22 +73,11 @@ public class LabQueueAndSafetyAgent
                               testLower.Contains("triglyceride");
 
         var fastingHours = requiresFasting ? (testLower.Contains("lipid") ? 12 : 8) : 0;
-        var isDuplicate = input.RecentPatientTests.Any(t => t.Equals(input.TestName, StringComparison.OrdinalIgnoreCase));
-        var isElderly = input.PatientAge >= 65;
-        var isPediatric = input.PatientAge < 12;
 
         var safetyFlags = new List<string>();
         if (requiresFasting) safetyFlags.Add($"Fasting requirement: {fastingHours} hours prior to blood collection.");
-        if (isDuplicate) safetyFlags.Add($"Duplicate order alert: Test '{input.TestName}' was booked by patient within the last 30 days.");
-        if (isPediatric) safetyFlags.Add("Pediatric protocol: Guardian presence required during collection.");
-        if (isElderly) safetyFlags.Add("Geriatric priority protocol applied.");
 
-        // 2. Service Duration Math
-        int durationMinutes = 8; // Base blood draw
-        if (input.TestIsRestricted) durationMinutes += 5;
-        if (requiresFasting) durationMinutes += 4;
-
-        // 3. Priority Tier & Token Generation
+        // 2. Priority Tier & Token Generation
         string priorityTier;
         string tokenPrefix;
 
@@ -100,11 +85,6 @@ public class LabQueueAndSafetyAgent
         {
             priorityTier = "FASTING_PRIORITY";
             tokenPrefix = "F";
-        }
-        else if (isElderly)
-        {
-            priorityTier = "GERIATRIC_PRIORITY";
-            tokenPrefix = "G";
         }
         else if (input.TestIsRestricted)
         {
@@ -117,16 +97,13 @@ public class LabQueueAndSafetyAgent
             tokenPrefix = "R";
         }
 
-        int seqNo = input.DailySequenceNo > 0 ? input.DailySequenceNo : (input.ExistingBookingsInSlot + 1);
+        int seqNo = input.DailySequenceNo > 0 ? input.DailySequenceNo : 1;
         string queueToken = $"{tokenPrefix}-{seqNo:D3}";
 
-        // 4. Phlebotomy Chair Load Balancing (3 dedicated chairs)
+        // 3. Phlebotomy Chair Load Balancing (3 dedicated chairs)
         int assignedChairNo = (seqNo % 3) + 1;
 
-        // 5. Estimated Wait Time
-        int estWaitMinutes = Math.Max(0, (input.ExistingBookingsInSlot * durationMinutes) / 3);
-
-        // 6. Patient Preparation Guidelines
+        // 4. Patient Preparation Guidelines
         var prepGuidelines = new List<string>();
         if (testLower.Contains("lipid") || testLower.Contains("cholesterol"))
         {
@@ -153,7 +130,7 @@ public class LabQueueAndSafetyAgent
             prepGuidelines.Add("Please bring physical doctor referral / prescription for technician verification.");
         }
 
-        var statusMessage = $"Queue Token {queueToken} ({priorityTier}) assigned to Chair #{assignedChairNo}. Est. wait {estWaitMinutes} mins.";
+        var statusMessage = $"Queue Token {queueToken} ({priorityTier}) assigned to Chair #{assignedChairNo}.";
         if (safetyFlags.Count > 0)
         {
             statusMessage += $" | Flags: {string.Join("; ", safetyFlags)}";
@@ -166,11 +143,10 @@ public class LabQueueAndSafetyAgent
             QueueToken = queueToken,
             PriorityTier = priorityTier,
             AssignedChairNo = assignedChairNo,
-            EstimatedServiceDurationMinutes = durationMinutes,
-            EstimatedWaitMinutes = estWaitMinutes,
+            EstimatedServiceDurationMinutes = 0,
+            EstimatedWaitMinutes = 0,
             RequiresFasting = requiresFasting,
             RequiredFastingHours = fastingHours,
-            IsDuplicateRecentTest = isDuplicate,
             SafetyFlags = safetyFlags,
             PatientPrepGuidelines = prepGuidelines,
             StatusMessage = statusMessage,

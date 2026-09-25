@@ -93,10 +93,29 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     );
 
     if (confirm == true) {
+      setState(() => _loading = true);
       try {
         await LabApiService.cancelBooking(b.id, _userId!);
-        _load();
-      } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Appointment cancelled successfully.'),
+              backgroundColor: kSuccess,
+            ),
+          );
+        }
+        await _load();
+      } catch (e) {
+        if (mounted) {
+          setState(() => _loading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not cancel: ${e.toString().replaceAll("Exception: ", "")}'),
+              backgroundColor: kDanger,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -220,12 +239,35 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     );
 
     if (confirmed == true && _userId != null) {
+      setState(() => _loading = true);
+      int successCount = 0;
+      String? lastError;
       for (var b in bookings) {
         try {
           await LabApiService.cancelBooking(b.id, _userId!);
-        } catch (_) {}
+          successCount++;
+        } catch (e) {
+          lastError = e.toString().replaceAll("Exception: ", "");
+        }
       }
-      _load();
+      if (mounted) {
+        if (successCount > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$successCount diagnostic tests cancelled successfully.'),
+              backgroundColor: kSuccess,
+            ),
+          );
+        } else if (lastError != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not cancel: $lastError'),
+              backgroundColor: kDanger,
+            ),
+          );
+        }
+      }
+      await _load();
     }
   }
 
@@ -829,7 +871,7 @@ class _ActiveBookingCard extends StatelessWidget {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
-                                  'Station / Chair #${booking.assignedChairNo} • Est. Wait: ${booking.estimatedWaitMinutes}m',
+                                  'Station / Chair #${booking.assignedChairNo}',
                                   style: const TextStyle(color: kTextMuted, fontSize: 11, fontWeight: FontWeight.w600),
                                   overflow: TextOverflow.ellipsis,
                                 ),

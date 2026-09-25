@@ -112,7 +112,9 @@ public class LabAdminController : ControllerBase
                 combinedTestNames,
                 booking.BookingDate,
                 booking.TimeSlot,
-                totalAppointmentPrice > 0 ? totalAppointmentPrice : booking.LabTest.Price);
+                totalAppointmentPrice > 0 ? totalAppointmentPrice : booking.LabTest.Price,
+                booking.AssignedChairNo,
+                booking.QueueToken);
         }
         else
         {
@@ -121,7 +123,9 @@ public class LabAdminController : ControllerBase
                 booking.PatientName,
                 combinedTestNames,
                 booking.BookingDate,
-                booking.TimeSlot);
+                booking.TimeSlot,
+                booking.AssignedChairNo,
+                booking.QueueToken);
         }
 
         return Ok(MapToDto(booking));

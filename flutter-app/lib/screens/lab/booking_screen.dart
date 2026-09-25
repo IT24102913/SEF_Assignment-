@@ -145,14 +145,36 @@ class _BookingScreenState extends State<BookingScreen> {
       final slots = await LabApiService.getSlots(dateStr);
       final caps = <String, int>{};
       for (var s in slots) {
-        final t = (s['time'] as String).substring(0, 5);
-        caps[t] = (s['maxCapacity'] as int) - (s['currentBookings'] as int);
+        final rawTime = s['time'] as String?;
+        if (rawTime != null && rawTime.length >= 5) {
+          final t = rawTime.substring(0, 5);
+          final maxCap = (s['maxCapacity'] as num?)?.toInt() ?? 5;
+          final current = (s['currentBookings'] as num?)?.toInt() ?? 0;
+          caps[t] = (maxCap - current).clamp(0, maxCap);
+        }
       }
       setState(() => _slotCapacities = caps);
     } catch (_) {
     } finally {
       if (mounted) setState(() => _loadingSlots = false);
     }
+  }
+
+  String _formatSlotTime(String time) {
+    try {
+      final parts = time.split(':');
+      final hour = int.parse(parts[0]);
+      final minute = parts[1];
+      final period = hour >= 12 ? 'PM' : 'AM';
+      final formattedHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+      return '${formattedHour.toString().padLeft(2, '0')}:$minute $period';
+    } catch (_) {
+      return time;
+    }
+  }
+
+  int _getAvailableCount(String time) {
+    return _slotCapacities[time] ?? 5;
   }
 
   bool get _requiresPrescription {
@@ -554,14 +576,14 @@ class _BookingScreenState extends State<BookingScreen> {
               runSpacing: 10,
               children: _defaultTimeSlots.map((time) {
                 final isSelected = _selectedTime == time;
-                final remaining = _slotCapacities[time];
-                final isFull = remaining != null && remaining <= 0;
+                final remaining = _getAvailableCount(time);
+                final isFull = remaining <= 0;
 
                 return GestureDetector(
                   onTap: isFull ? null : () => setState(() => _selectedTime = time),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       color: isFull
                           ? Colors.grey.shade100
@@ -581,18 +603,139 @@ class _BookingScreenState extends State<BookingScreen> {
                             ]
                           : null,
                     ),
-                    child: Text(
-                      time,
-                      style: TextStyle(
-                        color: isFull ? Colors.grey.shade400 : (isSelected ? Colors.white : kText),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13.5,
-                      ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _formatSlotTime(time),
+                          style: TextStyle(
+                            color: isFull ? Colors.grey.shade400 : (isSelected ? Colors.white : kText),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          isFull ? 'Full' : '$remaining slots left',
+                          style: TextStyle(
+                            color: isFull
+                                ? Colors.grey.shade400
+                                : (isSelected
+                                    ? Colors.white.withOpacity(0.9)
+                                    : (remaining <= 2 ? const Color(0xFFD97706) : kPrimary)),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 );
               }).toList(),
             ),
+
+            // Highlighted Available Slots Count Card when Selected
+            if (_selectedTime != null) ...[
+              const SizedBox(height: 12),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFD1FAE5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.event_seat_rounded, color: Color(0xFF059669), size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                _formatSlotTime(_selectedTime!),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  color: Color(0xFF065F46),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF059669),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Selected',
+                                  style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_getAvailableCount(_selectedTime!)} out of 5 slots currently available for this window',
+                            style: const TextStyle(
+                              color: Color(0xFF047857),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${_getAvailableCount(_selectedTime!)}/5',
+                            style: const TextStyle(
+                              color: Color(0xFF059669),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const Text(
+                            'Available',
+                            style: TextStyle(
+                              color: Color(0xFF065F46),
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: 24),
 
@@ -995,6 +1138,19 @@ class _BookingScreenState extends State<BookingScreen> {
               color: const Color(0xFFF8FAFC),
               child: Column(
                 children: [
+                  if (_selectedTime != null) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Scheduled Slot', style: TextStyle(color: kTextMuted, fontSize: 13)),
+                        Text(
+                          '${_formatSlotTime(_selectedTime!)} (${_getAvailableCount(_selectedTime!)} available)',
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: kPrimaryDark),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
