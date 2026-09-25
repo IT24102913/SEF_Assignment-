@@ -15,8 +15,7 @@ import {
   FlaskConical,
   CheckCircle2,
   Clock,
-  RotateCcw,
-  Sparkles
+  RotateCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -239,17 +238,15 @@ export default function AdminPortalDashboard({ staffSession }) {
     }
   };
 
-  // Status Toggles
-  const handleToggleLabStatus = (report) => {
-    const nextStatus = report.status === 'Completed' ? 'Pending' : 'Completed';
-    emrStore.updateLabReport(report.id, { status: nextStatus });
-    toast.success(`Lab Report status changed to ${nextStatus}.`);
+  // Status Updates
+  const handleUpdateLabStatus = async (reportId, newStatus) => {
+    await emrStore.updateLabReport(reportId, { status: newStatus });
+    toast.success(`Lab Report status changed to ${newStatus}.`);
   };
 
-  const handleToggleRxStatus = (rx) => {
-    const nextStatus = rx.status === 'Active' ? 'Completed' : 'Active';
-    emrStore.updatePrescription(rx.id, { status: nextStatus });
-    toast.success(`Prescription status changed to ${nextStatus}.`);
+  const handleUpdateRxStatus = async (rxId, newStatus) => {
+    await emrStore.updatePrescription(rxId, { status: newStatus });
+    toast.success(`Prescription status changed to ${newStatus}.`);
   };
 
   return (
@@ -829,23 +826,41 @@ export default function AdminPortalDashboard({ staffSession }) {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button
-                      onClick={() => handleToggleLabStatus(report)}
-                      style={{
-                        backgroundColor: report.status === 'Completed' ? '#dcfce7' : '#fef9c3',
-                        color: report.status === 'Completed' ? '#15803d' : '#854d0e',
-                        border: '1px solid ' + (report.status === 'Completed' ? '#bbf7d0' : '#fde047'),
-                        padding: '7px 16px',
-                        borderRadius: '20px',
-                        fontWeight: 700,
-                        fontSize: '0.82rem',
-                        cursor: 'pointer'
-                      }}
-                      title="Click to toggle status"
-                    >
-                      Status: {report.status} ⇄
-                    </button>
+                    {/* Status Dropdown */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569' }}>
+                        Status:
+                      </span>
+                      <select
+                        value={report.status}
+                        onChange={(e) => handleUpdateLabStatus(report.id, e.target.value)}
+                        style={{
+                          backgroundColor:
+                            report.status === 'Completed' ? '#dcfce7' :
+                            report.status === 'In Progress' ? '#eff6ff' : '#fef9c3',
+                          color:
+                            report.status === 'Completed' ? '#15803d' :
+                            report.status === 'In Progress' ? '#1d4ed8' : '#854d0e',
+                          border: '1.5px solid ' + (
+                            report.status === 'Completed' ? '#86efac' :
+                            report.status === 'In Progress' ? '#bfdbfe' : '#fde047'
+                          ),
+                          padding: '7px 12px',
+                          borderRadius: '10px',
+                          fontWeight: 700,
+                          fontSize: '0.84rem',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                        }}
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
 
+                    {/* Delete Button */}
                     <button
                       onClick={() => handleDeleteLabReport(report.id)}
                       style={{
@@ -859,8 +874,10 @@ export default function AdminPortalDashboard({ staffSession }) {
                         alignItems: 'center',
                         gap: '6px',
                         fontSize: '0.82rem',
-                        fontWeight: 700
+                        fontWeight: 700,
+                        transition: 'all 0.15s'
                       }}
+                      title="Permanently delete lab report"
                     >
                       <Trash2 size={16} /> Delete
                     </button>
@@ -1118,22 +1135,31 @@ export default function AdminPortalDashboard({ staffSession }) {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <button
-                      onClick={() => handleToggleRxStatus(rx)}
-                      style={{
-                        backgroundColor: rx.status === 'Active' ? '#dbeafe' : '#f1f5f9',
-                        color: rx.status === 'Active' ? '#1d4ed8' : '#64748b',
-                        border: '1px solid ' + (rx.status === 'Active' ? '#bfdbfe' : '#cbd5e1'),
-                        padding: '7px 16px',
-                        borderRadius: '20px',
-                        fontWeight: 700,
-                        fontSize: '0.82rem',
-                        cursor: 'pointer'
-                      }}
-                      title="Click to toggle status"
-                    >
-                      Status: {rx.status} ⇄
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#475569' }}>
+                        Status:
+                      </span>
+                      <select
+                        value={rx.status}
+                        onChange={(e) => handleUpdateRxStatus(rx.id, e.target.value)}
+                        style={{
+                          backgroundColor: rx.status === 'Active' ? '#dbeafe' : rx.status === 'Completed' ? '#dcfce7' : '#f1f5f9',
+                          color: rx.status === 'Active' ? '#1d4ed8' : rx.status === 'Completed' ? '#15803d' : '#64748b',
+                          border: '1.5px solid ' + (rx.status === 'Active' ? '#bfdbfe' : rx.status === 'Completed' ? '#86efac' : '#cbd5e1'),
+                          padding: '7px 12px',
+                          borderRadius: '10px',
+                          fontWeight: 700,
+                          fontSize: '0.84rem',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                        }}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Discontinued">Discontinued</option>
+                      </select>
+                    </div>
 
                     <button
                       onClick={() => handleDeletePrescription(rx.id)}
@@ -1430,6 +1456,8 @@ export default function AdminPortalDashboard({ staffSession }) {
           )}
         </div>
       )}
+
+
     </div>
   );
 }

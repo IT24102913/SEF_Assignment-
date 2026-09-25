@@ -32,10 +32,24 @@ class EmrStore {
   }
 
   saveData() {
-    localStorage.setItem('emr_patients', JSON.stringify(this.patients));
-    localStorage.setItem('emr_consultations', JSON.stringify(this.consultations));
-    localStorage.setItem('emr_labReports', JSON.stringify(this.labReports));
-    localStorage.setItem('emr_prescriptions', JSON.stringify(this.prescriptions));
+    try {
+      localStorage.setItem('emr_patients', JSON.stringify(this.patients));
+    } catch (e) { console.warn('[EmrStore] localStorage patients full:', e.name); }
+    try {
+      localStorage.setItem('emr_consultations', JSON.stringify(this.consultations));
+    } catch (e) { console.warn('[EmrStore] localStorage consultations full:', e.name); }
+    try {
+      // Strip large Base64 fileUrls before caching lab reports to avoid QuotaExceededError.
+      // The actual file data is stored in PostgreSQL — fileUrl in memory is enough for live display.
+      const labReportsForStorage = this.labReports.map(r => ({
+        ...r,
+        fileUrl: r.fileUrl && r.fileUrl.startsWith('data:') ? '' : (r.fileUrl || '')
+      }));
+      localStorage.setItem('emr_labReports', JSON.stringify(labReportsForStorage));
+    } catch (e) { console.warn('[EmrStore] localStorage labReports full:', e.name); }
+    try {
+      localStorage.setItem('emr_prescriptions', JSON.stringify(this.prescriptions));
+    } catch (e) { console.warn('[EmrStore] localStorage prescriptions full:', e.name); }
     this.notify();
   }
 
@@ -118,6 +132,7 @@ class EmrStore {
           date: l.reportDate ? l.reportDate.split('T')[0] : '',
           status: l.status,
           fileName: l.fileName || 'Report.pdf',
+          fileUrl: l.fileUrl || '',
           resultsSummary: l.resultsSummary
         }));
       }
@@ -235,8 +250,13 @@ class EmrStore {
   }
 
   async addLabReport(report) {
+    // Insert into in-memory store immediately so UI reflects the new report at once
     this.labReports.unshift(report);
+    // Notify listeners now (saveData also handles storage, but we notify immediately)
+    this.notify();
+    // Save to localStorage (strips large Base64 fileUrls to avoid QuotaExceededError)
     this.saveData();
+    // Persist to PostgreSQL backend
     try {
       await emrApi.createLabReport({
         patientCode: report.patientId,
@@ -245,11 +265,14 @@ class EmrStore {
         orderedDoctor: report.orderedDoctor || 'Attending Physician',
         status: report.status || 'Pending',
         fileName: report.fileName || '',
+        fileUrl: report.fileUrl || '',
         resultsSummary: report.resultsSummary || ''
       });
-      this.syncFromBackend();
+      // Sync back from backend to get the real server-assigned UUID
+      await this.syncFromBackend();
     } catch (e) {
       console.warn('[EmrStore] Error saving lab report to API:', e);
+      // Even if API fails, the in-memory report is already visible
     }
   }
 

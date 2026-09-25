@@ -275,6 +275,67 @@ public class EMRController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Open or view the exact lab report file inline (PDF or image) in the browser
+    /// </summary>
+    [HttpGet("lab-reports/{id:guid}/view")]
+    public async Task<IActionResult> ViewLabReportFile(Guid id)
+    {
+        var report = await _emrService.GetLabReportByIdAsync(id);
+        if (report == null)
+            return NotFound(new { message = $"Lab report {id} not found." });
+
+        if (!string.IsNullOrEmpty(report.FileUrl) && report.FileUrl.StartsWith("data:"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(report.FileUrl, @"^data:(?<type>.*?);base64,(?<data>.*)$");
+            if (match.Success)
+            {
+                var contentType = match.Groups["type"].Value;
+                var base64Data = match.Groups["data"].Value;
+                var bytes = Convert.FromBase64String(base64Data);
+                return File(bytes, contentType);
+            }
+        }
+
+        if (!string.IsNullOrEmpty(report.FileUrl))
+        {
+            return Redirect(report.FileUrl);
+        }
+
+        return NotFound(new { message = "No file attached to this lab report." });
+    }
+
+    /// <summary>
+    /// Download or export lab report file
+    /// </summary>
+    [HttpGet("lab-reports/{id:guid}/download")]
+    public async Task<IActionResult> DownloadLabReport(Guid id)
+    {
+        var report = await _emrService.GetLabReportByIdAsync(id);
+        if (report == null)
+            return NotFound(new { message = $"Lab report {id} not found." });
+
+        if (!string.IsNullOrEmpty(report.FileUrl) && report.FileUrl.StartsWith("data:"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(report.FileUrl, @"^data:(?<type>.*?);base64,(?<data>.*)$");
+            if (match.Success)
+            {
+                var contentType = match.Groups["type"].Value;
+                var base64Data = match.Groups["data"].Value;
+                var bytes = Convert.FromBase64String(base64Data);
+                var fileName = string.IsNullOrWhiteSpace(report.FileName) ? "LabReport.pdf" : report.FileName;
+                return File(bytes, contentType, fileName);
+            }
+        }
+
+        if (!string.IsNullOrEmpty(report.FileUrl))
+        {
+            return Redirect(report.FileUrl);
+        }
+
+        return NotFound(new { message = "No file attached to this lab report." });
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // PRESCRIPTIONS
     // ═══════════════════════════════════════════════════════════════════════════
