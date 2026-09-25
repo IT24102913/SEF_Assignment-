@@ -460,9 +460,8 @@ export default function TestCatalogue() {
 
             {/* Test Name Field with Validation */}
             <div className="form-group" style={{ marginBottom: 14 }}>
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Test Name <strong style={{ color: '#EF4444' }}>*</strong></span>
-                <span style={{ fontSize: 11, color: '#64748B' }}>e.g. Full Blood Count (FBC)</span>
+              <label className="form-label">
+                Test Name <strong style={{ color: '#EF4444' }}>*</strong>
               </label>
               <input
                 ref={nameInputRef}
@@ -473,7 +472,7 @@ export default function TestCatalogue() {
                   if (fieldErrors.name) validateField('name', e.target.value);
                 }}
                 onBlur={e => validateField('name', e.target.value)}
-                placeholder="Enter diagnostic test name"
+                placeholder=""
                 style={{
                   borderColor: fieldErrors.name ? '#EF4444' : undefined,
                   backgroundColor: fieldErrors.name ? '#FEF2F2' : undefined,
@@ -498,7 +497,7 @@ export default function TestCatalogue() {
                   className="input"
                   type="text"
                   inputMode="numeric"
-                  placeholder="e.g. 1500 (whole number)"
+                  placeholder=""
                   value={form.price}
                   onChange={e => {
                     const val = e.target.value;
@@ -523,16 +522,15 @@ export default function TestCatalogue() {
               </div>
 
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Turnaround (Days) <strong style={{ color: '#EF4444' }}>*</strong></span>
-                  <span style={{ fontSize: 11, color: '#64748B' }}>1–5 days</span>
+                <label className="form-label">
+                  Turnaround (Days) <strong style={{ color: '#EF4444' }}>*</strong>
                 </label>
                 <input
                   ref={turnaroundInputRef}
                   className="input"
                   type="text"
                   inputMode="numeric"
-                  placeholder="1 to 5"
+                  placeholder=""
                   value={form.turnaroundDays}
                   onChange={e => {
                     const val = e.target.value;
@@ -568,11 +566,10 @@ export default function TestCatalogue() {
               </div>
             </div>
 
-            {/* Diagnostic Category Selector with Hover Selection, Edit, Delete, and Add New Category */}
+            {/* Diagnostic Category Selector */}
             <div className="form-group" style={{ marginBottom: 14, position: 'relative' }} ref={categoryDropdownRef}>
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Diagnostic Category <strong style={{ color: '#EF4444' }}>*</strong></span>
-                <span style={{ fontSize: 11, color: '#059669', fontWeight: 600 }}>Hover cursor to select category</span>
+              <label className="form-label">
+                Diagnostic Category <strong style={{ color: '#EF4444' }}>*</strong>
               </label>
 
               {/* Selector Box */}
@@ -604,11 +601,10 @@ export default function TestCatalogue() {
                     }}>
                       {form.category}
                     </span>
-                    <span style={{ fontSize: 12, color: '#64748B' }}>(Selected)</span>
                   </div>
                 ) : (
                   <span style={{ color: '#94A3B8', fontSize: 13.5 }}>
-                    Select diagnostic category or add a new one below...
+                    Select diagnostic category...
                   </span>
                 )}
                 {categoryDropdownOpen ? <ChevronUp size={16} color="#64748B" /> : <ChevronDown size={16} color="#64748B" />}
@@ -937,9 +933,8 @@ export default function TestCatalogue() {
 
             {/* Clinical Description & Specimen Instructions */}
             <div className="form-group" style={{ marginBottom: 18 }}>
-              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Clinical Description &amp; Specimen Instructions <strong style={{ color: '#EF4444' }}>*</strong></span>
-                <span style={{ fontSize: 11, color: '#64748B', fontWeight: 500 }}>(Min. 5 characters)</span>
+              <label className="form-label">
+                Clinical Description &amp; Specimen Instructions <strong style={{ color: '#EF4444' }}>*</strong>
               </label>
               <textarea
                 ref={descInputRef}
@@ -951,7 +946,7 @@ export default function TestCatalogue() {
                   if (fieldErrors.description) validateField('description', e.target.value);
                 }}
                 onBlur={e => validateField('description', e.target.value)}
-                placeholder="Describe preparation, fasting hours, specimen handling, or clinical notes (minimum 5 characters)..."
+                placeholder=""
                 style={{
                   borderColor: fieldErrors.description ? '#EF4444' : undefined,
                   backgroundColor: fieldErrors.description ? '#FEF2F2' : undefined,

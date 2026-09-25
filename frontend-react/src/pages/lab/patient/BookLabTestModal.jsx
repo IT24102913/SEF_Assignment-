@@ -114,15 +114,19 @@ export default function BookLabTestModal({
       if (res.data && Array.isArray(res.data)) {
         const caps = {};
         res.data.forEach(s => {
-          if (s.slotTime) caps[s.slotTime] = s.availableSeats ?? 5;
+          const t = s.time ? s.time.substring(0, 5) : s.slotTime;
+          const max = Number(s.maxCapacity ?? 5);
+          const booked = Number(s.currentBookings ?? 0);
+          const remaining = max - booked;
+          if (t) caps[t] = Math.max(0, remaining);
         });
         setSlotCapacities(caps);
       }
     } catch {
       // Fallback capacities
       setSlotCapacities({
-        '08:00': 4, '09:00': 2, '10:00': 5, '11:00': 3,
-        '13:00': 6, '14:00': 4, '15:00': 5, '16:00': 6
+        '08:00': 5, '09:00': 4, '10:00': 5, '11:00': 5,
+        '13:00': 5, '14:00': 5, '15:00': 5, '16:00': 5
       });
     } finally {
       setLoadingSlots(false);
@@ -534,6 +538,37 @@ export default function BookLabTestModal({
                     );
                   })}
                 </div>
+
+                {selectedSlot && (
+                  <div style={{
+                    marginTop: '12px',
+                    padding: '10px 14px',
+                    backgroundColor: '#ECFDF5',
+                    border: '1px solid #A7F3D0',
+                    borderRadius: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={16} color="#059669" />
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: '#065F46' }}>
+                        Selected Slot: {selectedSlot}
+                      </span>
+                    </div>
+                    <span style={{
+                      fontSize: '12px',
+                      fontWeight: 800,
+                      color: '#059669',
+                      backgroundColor: '#FFFFFF',
+                      padding: '3px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #A7F3D0'
+                    }}>
+                      {slotCapacities[selectedSlot] ?? 5} of 5 slots available
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Preparation Rules Advisory */}
