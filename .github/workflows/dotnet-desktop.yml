@@ -1,4 +1,4 @@
-name: CI Build
+name: Full-Stack CI Pipeline
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
     branches: [ "main" ]
 
 jobs:
-  backend-build:
-    name: Build & Verify .NET 8 Backend
+  backend-ci:
+    name: Build & Test .NET 8 Backend
     runs-on: ubuntu-latest
 
     steps:
@@ -20,13 +20,20 @@ jobs:
       with:
         dotnet-version: 8.0.x
 
-    - name: Restore Backend Dependencies
-      run: dotnet restore backend/HealthBridge.Api.csproj
+    - name: Restore Dependencies
+      run: |
+        dotnet restore backend/HealthBridge.Api.csproj
+        dotnet restore tests/HealthBridge.Tests/HealthBridge.Tests.csproj
 
-    - name: Build Backend (Release)
-      run: dotnet build backend/HealthBridge.Api.csproj --configuration Release --no-restore
+    - name: Build Backend & Tests (Release)
+      run: |
+        dotnet build backend/HealthBridge.Api.csproj --configuration Release --no-restore
+        dotnet build tests/HealthBridge.Tests/HealthBridge.Tests.csproj --configuration Release
 
-  frontend-build:
+    - name: Run Automated Backend & Agent Tests
+      run: dotnet test tests/HealthBridge.Tests/HealthBridge.Tests.csproj --configuration Release --no-build --verbosity normal
+
+  frontend-ci:
     name: Build & Verify React Frontend
     runs-on: ubuntu-latest
 
@@ -46,3 +53,31 @@ jobs:
     - name: Build Frontend (Production)
       working-directory: frontend-react
       run: npm run build
+
+  flutter-ci:
+    name: Analyze Flutter Mobile App
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Setup Flutter SDK
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
+        cache: true
+
+    - name: Install Flutter Dependencies
+      working-directory: flutter-app
+      run: flutter pub get
+
+    - name: Static Code Analysis
+      working-directory: flutter-app
+      run: flutter analyze --no-fatal-infos
