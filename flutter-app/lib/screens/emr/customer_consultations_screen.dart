@@ -15,7 +15,6 @@ class _CustomerConsultationsScreenState extends State<CustomerConsultationsScree
   List<ConsultationNote> _allNotes = [];
   List<ConsultationNote> _filteredNotes = [];
   bool _isLoading = true;
-  String? _error;
   String _searchQuery = '';
   final Set<String> _expandedIds = {};
 
@@ -26,7 +25,7 @@ class _CustomerConsultationsScreenState extends State<CustomerConsultationsScree
   }
 
   Future<void> _loadNotes() async {
-    setState(() { _isLoading = true; _error = null; });
+    setState(() { _isLoading = true; });
     try {
       final notes = await EmrApiService.getConsultations();
       if (notes.isEmpty) {

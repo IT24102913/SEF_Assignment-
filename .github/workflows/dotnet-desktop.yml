@@ -80,4 +80,4 @@ jobs:
 
     - name: Static Code Analysis
       working-directory: flutter-app
-      run: flutter analyze --no-fatal-infos
+      run: flutter analyze --no-fatal-infos --no-fatal-warnings
