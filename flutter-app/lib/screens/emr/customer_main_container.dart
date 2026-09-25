@@ -4,10 +4,7 @@ import '../../services/emr_api_service.dart';
 import '../../main.dart';
 import 'customer_profile_screen.dart';
 import 'customer_overview_screen.dart';
-import 'customer_consultations_screen.dart'; // kept for reference
-import 'customer_lab_reports_screen.dart'; // kept for reference
 import 'customer_pharmacy_screen.dart';
-import 'customer_channeling_screen.dart'; // kept for reference
 import '../../screens/doctor/doctor_search_screen.dart';
 import '../../screens/lab/lab_hub_screen.dart';
 import 'emr_patient_screen.dart';

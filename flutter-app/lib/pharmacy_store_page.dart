@@ -1637,7 +1637,6 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
             }).toList();
 
     final subtotal = widget.cart.fold(0.0, (s, i) => s + i.lineTotal);
-    final deliveryFee = 0.0;
     final totalAmount = isRx ? 0.0 : subtotal;
 
     final resData = await PharmacyService.placeOrder(

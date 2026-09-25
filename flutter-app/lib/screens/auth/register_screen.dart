@@ -43,9 +43,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _loading = true);
     try {
       final result = await AuthApiService.register(
-        _nameCtrl.text.trim(),
-        _emailCtrl.text.trim(),
-        _passCtrl.text,
+        name: _nameCtrl.text.trim(),
+        email: _emailCtrl.text.trim(),
+        password: _passCtrl.text,
       );
       await AuthService.saveUser(result);
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
