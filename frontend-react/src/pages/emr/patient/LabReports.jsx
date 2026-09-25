@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { emrApi } from '../../../api/emrApi';
-import { Microscope, Download, Clock, CheckCircle, Loader } from 'lucide-react';
+import { emrStore } from '../../../data/mockEmrStore';
+import { Microscope, Download, Eye, Clock, CheckCircle, Loader, FileText, Image as ImageIcon } from 'lucide-react';
+import LabReportViewerModal, { downloadLabReport } from '../../../components/emr/LabReportViewerModal';
 
 const statusConfig = {
   'Completed': { bg: '#dcfce7', color: '#15803d', icon: CheckCircle },
@@ -11,6 +13,7 @@ const statusConfig = {
 export default function LabReports() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   useEffect(() => {
     fetchLabReports();
@@ -19,22 +22,58 @@ export default function LabReports() {
   const fetchLabReports = async () => {
     setLoading(true);
     try {
-      const myPatient = await emrApi.getMyPatient();
-      if (myPatient && myPatient.patientCode) {
-        const data = await emrApi.getLabReports(myPatient.patientCode);
-        setReports((data || []).map(l => ({
-          id: l.id,
-          testTitle: l.testTitle,
-          category: l.category,
-          orderedDoctor: l.orderedDoctor,
-          date: l.reportDate ? l.reportDate.split('T')[0] : '',
-          status: l.status,
-          fileName: l.fileName || 'Report.pdf',
-          resultsSummary: l.resultsSummary
-        })));
-      } else {
-        setReports([]);
+      let patientCode = '';
+      try {
+        const myPatient = await emrApi.getMyPatient();
+        if (myPatient && myPatient.patientCode) {
+          patientCode = myPatient.patientCode;
+        }
+      } catch (e) {
+        const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user');
+        if (rawUser) {
+          try {
+            const u = JSON.parse(rawUser);
+            patientCode = u.patientCode || u.patientId || '';
+          } catch {}
+        }
       }
+
+      let data = [];
+      try {
+        data = await emrApi.getLabReports(patientCode);
+      } catch (err) {
+        console.warn('Backend lab-reports fetch failed, fallback to store:', err);
+      }
+
+      // If backend returned empty or failed, fallback to store
+      if (!Array.isArray(data) || data.length === 0) {
+        const storeLabs = emrStore.getLabReports(patientCode) || [];
+        if (storeLabs.length > 0) {
+          data = storeLabs.map(s => ({
+            id: s.id,
+            testTitle: s.testTitle,
+            category: s.category,
+            orderedDoctor: s.orderedDoctor,
+            reportDate: s.date,
+            status: s.status,
+            fileName: s.fileName,
+            fileUrl: s.fileUrl,
+            resultsSummary: s.resultsSummary
+          }));
+        }
+      }
+
+      setReports((data || []).map(l => ({
+        id: l.id,
+        testTitle: l.testTitle,
+        category: l.category,
+        orderedDoctor: l.orderedDoctor,
+        date: l.reportDate ? (typeof l.reportDate === 'string' ? l.reportDate.split('T')[0] : l.reportDate) : (l.date || ''),
+        status: l.status,
+        fileName: l.fileName || '',
+        fileUrl: l.fileUrl || '',
+        resultsSummary: l.resultsSummary
+      })));
     } catch (err) {
       console.error('Error fetching lab reports:', err);
       setReports([]);
@@ -50,7 +89,7 @@ export default function LabReports() {
           Lab Reports
         </h1>
         <p style={{ color: '#64748b', fontSize: '0.92rem' }}>
-          Your laboratory diagnostics, blood work, and imaging results.
+          Your laboratory diagnostics, blood work, and imaging results. Open and download the exact PDF or photo attached by the laboratory.
         </p>
       </div>
 
@@ -69,6 +108,12 @@ export default function LabReports() {
           {reports.map((report) => {
             const cfg = statusConfig[report.status] || statusConfig['Pending'];
             const StatusIcon = cfg.icon;
+            const hasAttachedFile = Boolean(report.fileUrl || report.id);
+            const isImage = report.fileUrl && (
+              report.fileUrl.startsWith('data:image/') ||
+              /\.(png|jpe?g|webp|gif|svg)$/i.test(report.fileName || '')
+            );
+
             return (
               <div
                 key={report.id}
@@ -81,20 +126,47 @@ export default function LabReports() {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   boxShadow: '0 2px 8px -2px rgba(0,0,0,0.04)',
-                  transition: 'box-shadow 0.2s'
+                  transition: 'box-shadow 0.2s',
+                  gap: '16px',
+                  flexWrap: 'wrap'
                 }}
               >
                 {/* Left: Icon + Info */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '280px' }}>
                   <div style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: '#f0fdf4', color: '#0d7c6b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Microscope size={24} />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: '#0f172a', marginBottom: '2px' }}>{report.testTitle}</div>
+                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: '#0f172a', marginBottom: '3px' }}>
+                      {report.testTitle}
+                    </div>
                     <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
-                      <span style={{ backgroundColor: '#f1f5f9', padding: '2px 8px', borderRadius: '6px', fontWeight: 600, color: '#475569', marginRight: '8px' }}>{report.category}</span>
+                      <span style={{ backgroundColor: '#f1f5f9', padding: '2px 8px', borderRadius: '6px', fontWeight: 600, color: '#475569', marginRight: '8px' }}>
+                        {report.category}
+                      </span>
                       Ordered by <strong>{report.orderedDoctor}</strong> • {report.date}
                     </div>
+
+                    {/* Attached file indicator */}
+                    {report.fileName && (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.78rem',
+                        color: '#0369a1',
+                        backgroundColor: '#f0f9ff',
+                        border: '1px solid #bae6fd',
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        marginTop: '6px',
+                        fontWeight: 600
+                      }}>
+                        {isImage ? <ImageIcon size={13} color="#0284c7" /> : <FileText size={13} color="#0284c7" />}
+                        {report.fileName}
+                      </div>
+                    )}
+
                     {report.resultsSummary && (
                       <div style={{ fontSize: '0.82rem', color: '#334155', marginTop: '6px', backgroundColor: '#f8fafc', padding: '6px 10px', borderRadius: '6px' }}>
                         {report.resultsSummary}
@@ -103,8 +175,8 @@ export default function LabReports() {
                   </div>
                 </div>
 
-                {/* Right: Status + Download */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+                {/* Right: Status + View & Download Actions */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -120,30 +192,70 @@ export default function LabReports() {
                     {report.status}
                   </div>
 
-                  {report.status === 'Completed' && (
-                    <button style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px 16px',
-                      backgroundColor: '#f1f5f9',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: '10px',
-                      color: '#334155',
-                      cursor: 'pointer',
-                      fontSize: '0.85rem',
-                      fontWeight: 600,
-                      transition: 'all 0.2s'
-                    }}>
-                      <Download size={16} />
-                      {report.fileName || 'Download PDF'}
-                    </button>
+                  {hasAttachedFile ? (
+                    <>
+                      <button
+                        onClick={() => setSelectedReport(report)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '8px 14px',
+                          backgroundColor: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          borderRadius: '10px',
+                          color: '#2563eb',
+                          cursor: 'pointer',
+                          fontSize: '0.84rem',
+                          fontWeight: 700,
+                          transition: 'all 0.2s'
+                        }}
+                        title="Open attached PDF or photo"
+                      >
+                        <Eye size={15} />
+                        Open
+                      </button>
+
+                      <button
+                        onClick={() => downloadLabReport(report)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '8px 14px',
+                          backgroundColor: '#f0fdf4',
+                          border: '1px solid #bbf7d0',
+                          borderRadius: '10px',
+                          color: '#16a34a',
+                          cursor: 'pointer',
+                          fontSize: '0.84rem',
+                          fontWeight: 700,
+                          transition: 'all 0.2s'
+                        }}
+                        title="Download exact attached PDF or photo"
+                      >
+                        <Download size={15} />
+                        Download
+                      </button>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', padding: '6px 10px' }}>
+                      No file attached
+                    </span>
                   )}
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* Pure PDF & Photo Viewer Modal - No Big Form! */}
+      {selectedReport && (
+        <LabReportViewerModal
+          report={selectedReport}
+          onClose={() => setSelectedReport(null)}
+        />
       )}
     </div>
   );
