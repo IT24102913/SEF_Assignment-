@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/emr_api_service.dart';
+import '../../services/auth_service.dart';
 import '../../main.dart';
 import 'customer_profile_screen.dart';
 import 'customer_overview_screen.dart';
@@ -38,6 +39,53 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
 
   void _onSelectTab(int index) {
     setState(() => _currentIndex = index);
+  }
+
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.logout_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 10),
+            Text('Log Out', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to log out of your Health Bridge account?',
+          style: TextStyle(fontSize: 14, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            child: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true && mounted) {
+      await AuthService.logout();
+      AuthState.clear();
+      AppSession.isLoggedIn = false;
+      AppSession.loggedInUserEmail = null;
+      AppSession.userName = null;
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+      }
+    }
   }
 
   Future<void> _launchWhatsApp() async {
@@ -299,6 +347,17 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const CustomerProfileScreen()));
                     },
                   ),
+                  const Divider(color: Color(0xFFE2E8F0), height: 16),
+                  _buildDrawerItem(
+                    icon: Icons.logout_rounded,
+                    label: 'Log Out',
+                    selected: false,
+                    color: const Color(0xFFDC2626),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _confirmLogout();
+                    },
+                  ),
                 ],
               ),
             ),
@@ -417,19 +476,24 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
     required String label,
     required bool selected,
     required VoidCallback onTap,
+    Color? color,
   }) {
+    final iconColor = color ?? (selected ? const Color(0xFF0D9488) : const Color(0xFF64748B));
+    final textColor = color ?? (selected ? const Color(0xFF0D9488) : const Color(0xFF334155));
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: selected ? const Color(0xFFE6F5F2) : Colors.transparent,
+        color: selected
+            ? const Color(0xFFE6F5F2)
+            : (color != null ? color.withValues(alpha: 0.05) : Colors.transparent),
         borderRadius: BorderRadius.circular(10),
       ),
       child: ListTile(
-        leading: Icon(icon, color: selected ? const Color(0xFF0D9488) : const Color(0xFF64748B), size: 20),
+        leading: Icon(icon, color: iconColor, size: 20),
         title: Text(
           label,
           style: TextStyle(
-            color: selected ? const Color(0xFF0D9488) : const Color(0xFF334155),
+            color: textColor,
             fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
             fontSize: 13,
           ),

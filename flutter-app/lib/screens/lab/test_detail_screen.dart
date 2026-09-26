@@ -53,14 +53,14 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [categoryColor.withOpacity(0.85), categoryColor],
+                    colors: [categoryColor.withValues(alpha: 0.85), categoryColor],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: categoryColor.withOpacity(0.3),
+                      color: categoryColor.withValues(alpha: 0.3),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     )
@@ -72,7 +72,7 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
                       width: 64,
                       height: 64,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(18),
                       ),
                       child: const Icon(Icons.science, color: Colors.white, size: 34),
@@ -142,7 +142,7 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
             AppCard(
               color: test.isRestricted ? const Color(0xFFFFFBEB) : const Color(0xFFF0FDF4),
               border: Border.all(
-                color: test.isRestricted ? kWarning.withOpacity(0.4) : kSuccess.withOpacity(0.4),
+                color: test.isRestricted ? kWarning.withValues(alpha: 0.4) : kSuccess.withValues(alpha: 0.4),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,7 +237,7 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
           border: const Border(top: BorderSide(color: kBorder)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.06),
+              color: Colors.black.withValues(alpha: 0.06),
               blurRadius: 16,
               offset: const Offset(0, -4),
             )

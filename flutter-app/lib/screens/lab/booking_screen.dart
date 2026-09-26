@@ -6,6 +6,7 @@ import '../../services/lab_api_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/theme.dart';
 import 'my_bookings_screen.dart';
+import '../emr/customer_main_container.dart';
 
 class BookingScreen extends StatefulWidget {
   final List<LabTest> tests;
@@ -369,8 +370,13 @@ class _BookingScreenState extends State<BookingScreen> {
                 Expanded(
                   child: OutlinedButton(
                     onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.pop(context);
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const CustomerMainContainer(initialTabIndex: 2),
+                        ),
+                        (route) => false,
+                      );
                     },
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: kBorder),
@@ -384,8 +390,13 @@ class _BookingScreenState extends State<BookingScreen> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.pop(context);
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const CustomerMainContainer(initialTabIndex: 2),
+                        ),
+                        (route) => false,
+                      );
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),

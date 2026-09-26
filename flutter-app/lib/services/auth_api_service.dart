@@ -62,11 +62,22 @@ class AuthApiService {
     String? gender,
   }) async {
     Object? lastException;
+
+    // Generate unique valid Sri Lankan phone and NIC if not explicitly provided to prevent database unique constraint collisions
+    final rand = DateTime.now().millisecondsSinceEpoch;
+    final finalPhone = (phone != null && phone.trim().isNotEmpty)
+        ? phone.trim()
+        : '077${(1000000 + (rand % 8999999)).toString().padLeft(7, '0')}';
+
+    final finalNic = (nic != null && nic.trim().isNotEmpty)
+        ? nic.trim().toUpperCase()
+        : '${1985 + (rand % 30)}${(10000000 + ((rand ~/ 10) % 89999999)).toString().padLeft(8, '0')}';
+
     final payload = {
-      'fullName': name,
-      'email': email,
-      'phoneNumber': phone ?? '0770000000',
-      'nicNumber': nic ?? '900000000V',
+      'fullName': name.trim(),
+      'email': email.trim().toLowerCase(),
+      'phoneNumber': finalPhone,
+      'nicNumber': finalNic,
       'gender': gender ?? 'Prefer not to say',
       'password': password,
     };
@@ -80,12 +91,32 @@ class AuthApiService {
         ).timeout(const Duration(seconds: 4));
 
         if (response.statusCode == 200 || response.statusCode == 201) {
-          final data = jsonDecode(response.body);
-          return AuthUser.fromJson(data);
+          // Registration succeeded! Automatically login to acquire real JWT token and session
+          try {
+            return await login(email.trim().toLowerCase(), password);
+          } catch (_) {
+            final data = jsonDecode(response.body);
+            return AuthUser.fromJson(data);
+          }
         } else {
-          final body = jsonDecode(response.body);
-          final msg = body['message'] ?? 'Registration failed. Please check details.';
-          throw Exception(msg);
+          String errMsg = 'Registration failed. Please check details.';
+          try {
+            final body = jsonDecode(response.body);
+            if (body is Map) {
+              if (body['message'] != null) {
+                errMsg = body['message'].toString();
+              } else if (body['errors'] != null && body['errors'] is Map) {
+                final errMap = body['errors'] as Map;
+                final firstErrList = errMap.values.firstWhere((v) => v is List && v.isNotEmpty, orElse: () => null);
+                if (firstErrList != null && firstErrList is List && firstErrList.isNotEmpty) {
+                  errMsg = firstErrList[0].toString();
+                }
+              } else if (body['title'] != null) {
+                errMsg = body['title'].toString();
+              }
+            }
+          } catch (_) {}
+          throw Exception(errMsg);
         }
       } catch (e) {
         lastException = e;

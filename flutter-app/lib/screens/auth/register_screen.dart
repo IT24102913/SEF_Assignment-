@@ -12,8 +12,11 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _phoneCtrl = TextEditingController();
+  final _nicCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  String _gender = 'Male';
   bool _loading = false;
   bool _showPass = false;
 
@@ -21,6 +24,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
+    _phoneCtrl.dispose();
+    _nicCtrl.dispose();
     _passCtrl.dispose();
     _confirmCtrl.dispose();
     super.dispose();
@@ -28,7 +33,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     if (_nameCtrl.text.isEmpty || _emailCtrl.text.isEmpty || _passCtrl.text.isEmpty) {
-      _showError('Please fill in all fields');
+      _showError('Please fill in all required fields');
       return;
     }
     if (_passCtrl.text != _confirmCtrl.text) {
@@ -40,12 +45,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    // Normalize phone number (strip whitespace, dashes, handle +94)
+    String cleanPhone = _phoneCtrl.text.replaceAll(RegExp(r'[\s\-]'), '');
+    if (cleanPhone.startsWith('+94')) {
+      cleanPhone = '0${cleanPhone.substring(3)}';
+    } else if (cleanPhone.startsWith('94') && cleanPhone.length == 11) {
+      cleanPhone = '0${cleanPhone.substring(2)}';
+    }
+
+    if (cleanPhone.isNotEmpty && !RegExp(r'^\d{10}$').hasMatch(cleanPhone)) {
+      _showError('Phone number must be 10 digits (e.g. 0771234567 or +94771234567)');
+      return;
+    }
+
+    // Normalize NIC (strip whitespace, uppercase)
+    String cleanNic = _nicCtrl.text.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+    if (cleanNic.isNotEmpty && !RegExp(r'^(\d{9}[VX]|\d{12})$').hasMatch(cleanNic)) {
+      _showError('NIC must be 9 digits + V/X or 12 digits');
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final result = await AuthApiService.register(
         name: _nameCtrl.text.trim(),
         email: _emailCtrl.text.trim(),
         password: _passCtrl.text,
+        phone: cleanPhone.isNotEmpty ? cleanPhone : null,
+        nic: cleanNic.isNotEmpty ? cleanNic : null,
+        gender: _gender,
       );
       await AuthService.saveUser(result);
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
@@ -88,7 +116,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 24),
 
                 // Full Name
-                const Text('Full Name', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                const Text('Full Name *', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _nameCtrl,
@@ -102,7 +130,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 16),
 
                 // Email
-                const Text('Email Address', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                const Text('Email Address *', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _emailCtrl,
@@ -115,8 +143,68 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
 
+                // Phone & NIC
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Phone Number', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _phoneCtrl,
+                            keyboardType: TextInputType.phone,
+                            style: const TextStyle(color: kText),
+                            decoration: const InputDecoration(
+                              hintText: '07XXXXXXXX',
+                              prefixIcon: Icon(Icons.phone_outlined, color: kPrimary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('NIC Number', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: _nicCtrl,
+                            style: const TextStyle(color: kText),
+                            decoration: const InputDecoration(
+                              hintText: 'e.g. 1998... / ...V',
+                              prefixIcon: Icon(Icons.badge_outlined, color: kPrimary),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Gender
+                const Text('Gender', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: _gender,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.transgender_outlined, color: kPrimary),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'Male', child: Text('Male')),
+                    DropdownMenuItem(value: 'Female', child: Text('Female')),
+                    DropdownMenuItem(value: 'Prefer not to say', child: Text('Prefer not to say')),
+                  ],
+                  onChanged: (val) => setState(() => _gender = val ?? 'Male'),
+                ),
+                const SizedBox(height: 16),
+
                 // Password
-                const Text('Password', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                const Text('Password *', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _passCtrl,
@@ -134,7 +222,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 16),
 
                 // Confirm Password
-                const Text('Confirm Password', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
+                const Text('Confirm Password *', style: TextStyle(color: kTextMuted, fontSize: 13, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
                 TextField(
                   controller: _confirmCtrl,
