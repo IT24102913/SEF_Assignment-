@@ -1,40 +1,46 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../utils/config.dart';
+import 'auth_service.dart';
 
 // ─── Simple In-Memory Auth State ─────────────────────────────────────────────
 class AuthState {
   static String? token;
   static String? userId;
-  static String? name = 'John Anderson';
-  static String? email = 'john.anderson@example.com';
+  static String? name;
+  static String? email;
   static String? role = 'Patient';
-  static String? patientCode = 'PAT-1001';
-  static int? age = 41;
-  static String? phoneNumber = '+1 555-0192';
+  static String? patientCode;
+  static int? age;
+  static String? phoneNumber;
 
   static bool get isLoggedIn => token != null && token!.isNotEmpty;
 
   static void setUser(Map<String, dynamic> data) {
     token = data['token'] as String?;
     userId = data['userId'] as String?;
-    name = data['name'] as String? ?? 'John Anderson';
-    email = data['email'] as String? ?? 'john.anderson@example.com';
+    name = data['name'] as String?;
+    email = data['email'] as String?;
     role = data['role'] as String? ?? 'Patient';
-    patientCode = data['patientCode'] as String? ?? 'PAT-1001';
-    age = data['age'] is int ? data['age'] as int : (data['age'] != null ? int.tryParse(data['age'].toString()) : 41);
-    phoneNumber = data['phoneNumber'] as String? ?? '+1 555-0192';
+    patientCode = data['patientCode'] as String?;
+    age = data['age'] is int
+        ? data['age'] as int
+        : (data['age'] != null ? int.tryParse(data['age'].toString()) : null);
+    phoneNumber = data['phoneNumber'] as String?;
   }
 
   static void clear() {
-    token = userId = name = email = role = patientCode = phoneNumber = null;
+    token = userId = name = email = patientCode = phoneNumber = null;
+    role = 'Patient';
     age = null;
   }
 
   static String get initials {
-    if (name == null || name!.isEmpty) return 'JA';
-    final parts = name!.trim().split(' ');
-    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    if (name == null || name!.trim().isEmpty) return 'P';
+    final parts = name!.trim().split(RegExp(r'\s+'));
+    if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
     return parts[0][0].toUpperCase();
   }
 }
@@ -336,7 +342,7 @@ class EmrApiService {
 
   // ── Active Patient State ───────────────────────────────────────────────────
   static String activePatientCode = 'PAT-1001';
-  static String activePatientName = 'John Anderson';
+  static String activePatientName = 'Patient';
 
   static void setActivePatient(String code, String name) {
     activePatientCode = code;
@@ -344,12 +350,31 @@ class EmrApiService {
   }
 
   // ── Network Helper ─────────────────────────────────────────────────────────
+  static Future<Map<String, String>> _buildHeaders() async {
+    String? token = AuthState.token;
+    if (token == null || token.isEmpty) {
+      token = await AuthService.getToken();
+      if (token != null && token.isNotEmpty) {
+        AuthState.token = token;
+      }
+    }
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
+
   static Future<dynamic> _get(String path) async {
+    final headers = await _buildHeaders();
     // Try ADB reverse (physical device via USB) first with fast timeout
     const preferredHost = 'http://127.0.0.1:5126';
     try {
       final uri = Uri.parse('$preferredHost/api/emr$path');
-      final res = await http.get(uri).timeout(const Duration(seconds: 2));
+      final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 3));
       if (res.statusCode >= 200 && res.statusCode < 300) {
         return jsonDecode(res.body);
       }
@@ -360,7 +385,7 @@ class EmrApiService {
       if (host == preferredHost) continue; // already tried
       try {
         final uri = Uri.parse('$host/api/emr$path');
-        final res = await http.get(uri).timeout(const Duration(seconds: 2));
+        final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 3));
         if (res.statusCode >= 200 && res.statusCode < 300) {
           return jsonDecode(res.body);
         }
@@ -369,6 +394,72 @@ class EmrApiService {
     throw Exception('Failed to connect to EMR API');
   }
 
+  /// Fetches the profile of the currently authenticated patient from /patients/me
+  static Future<Patient> getMyPatient() async {
+    // 1. Sync from AuthService if AuthState is missing token or details
+    final user = await AuthService.getUser();
+    if (user != null) {
+      if (AuthState.token == null || AuthState.token!.isEmpty) {
+        AuthState.token = user.token;
+      }
+      AuthState.userId ??= user.userId;
+      AuthState.name ??= user.name;
+      AuthState.email ??= user.email;
+      AuthState.role ??= user.role;
+    }
+
+    // 2. Query backend /patients/me with Bearer token
+    try {
+      final data = await _get('/patients/me');
+      if (data != null && data is Map<String, dynamic>) {
+        final patient = Patient.fromJson(data);
+        AuthState.patientCode = patient.patientCode;
+        AuthState.name = patient.fullName;
+        AuthState.email = patient.email;
+        AuthState.phoneNumber = patient.contactPhone;
+        AuthState.age = patient.age;
+        setActivePatient(patient.patientCode, patient.fullName);
+        return patient;
+      }
+    } catch (e) {
+      // If /patients/me fails, try getPatient with existing patientCode if present
+      if (AuthState.patientCode != null &&
+          AuthState.patientCode!.isNotEmpty &&
+          AuthState.patientCode != 'PAT-1001') {
+        try {
+          return await getPatient(AuthState.patientCode!);
+        } catch (_) {}
+      }
+    }
+
+    // 3. Fallback using real logged-in user credentials (never fake 'John Anderson')
+    final realName = (AuthState.name?.isNotEmpty == true)
+        ? AuthState.name!
+        : (user?.name.isNotEmpty == true ? user!.name : 'Patient');
+    final realEmail = (AuthState.email?.isNotEmpty == true)
+        ? AuthState.email!
+        : (user?.email.isNotEmpty == true ? user!.email : '');
+    final realUserId = (AuthState.userId?.isNotEmpty == true)
+        ? AuthState.userId!
+        : (user?.userId.isNotEmpty == true ? user!.userId : '1');
+    final code = AuthState.patientCode ?? 'PAT-$realUserId';
+
+    return Patient(
+      id: realUserId,
+      patientCode: code,
+      fullName: realName,
+      age: AuthState.age ?? 0,
+      gender: 'Other',
+      bloodGroup: 'Unknown',
+      contactPhone: AuthState.phoneNumber ?? '',
+      email: realEmail,
+      address: '',
+      allergies: '',
+      chronicConditions: '',
+      emergencyContactName: '',
+      emergencyContactPhone: '',
+    );
+  }
 
   // ── Patients ───────────────────────────────────────────────────────────────
   static Future<List<Patient>> getPatients({String? search}) async {
@@ -377,21 +468,23 @@ class EmrApiService {
       final data = await _get('/patients$q') as List<dynamic>;
       return data.map((e) => Patient.fromJson(e)).toList();
     } catch (_) {
+      final realName = AuthState.name ?? 'Patient';
+      final realEmail = AuthState.email ?? '';
       return [
         Patient(
-          id: AuthState.userId ?? 'a1111111-1111-1111-1111-111111111111',
-          patientCode: AuthState.patientCode ?? 'PAT-1001',
-          fullName: AuthState.name ?? 'John Anderson',
-          age: AuthState.age ?? 41,
-          gender: 'Male',
-          bloodGroup: 'O+',
-          contactPhone: AuthState.phoneNumber ?? '+1 555-0192',
-          email: AuthState.email ?? 'john.anderson@example.com',
-          address: '742 Evergreen Terrace',
-          allergies: 'Penicillin, Peanuts',
-          chronicConditions: 'Stage 1 Hypertension',
-          emergencyContactName: 'Emergency Contact',
-          emergencyContactPhone: '+1 555-0193',
+          id: AuthState.userId ?? '1',
+          patientCode: AuthState.patientCode ?? 'PAT-1',
+          fullName: realName,
+          age: AuthState.age ?? 0,
+          gender: 'Other',
+          bloodGroup: 'Unknown',
+          contactPhone: AuthState.phoneNumber ?? '',
+          email: realEmail,
+          address: '',
+          allergies: '',
+          chronicConditions: '',
+          emergencyContactName: '',
+          emergencyContactPhone: '',
         ),
       ];
     }
@@ -411,15 +504,15 @@ class EmrApiService {
         id: AuthState.userId ?? '1',
         patientCode: AuthState.patientCode ?? idOrCode,
         fullName: AuthState.name ?? 'Patient',
-        age: AuthState.age ?? 30,
-        gender: 'Male',
-        bloodGroup: 'O+',
+        age: AuthState.age ?? 0,
+        gender: 'Other',
+        bloodGroup: 'Unknown',
         contactPhone: AuthState.phoneNumber ?? '',
         email: AuthState.email ?? '',
-        address: 'Not specified',
-        allergies: 'None',
-        chronicConditions: 'None',
-        emergencyContactName: 'Not specified',
+        address: '',
+        allergies: '',
+        chronicConditions: '',
+        emergencyContactName: '',
         emergencyContactPhone: '',
       );
     }
@@ -492,12 +585,13 @@ class EmrApiService {
 
   // ── Patient Profile Update ────────────────────────────────────────────────
   static Future<Patient> updatePatientProfile(String patientCode, Map<String, dynamic> body) async {
+    final headers = await _buildHeaders();
     for (final host in ApiConfig.candidateHosts) {
       try {
         final uri = Uri.parse('$host/api/emr/patients/code/${Uri.encodeComponent(patientCode)}');
         final res = await http.put(
           uri,
-          headers: {'Content-Type': 'application/json'},
+          headers: headers,
           body: jsonEncode(body),
         ).timeout(const Duration(seconds: 6));
 
@@ -510,9 +604,9 @@ class EmrApiService {
       'id': AuthState.userId ?? '1',
       'patientCode': patientCode,
       'fullName': body['fullName'] ?? AuthState.name ?? 'Patient',
-      'age': AuthState.age ?? 30,
-      'gender': body['gender'] ?? 'Male',
-      'bloodGroup': body['bloodGroup'] ?? 'O+',
+      'age': AuthState.age ?? 0,
+      'gender': body['gender'] ?? 'Other',
+      'bloodGroup': body['bloodGroup'] ?? 'Unknown',
       'contactPhone': body['contactPhone'] ?? AuthState.phoneNumber ?? '',
       'email': body['email'] ?? AuthState.email ?? '',
       'address': body['address'] ?? '',
@@ -520,6 +614,7 @@ class EmrApiService {
       'chronicConditions': body['chronicConditions'] ?? '',
       'emergencyContactName': body['emergencyContactName'] ?? '',
       'emergencyContactPhone': body['emergencyContactPhone'] ?? '',
+      'dateOfBirth': body['dateOfBirth'],
     });
   }
 

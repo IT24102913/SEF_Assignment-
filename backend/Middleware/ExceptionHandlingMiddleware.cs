@@ -52,7 +52,7 @@ public class ExceptionHandlingMiddleware
             status = statusCode,
             message = message,
             detail = _env.IsDevelopment() && statusCode == (int)HttpStatusCode.InternalServerError
-                ? exception.Message
+                ? (exception.InnerException != null ? $"{exception.Message} --> {exception.InnerException.Message}" : exception.Message)
                 : null
         };
 

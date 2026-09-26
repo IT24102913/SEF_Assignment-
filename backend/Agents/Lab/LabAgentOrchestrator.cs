@@ -27,6 +27,19 @@ public class AgentWorkflowState
     public bool HumanApprovalRequired { get; set; } = true;
     public string AuditSummary { get; set; } = string.Empty;
     public DateTime ProcessedAt { get; set; } = DateTime.UtcNow;
+
+    // Specific Patient Name & Date Verification details for Human Approval UI
+    public string? ExtractedPatientName { get; set; }
+    public bool PatientNameMismatch { get; set; }
+    public string? PatientNameMismatchReason { get; set; }
+    public bool PrescriptionExpired { get; set; }
+    public bool PrescriptionDateValid { get; set; } = true;
+    public string? PrescriptionDateReason { get; set; }
+
+    // Investigation / Lab Test Matching details for Human Approval UI
+    public bool TestMismatch { get; set; }
+    public List<string> ExtractedInvestigations { get; set; } = new();
+    public string? TestMismatchReason { get; set; }
 }
 
 /// <summary>
@@ -105,6 +118,12 @@ public class LabAgentOrchestrator
                     rxResult.MatchFound,
                     rxResult.DoctorName,
                     rxResult.PrescriptionDate,
+                    rxResult.IsExpired,
+                    rxResult.PrescriptionDateValid,
+                    rxResult.PrescriptionDateMismatchReason,
+                    rxResult.PrescriptionPatientName,
+                    rxResult.PatientNameMatch,
+                    rxResult.PatientNameMismatchReason,
                     rxResult.ExtractedInvestigations,
                     rxResult.Notes
                 }
@@ -143,19 +162,62 @@ public class LabAgentOrchestrator
         // =========================================================================
         // AGENT 2: LabQueueAndSafetyAgent (Clinical Operations & Patient Safety AI)
         // =========================================================================
-        var queueSafetyInput = new LabQueueSafetyInput
-        {
-            BookingId = booking.Id,
-            PatientName = booking.PatientName,
-            TestName = booking.LabTest.Name,
-            TestCategory = booking.LabTest.Category,
-            TestIsRestricted = booking.LabTest.IsRestricted,
-            BookingDate = booking.BookingDate,
-            TimeSlot = booking.TimeSlot,
-            DailySequenceNo = dailySeqCount + 1
-        };
+        // Check if a sibling test in the same appointment batch already has an allocated queue token / chair
+        var sibling = await db.LabBookings
+            .Include(b => b.LabTest)
+            .Where(b => b.Id != booking.Id
+                     && (b.PatientId == booking.PatientId || b.PatientEmail.ToLower() == booking.PatientEmail.ToLower())
+                     && b.BookingDate == booking.BookingDate
+                     && b.TimeSlot == booking.TimeSlot
+                     && b.Status != BookingStatus.Cancelled
+                     && b.Status != BookingStatus.Rejected)
+            .OrderBy(b => b.CreatedAt)
+            .FirstOrDefaultAsync();
 
-        var queueSafetyResult = await _queueSafetyAgent.EvaluateAndOptimizeAsync(queueSafetyInput);
+        LabQueueSafetyOutput queueSafetyResult;
+        if (sibling != null && !string.IsNullOrEmpty(sibling.QueueToken) && sibling.AssignedChairNo > 0)
+        {
+            queueSafetyResult = new LabQueueSafetyOutput
+            {
+                Success = true,
+                Confidence = 1.0,
+                QueueToken = sibling.QueueToken,
+                PriorityTier = sibling.PriorityTier ?? (booking.LabTest.IsRestricted ? "SPECIALIZED_PRIORITY" : "ROUTINE"),
+                AssignedChairNo = sibling.AssignedChairNo,
+                EstimatedServiceDurationMinutes = sibling.EstimatedServiceDurationMinutes,
+                EstimatedWaitMinutes = sibling.EstimatedWaitMinutes,
+                RequiresFasting = false,
+                RequiredFastingHours = 0,
+                SafetyFlags = new List<string>(),
+                PatientPrepGuidelines = new List<string>(),
+                StatusMessage = $"Unified Queue Token {sibling.QueueToken} and Chair #{sibling.AssignedChairNo} for co-booked appointment."
+            };
+        }
+        else
+        {
+            // Calculate sequence number using DISTINCT patient appointments for the date
+            var distinctAppointmentsBefore = await db.LabBookings
+                .Where(b => b.BookingDate == booking.BookingDate 
+                         && b.CreatedAt < booking.CreatedAt
+                         && !(b.PatientEmail.ToLower() == booking.PatientEmail.ToLower() && b.TimeSlot == booking.TimeSlot))
+                .Select(b => new { b.PatientEmail, b.TimeSlot })
+                .Distinct()
+                .CountAsync();
+
+            var queueSafetyInput = new LabQueueSafetyInput
+            {
+                BookingId = booking.Id,
+                PatientName = booking.PatientName,
+                TestName = booking.LabTest.Name,
+                TestCategory = booking.LabTest.Category,
+                TestIsRestricted = booking.LabTest.IsRestricted,
+                BookingDate = booking.BookingDate,
+                TimeSlot = booking.TimeSlot,
+                DailySequenceNo = distinctAppointmentsBefore + 1
+            };
+
+            queueSafetyResult = await _queueSafetyAgent.EvaluateAndOptimizeAsync(queueSafetyInput);
+        }
 
         state.StepLogs.Add(new AgentWorkflowStepLog
         {
@@ -183,31 +245,88 @@ public class LabAgentOrchestrator
         booking.EstimatedWaitMinutes = 0;
         booking.AssignedChairNo = queueSafetyResult.AssignedChairNo;
 
+        // Synchronize QueueToken and AssignedChairNo across all co-booked sibling tests in this batch
+        var batchSiblings = await db.LabBookings
+            .Where(b => b.Id != booking.Id
+                     && (b.PatientId == booking.PatientId || b.PatientEmail.ToLower() == booking.PatientEmail.ToLower())
+                     && b.BookingDate == booking.BookingDate
+                     && b.TimeSlot == booking.TimeSlot
+                     && b.Status != BookingStatus.Cancelled
+                     && b.Status != BookingStatus.Rejected)
+            .ToListAsync();
+
+        foreach (var bs in batchSiblings)
+        {
+            if (bs.QueueToken != booking.QueueToken || bs.AssignedChairNo != booking.AssignedChairNo)
+            {
+                bs.QueueToken = booking.QueueToken;
+                bs.PriorityTier = booking.PriorityTier;
+                bs.AssignedChairNo = booking.AssignedChairNo;
+            }
+        }
+
         // =========================================================================
         // Multi-Agent State Synthesis & Human-in-the-Loop Decision
         // =========================================================================
         var isOcrValid = rxResult.Success && rxResult.Confidence >= 0.7 && rxResult.MatchFound;
+        var isNameValid = rxResult.PatientNameMatch;
+        var isDateValid = rxResult.PrescriptionDateValid;
+        state.ExtractedPatientName = rxResult.PrescriptionPatientName;
+        state.PatientNameMismatch = !isNameValid;
+        state.PatientNameMismatchReason = rxResult.PatientNameMismatchReason;
+        state.PrescriptionExpired = rxResult.IsExpired;
+        state.PrescriptionDateValid = isDateValid;
+        state.PrescriptionDateReason = rxResult.PrescriptionDateMismatchReason;
+        state.TestMismatch = !rxResult.MatchFound;
+        state.ExtractedInvestigations = rxResult.ExtractedInvestigations;
+        state.TestMismatchReason = rxResult.TestMismatchReason;
+
         state.OverallConfidence = Math.Min(rxResult.Confidence, queueSafetyResult.Confidence);
 
-        if (booking.LabTest.IsRestricted && !isOcrValid)
+        if (booking.LabTest.IsRestricted)
         {
-            state.Recommendation = "FLAGGED";
-            booking.AIVerification = AIVerificationResult.Flagged;
+            if (!isNameValid || !isOcrValid || !isDateValid)
+            {
+                state.Recommendation = "FLAGGED";
+                booking.AIVerification = AIVerificationResult.Flagged;
+
+                var flagIssues = new List<string>();
+                if (!isNameValid)
+                {
+                    flagIssues.Add($"⚠️ NAME MISMATCH: {rxResult.PatientNameMismatchReason ?? $"Prescription name '{rxResult.PrescriptionPatientName}' differs from profile '{booking.PatientName}'"}");
+                }
+                if (!isDateValid)
+                {
+                    flagIssues.Add($"⚠️ EXPIRED / INVALID DATE: {rxResult.PrescriptionDateMismatchReason ?? "Prescription issue date is invalid or expired."}");
+                }
+                if (!isOcrValid || !rxResult.MatchFound)
+                {
+                    flagIssues.Add($"⚠️ TEST MISMATCH: {rxResult.TestMismatchReason ?? $"Requested '{booking.LabTest.Name}' not verified on prescription slip."}");
+                }
+
+                booking.AIVerificationNotes = string.Join(" | ", flagIssues) + $" | [Token {booking.QueueToken}] Chair #{booking.AssignedChairNo}";
+            }
+            else
+            {
+                state.Recommendation = "PRE_APPROVED";
+                booking.AIVerification = AIVerificationResult.PreApproved;
+                booking.AIVerificationNotes = $"✓ Verified: Patient name '{rxResult.PrescriptionPatientName}', date ({rxResult.PrescriptionDate:yyyy-MM-dd}) and test matched | [Token {booking.QueueToken}] Chair #{booking.AssignedChairNo}";
+            }
         }
         else
         {
             state.Recommendation = "PRE_APPROVED";
-            booking.AIVerification = booking.LabTest.IsRestricted ? AIVerificationResult.PreApproved : AIVerificationResult.NotRequired;
+            booking.AIVerification = AIVerificationResult.NotRequired;
+            booking.AIVerificationNotes = $"[Token {booking.QueueToken}] Chair #{booking.AssignedChairNo} | {queueSafetyResult.StatusMessage}";
         }
 
         booking.AIConfidenceScore = state.OverallConfidence;
-        booking.AIVerificationNotes = $"[Token {booking.QueueToken}] Chair #{booking.AssignedChairNo} | {queueSafetyResult.StatusMessage}";
         booking.Status = booking.LabTest.IsRestricted ? BookingStatus.PendingLabApproval : BookingStatus.Confirmed;
         booking.AgentWorkflowStateJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         booking.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync();
-        _logger.LogInformation("[LabAgentOrchestrator] Completed 2-Agent workflow for Booking {Id}. Token: {Token}, Result: {Result}",
-            bookingId, booking.QueueToken, booking.AIVerification);
+        _logger.LogInformation("[LabAgentOrchestrator] Completed 2-Agent workflow for Booking {Id}. Token: {Token}, Result: {Result}, NameMismatch: {Mismatch}, TestMismatch: {TestMismatch}",
+            bookingId, booking.QueueToken, booking.AIVerification, state.PatientNameMismatch, state.TestMismatch);
     }
 }

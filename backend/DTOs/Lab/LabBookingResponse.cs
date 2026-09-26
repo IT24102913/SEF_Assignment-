@@ -16,6 +16,15 @@ public class LabBookingResponse
     public double? AIConfidenceScore { get; set; }
     public string? AIExtractedDoctorName { get; set; }
     public DateOnly? AIPrescriptionDate { get; set; }
+    public bool? AIPrescriptionExpired { get; set; }
+    public bool? AIPrescriptionDateValid { get; set; }
+    public string? AIPrescriptionDateReason { get; set; }
+    public string? AIExtractedPatientName { get; set; }
+    public bool? AIPatientNameMismatch { get; set; }
+    public string? AIPatientNameMismatchReason { get; set; }
+    public bool? AITestMismatch { get; set; }
+    public List<string>? AIExtractedInvestigations { get; set; }
+    public string? AITestMismatchReason { get; set; }
     public string? TechnicianNotes { get; set; }
     public string? ResultFileUrl { get; set; }
     public DateTime? ResultsUploadedAt { get; set; }

@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../../context/AuthContext';
 import { getMyBookings, getAllTests } from '../../../api/labApi';
-import TestCatalogueSection from './TestCatalogueSection';
 import MyLabBookingsSection from './MyLabBookingsSection';
 import BookLabTestModal from './BookLabTestModal';
 import BookingTrackingModal from './BookingTrackingModal';
@@ -20,7 +19,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
     const user = propUser || authContext?.user;
     const isLoggedIn = Boolean(user && (user.id || user.userId || user.email));
 
-    const [activeTab, setActiveTab] = useState(initialTab); // 'hub' | 'catalogue' | 'bookings'
+    const [activeTab, setActiveTab] = useState(initialTab === 'catalogue' ? 'hub' : initialTab); // 'hub' | 'bookings'
     const [initialBookingFilter, setInitialBookingFilter] = useState('ALL');
     const [loginPromptAction, setLoginPromptAction] = useState(null);
 
@@ -170,26 +169,6 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                         <Activity size={16} /> Laboratory Overview
                     </button>
                     <button
-                        onClick={() => setActiveTab('catalogue')}
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            padding: '10px 20px',
-                            borderRadius: '12px',
-                            fontSize: '14px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s ease',
-                            border: 'none',
-                            background: activeTab === 'catalogue' ? '#059669' : '#F1F5F9',
-                            color: activeTab === 'catalogue' ? '#FFFFFF' : '#475569',
-                            boxShadow: activeTab === 'catalogue' ? '0 4px 14px rgba(5, 150, 105, 0.3)' : 'none'
-                        }}
-                    >
-                        <FlaskConical size={16} /> Explore Lab Tests
-                    </button>
-                    <button
                         onClick={() => {
                             if (!isLoggedIn) {
                                 requireAuth('access your laboratory bookings and reports', () => {});
@@ -274,25 +253,13 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                 </div>
             </div>
 
-            {/* TAB: CATALOGUE (EXPLORE LAB TESTS) */}
-            {activeTab === 'catalogue' && (
-                <TestCatalogueSection
-                    onBookTest={(test) => {
-                        requireAuth('book a laboratory test', () => setBookingTest(test));
-                    }}
-                    onViewBookings={() => {
-                        requireAuth('view your bookings', () => setActiveTab('bookings'));
-                    }}
-                />
-            )}
-
             {/* TAB: MY BOOKINGS */}
             {activeTab === 'bookings' && (
                 <MyLabBookingsSection
                     user={user}
                     initialFilter={initialBookingFilter}
                     onOpenBookingModal={() => setBookingTest({})}
-                    onOpenCatalogue={() => setActiveTab('catalogue')}
+                    onOpenCatalogue={() => requireAuth('book a laboratory test', () => setBookingTest({}))}
                     onTrackBooking={(b, related) => {
                         const list = (related && related.length > 0) ? related : (b._siblingBookings || [b]);
                         setTrackingBooking(b);
@@ -359,12 +326,12 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                             }}>
                                 {isLoggedIn
                                     ? 'Book certified diagnostic tests, track specimen processing in real-time with automated Gemini Vision AI verification, and download accredited medical reports.'
-                                    : 'Explore 50+ certified pathology & clinical diagnostic tests with transparent pricing. Sign in to your patient account to reserve slots, upload prescriptions, and download official medical reports.'}
+                                    : 'Certified pathology & clinical diagnostic tests with transparent pricing. Sign in to your patient account to reserve slots, upload prescriptions, and download official medical reports.'}
                             </p>
 
                             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                                 <button
-                                    onClick={() => setActiveTab('catalogue')}
+                                    onClick={() => requireAuth('book a laboratory test', () => setBookingTest({}))}
                                     style={{
                                         display: 'inline-flex',
                                         alignItems: 'center',
@@ -380,7 +347,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                                         boxShadow: '0 6px 18px rgba(0,0,0,0.15)'
                                     }}
                                 >
-                                    <FlaskConical size={16} color="#004D40" /> Explore Lab Tests
+                                    <FlaskConical size={16} color="#004D40" /> Book a Lab Test
                                 </button>
                                 {isLoggedIn ? (
                                     <button
@@ -658,20 +625,12 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
                             {[
                                 {
-                                    title: 'Explore Lab Tests & Pricing',
-                                    desc: 'Browse 50+ clinical diagnostics, sample requirements, fasting guidelines, and transparent fees without an account.',
-                                    icon: Search,
-                                    badge: 'Open to All',
-                                    gradient: 'linear-gradient(135deg, #00897B, #26A69A)',
-                                    action: () => setActiveTab('catalogue')
-                                },
-                                {
                                     title: 'Book Laboratory Test',
-                                    desc: 'Browse 50+ clinical tests with transparent pricing, instant slot reservation, and Gemini AI prescription upload.',
+                                    desc: 'Select from 50+ clinical diagnostics with transparent pricing, instant slot reservation, and Gemini AI prescription upload.',
                                     icon: FlaskConical,
                                     badge: 'Instant Booking',
                                     gradient: 'linear-gradient(135deg, #0F766E, #14B8A6)',
-                                    action: () => requireAuth('book a laboratory test', () => setActiveTab('catalogue'))
+                                    action: () => requireAuth('book a laboratory test', () => setBookingTest({}))
                                 },
                                 {
                                     title: 'Track Specimen & Status',
@@ -790,7 +749,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                                     </p>
                                 </div>
                                 <button
-                                    onClick={() => setActiveTab('catalogue')}
+                                    onClick={() => requireAuth('book a laboratory test', () => setBookingTest({}))}
                                     style={{
                                         display: 'inline-flex',
                                         alignItems: 'center',
@@ -805,7 +764,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                                         cursor: 'pointer'
                                     }}
                                 >
-                                    View All Tests <ArrowRight size={14} />
+                                    Book a Test <ArrowRight size={14} />
                                 </button>
                             </div>
 
@@ -1059,16 +1018,13 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                         }}>
                             <Sparkles size={20} color="#0D9488" style={{ flexShrink: 0 }} />
                             <span style={{ fontSize: '12.5px', color: '#475569', lineHeight: 1.4 }}>
-                                You can browse all 50+ lab tests, prices, fasting hours, and preparation guidelines freely without signing in!
+                                Sign in to your patient account to reserve slots, upload doctor prescriptions with AI verification, and download certified reports.
                             </span>
                         </div>
 
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                             <button
-                                onClick={() => {
-                                    setLoginPromptAction(null);
-                                    setActiveTab('catalogue');
-                                }}
+                                onClick={() => setLoginPromptAction(null)}
                                 style={{
                                     padding: '10px 18px',
                                     borderRadius: '10px',
@@ -1080,7 +1036,7 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                                     cursor: 'pointer'
                                 }}
                             >
-                                Explore Tests
+                                Cancel
                             </button>
                             <button
                                 onClick={() => {

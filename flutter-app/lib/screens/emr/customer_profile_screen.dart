@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
+import '../../services/auth_service.dart';
+import '../../main.dart';
 import '../../utils/theme.dart';
 
 class CustomerProfileScreen extends StatefulWidget {
@@ -50,9 +52,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       _loading = true;
       _error = '';
     });
-    final patientCode = AuthState.patientCode ?? EmrApiService.activePatientCode;
     try {
-      final patient = await EmrApiService.getPatient(patientCode);
+      final patient = await EmrApiService.getMyPatient();
       if (mounted) {
         setState(() {
           _patient = patient;
@@ -60,7 +61,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           _emergencyNameCtrl.text = patient.emergencyContactName;
           _emergencyPhoneCtrl.text = patient.emergencyContactPhone;
           _allergiesCtrl.text = patient.allergies;
-          _selectedDob = patient.dateOfBirth != DateTime.fromMillisecondsSinceEpoch(0) ? patient.dateOfBirth : null;
+          _selectedDob = (patient.dateOfBirth != null && patient.dateOfBirth != DateTime.fromMillisecondsSinceEpoch(0))
+              ? patient.dateOfBirth
+              : null;
           if (_genders.contains(patient.gender)) _selectedGender = patient.gender;
           if (_bloodGroups.contains(patient.bloodGroup)) _selectedBloodGroup = patient.bloodGroup;
           _loading = false;
@@ -82,7 +85,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       _error = '';
       _success = '';
     });
-    final patientCode = AuthState.patientCode ?? EmrApiService.activePatientCode;
+    final patientCode = _patient?.patientCode ?? AuthState.patientCode ?? EmrApiService.activePatientCode;
 
     try {
       final payload = {
@@ -111,6 +114,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         // Update local auth state if needed
         AuthState.phoneNumber = updated.contactPhone;
         AuthState.age = updated.age;
+        if (updated.fullName.isNotEmpty) {
+          AuthState.name = updated.fullName;
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -126,6 +132,53 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           _saving = false;
           _error = 'Failed to save profile. Please check server connection.';
         });
+      }
+    }
+  }
+
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.logout_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 10),
+            Text('Log Out', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to log out of your Health Bridge account?',
+          style: TextStyle(fontSize: 14, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            child: const Text('Log Out', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true && mounted) {
+      await AuthService.logout();
+      AuthState.clear();
+      AppSession.isLoggedIn = false;
+      AppSession.loggedInUserEmail = null;
+      AppSession.userName = null;
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
       }
     }
   }
@@ -153,13 +206,31 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     }
   }
 
+  String _getInitials(String name) {
+    if (name.trim().isEmpty) return 'P';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return parts[0][0].toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final name = _patient?.fullName ?? AuthState.name ?? 'Patient';
-    final age = _patient?.age ?? AuthState.age;
-    final phone = _patient?.contactPhone ?? AuthState.phoneNumber ?? 'Not provided';
-    final email = _patient?.email ?? AuthState.email ?? '';
-    final patientCode = AuthState.patientCode ?? EmrApiService.activePatientCode;
+    final name = _patient?.fullName.isNotEmpty == true
+        ? _patient!.fullName
+        : ((AuthState.name?.isNotEmpty == true) ? AuthState.name! : 'Patient');
+    final age = _patient?.age != null && _patient!.age > 0 ? _patient!.age : AuthState.age;
+    final phone = _patient?.contactPhone.isNotEmpty == true
+        ? _patient!.contactPhone
+        : (AuthState.phoneNumber?.isNotEmpty == true ? AuthState.phoneNumber! : 'Not provided');
+    final email = _patient?.email.isNotEmpty == true
+        ? _patient!.email
+        : (AuthState.email ?? '');
+    final patientCode = _patient?.patientCode.isNotEmpty == true
+        ? _patient!.patientCode
+        : (AuthState.patientCode ?? EmrApiService.activePatientCode);
+    final initials = _getInitials(name);
 
     return Scaffold(
       backgroundColor: HealthBridgeTheme.lightBg,
@@ -171,6 +242,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded, color: Colors.white),
+            tooltip: 'Log Out',
+            onPressed: _confirmLogout,
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: HealthBridgeTheme.primaryTeal))
@@ -198,7 +276,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                           ),
                           child: Center(
                             child: Text(
-                              AuthState.initials,
+                              initials,
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 20),
                             ),
                           ),
@@ -429,7 +507,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         const SizedBox(height: 6),
                         TextField(
                           controller: _addressCtrl,
-                          decoration: _inputDecoration(Icons.home_outlined, hint: 'e.g. 742 Evergreen Terrace'),
+                          decoration: _inputDecoration(Icons.home_outlined, hint: 'e.g. 12/4 Temple Road, Colombo'),
                           style: const TextStyle(fontSize: 14),
                         ),
 
@@ -440,7 +518,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         const SizedBox(height: 6),
                         TextField(
                           controller: _emergencyNameCtrl,
-                          decoration: _inputDecoration(Icons.contact_phone_outlined, hint: 'e.g. Mary Anderson (Spouse)'),
+                          decoration: _inputDecoration(Icons.contact_phone_outlined, hint: 'e.g. Jane Doe (Spouse)'),
                           style: const TextStyle(fontSize: 14),
                         ),
 
@@ -452,7 +530,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         TextField(
                           controller: _emergencyPhoneCtrl,
                           keyboardType: TextInputType.phone,
-                          decoration: _inputDecoration(Icons.phone_outlined, hint: 'e.g. +1 555-0193'),
+                          decoration: _inputDecoration(Icons.phone_outlined, hint: 'e.g. +94 77 123 4567'),
                           style: const TextStyle(fontSize: 14),
                         ),
 
@@ -463,7 +541,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         const SizedBox(height: 6),
                         TextField(
                           controller: _allergiesCtrl,
-                          decoration: _inputDecoration(Icons.warning_amber_rounded, hint: 'e.g. Penicillin, Peanuts'),
+                          decoration: _inputDecoration(Icons.warning_amber_rounded, hint: 'e.g. Penicillin, Peanuts, None'),
                           style: const TextStyle(fontSize: 14),
                         ),
                         const SizedBox(height: 4),
@@ -490,6 +568,66 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                             label: Text(
                               _saving ? 'Saving...' : 'Save Medical Profile',
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // ── Logout Section Card ───────────────────────────────────────
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: HealthBridgeTheme.cardDecoration(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.shield_outlined, size: 20, color: HealthBridgeTheme.textPrimary),
+                            SizedBox(width: 8),
+                            Text(
+                              'Account Session',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: HealthBridgeTheme.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Log out from this device to end your secure session and protect your health data.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: HealthBridgeTheme.textSecondary,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _confirmLogout,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFDC2626),
+                              side: const BorderSide(color: Color(0xFFFCA5A5), width: 1.5),
+                              backgroundColor: const Color(0xFFFEF2F2),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            icon: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 20),
+                            label: const Text(
+                              'Log Out',
+                              style: TextStyle(
+                                color: Color(0xFFDC2626),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
                             ),
                           ),
                         ),

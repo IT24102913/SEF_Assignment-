@@ -287,48 +287,96 @@ public class LabBookingsController : ControllerBase
         }));
     }
 
-    private static LabBookingResponse MapToDto(LabBooking b) => new()
+    private static LabBookingResponse MapToDto(LabBooking b)
     {
-        Id = b.Id,
-        PatientId = b.PatientId,
-        PatientName = b.PatientName,
-        PatientEmail = b.PatientEmail,
-        LabTest = b.LabTest == null ? null : new LabTestResponse
+        string? extPatientName = null;
+        bool? nameMismatch = null;
+        string? mismatchReason = null;
+        bool? prescriptionExpired = null;
+        bool? prescriptionDateValid = null;
+        string? dateReason = null;
+        bool? testMismatch = null;
+        List<string>? extractedInvestigations = null;
+        string? testMismatchReason = null;
+
+        if (!string.IsNullOrEmpty(b.AgentWorkflowStateJson))
         {
-            Id = b.LabTest.Id,
-            Name = b.LabTest.Name,
-            Description = b.LabTest.Description,
-            Price = b.LabTest.Price,
-            IsRestricted = b.LabTest.IsRestricted,
-            TurnaroundDays = b.LabTest.TurnaroundDays,
-            Category = b.LabTest.Category,
-            IsActive = b.LabTest.IsActive
-        },
-        BookingDate = b.BookingDate,
-        TimeSlot = b.TimeSlot,
-        Status = b.Status.ToString(),
-        PrescriptionImageUrl = b.PrescriptionImageUrl,
-        AIVerification = b.AIVerification.ToString(),
-        AIVerificationNotes = b.AIVerificationNotes,
-        AIConfidenceScore = b.AIConfidenceScore,
-        AIExtractedDoctorName = b.AIExtractedDoctorName,
-        AIPrescriptionDate = b.AIPrescriptionDate,
-        TechnicianNotes = b.TechnicianNotes,
-        ResultFileUrl = b.ResultFileUrl,
-        ResultsUploadedAt = b.ResultsUploadedAt,
-        QueueToken = b.QueueToken,
-        PriorityTier = b.PriorityTier,
-        EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
-        EstimatedWaitMinutes = b.EstimatedWaitMinutes,
-        AssignedChairNo = b.AssignedChairNo,
-        AgentWorkflowStateJson = b.AgentWorkflowStateJson,
-        PaymentStatus = b.PaymentStatus.ToString(),
-        PaymentMethod = b.PaymentMethod,
-        ReceiptNumber = b.ReceiptNumber,
-        AmountPaid = b.AmountPaid,
-        PaidAt = b.PaidAt,
-        CreatedAt = b.CreatedAt,
-        UpdatedAt = b.UpdatedAt
-    };
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(b.AgentWorkflowStateJson);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("extractedPatientName", out var epn)) extPatientName = epn.GetString();
+                if (root.TryGetProperty("patientNameMismatch", out var pnm)) nameMismatch = pnm.GetBoolean();
+                if (root.TryGetProperty("patientNameMismatchReason", out var pnmr)) mismatchReason = pnmr.GetString();
+                if (root.TryGetProperty("prescriptionExpired", out var pe)) prescriptionExpired = pe.GetBoolean();
+                if (root.TryGetProperty("prescriptionDateValid", out var pdv)) prescriptionDateValid = pdv.GetBoolean();
+                if (root.TryGetProperty("prescriptionDateReason", out var pdr)) dateReason = pdr.GetString();
+                if (root.TryGetProperty("testMismatch", out var tm)) testMismatch = tm.GetBoolean();
+                if (root.TryGetProperty("testMismatchReason", out var tmr)) testMismatchReason = tmr.GetString();
+                if (root.TryGetProperty("extractedInvestigations", out var ei) && ei.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    extractedInvestigations = ei.EnumerateArray()
+                        .Select(x => x.GetString())
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Select(s => s!)
+                        .ToList();
+                }
+            }
+            catch { }
+        }
+
+        return new()
+        {
+            Id = b.Id,
+            PatientId = b.PatientId,
+            PatientName = b.PatientName,
+            PatientEmail = b.PatientEmail,
+            LabTest = b.LabTest == null ? null : new LabTestResponse
+            {
+                Id = b.LabTest.Id,
+                Name = b.LabTest.Name,
+                Description = b.LabTest.Description,
+                Price = b.LabTest.Price,
+                IsRestricted = b.LabTest.IsRestricted,
+                TurnaroundDays = b.LabTest.TurnaroundDays,
+                Category = b.LabTest.Category,
+                IsActive = b.LabTest.IsActive
+            },
+            BookingDate = b.BookingDate,
+            TimeSlot = b.TimeSlot,
+            Status = b.Status.ToString(),
+            PrescriptionImageUrl = b.PrescriptionImageUrl,
+            AIVerification = b.AIVerification.ToString(),
+            AIVerificationNotes = b.AIVerificationNotes,
+            AIConfidenceScore = b.AIConfidenceScore,
+            AIExtractedDoctorName = b.AIExtractedDoctorName,
+            AIPrescriptionDate = b.AIPrescriptionDate,
+            AIPrescriptionExpired = prescriptionExpired,
+            AIPrescriptionDateValid = prescriptionDateValid,
+            AIPrescriptionDateReason = dateReason,
+            AIExtractedPatientName = extPatientName,
+            AIPatientNameMismatch = nameMismatch,
+            AIPatientNameMismatchReason = mismatchReason,
+            AITestMismatch = testMismatch,
+            AIExtractedInvestigations = extractedInvestigations,
+            AITestMismatchReason = testMismatchReason,
+            TechnicianNotes = b.TechnicianNotes,
+            ResultFileUrl = b.ResultFileUrl,
+            ResultsUploadedAt = b.ResultsUploadedAt,
+            QueueToken = b.QueueToken,
+            PriorityTier = b.PriorityTier,
+            EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
+            EstimatedWaitMinutes = b.EstimatedWaitMinutes,
+            AssignedChairNo = b.AssignedChairNo,
+            AgentWorkflowStateJson = b.AgentWorkflowStateJson,
+            PaymentStatus = b.PaymentStatus.ToString(),
+            PaymentMethod = b.PaymentMethod,
+            ReceiptNumber = b.ReceiptNumber,
+            AmountPaid = b.AmountPaid,
+            PaidAt = b.PaidAt,
+            CreatedAt = b.CreatedAt,
+            UpdatedAt = b.UpdatedAt
+        };
+    }
 }
 
