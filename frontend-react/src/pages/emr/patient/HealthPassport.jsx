@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Heart, ShieldAlert, Save, CheckCircle, AlertCircle, Loader, UserCheck
+  Heart, ShieldAlert, Save, CheckCircle, AlertCircle, Loader, UserCheck, CreditCard
 } from 'lucide-react';
 import { emrApi } from '../../../api/emrApi';
+import api from '../../../api/authApi';
 
 const T = {
   primary: '#095e51',
@@ -41,11 +42,12 @@ export default function HealthPassport() {
   const [profile, setProfile] = useState({
     fullName: storedUser.fullName || storedUser.name || '',
     email: storedUser.email || '',
-    contactPhone: '',
+    contactPhone: storedUser.phoneNumber || storedUser.contactPhone || '',
+    nicNumber: storedUser.nicNumber || '',
     dateOfBirth: '',
-    gender: 'Other',
+    gender: storedUser.gender || 'Other',
     bloodGroup: 'Unknown',
-    address: '',
+    address: storedUser.address || '',
     emergencyContactName: '',
     emergencyContactPhone: '',
     allergies: '',
@@ -58,31 +60,95 @@ export default function HealthPassport() {
 
   const fetchProfile = async () => {
     setLoading(true);
+    setError('');
     try {
-      // Use /me endpoint — gets the logged-in user's patient record
-      const data = await emrApi.getMyPatient();
-      setPatientCode(data.patientCode || '');
+      // 1. Fetch EMR patient record using getMyPatient (with fallback patientCode & email)
+      const data = await emrApi.getMyPatient(storedUser.patientCode, storedUser.email);
+      const code = data.patientCode || storedUser.patientCode || '';
+      setPatientCode(code);
+
+      let nic = data.nicNumber || storedUser.nicNumber || '';
+      let phone = data.contactPhone || storedUser.phoneNumber || storedUser.contactPhone || '';
+      let addr = data.address || storedUser.address || '';
+      let dob = data.dateOfBirth ? data.dateOfBirth.split('T')[0] : '';
+      let gen = (data.gender && data.gender !== 'Other') ? data.gender : (storedUser.gender || 'Other');
+
+      // 2. Cross-reference normal profile if any primary demographic is missing
+      if (!nic || !phone || !addr || !dob) {
+        try {
+          const res = await api.get('/Patients');
+          const list = res.data?.value || res.data || [];
+          const match = list.find(p => 
+            (p.email && p.email.toLowerCase() === (data.email || storedUser.email || '').toLowerCase()) ||
+            p.userId === storedUser.id ||
+            p.id === storedUser.id
+          );
+          if (match) {
+            if (!nic && match.nicNumber) nic = match.nicNumber;
+            if (!phone && match.phoneNumber) phone = match.phoneNumber;
+            if ((!gen || gen === 'Other') && match.gender) gen = match.gender;
+            if (!addr && (match.address || match.city)) {
+              addr = [match.address, match.city].filter(Boolean).join(', ');
+            }
+            if (!dob && match.dateOfBirth) {
+              dob = match.dateOfBirth.split('T')[0];
+            }
+          }
+        } catch (normErr) {
+          console.warn('Could not sync with supplementary profile:', normErr);
+        }
+      }
+
       setProfile({
-        fullName: data.fullName || storedUser.fullName || '',
+        fullName: data.fullName || storedUser.fullName || storedUser.name || '',
         email: data.email || storedUser.email || '',
-        contactPhone: data.contactPhone || '',
-        dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split('T')[0] : '',
-        gender: data.gender || 'Other',
+        contactPhone: phone,
+        nicNumber: nic,
+        dateOfBirth: dob,
+        gender: gen,
         bloodGroup: data.bloodGroup || 'Unknown',
-        address: data.address || '',
+        address: addr,
         emergencyContactName: data.emergencyContactName || '',
         emergencyContactPhone: data.emergencyContactPhone || '',
         allergies: data.allergies || '',
         chronicConditions: data.chronicConditions || '',
       });
     } catch (err) {
-      // fallback: use stored user info
+      // Direct fallback to normal profile
+      try {
+        const res = await api.get('/Patients');
+        const list = res.data?.value || res.data || [];
+        const match = list.find(p => 
+          (p.email && p.email.toLowerCase() === (storedUser.email || '').toLowerCase()) ||
+          p.userId === storedUser.id
+        );
+        if (match) {
+          setProfile({
+            fullName: match.fullName || storedUser.fullName || storedUser.name || '',
+            email: match.email || storedUser.email || '',
+            contactPhone: match.phoneNumber || '',
+            nicNumber: match.nicNumber || '',
+            dateOfBirth: match.dateOfBirth ? match.dateOfBirth.split('T')[0] : '',
+            gender: match.gender || 'Other',
+            bloodGroup: 'Unknown',
+            address: [match.address, match.city].filter(Boolean).join(', '),
+            emergencyContactName: match.emergencyContact || '',
+            emergencyContactPhone: '',
+            allergies: '',
+            chronicConditions: '',
+          });
+          if (storedUser.patientCode) setPatientCode(storedUser.patientCode);
+          return;
+        }
+      } catch {}
+
       setProfile(p => ({
         ...p,
         fullName: storedUser.fullName || storedUser.name || '',
         email: storedUser.email || '',
+        contactPhone: storedUser.phoneNumber || '',
+        nicNumber: storedUser.nicNumber || '',
       }));
-      setError('Could not load your medical profile from server. You can still fill in your details below.');
     } finally {
       setLoading(false);
     }
@@ -108,6 +174,7 @@ export default function HealthPassport() {
       const payload = {
         fullName: profile.fullName,
         contactPhone: profile.contactPhone,
+        nicNumber: profile.nicNumber,
         email: profile.email,
         dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString() : null,
         gender: profile.gender,
@@ -122,10 +189,20 @@ export default function HealthPassport() {
       await emrApi.updatePatientByCode(patientCode, payload);
       setSuccess('Medical profile updated successfully!');
 
-      // Sync local storage
-      const updatedUser = { ...storedUser, fullName: profile.fullName, name: profile.fullName };
+      // Sync local session user
+      const updatedUser = { 
+        ...storedUser, 
+        fullName: profile.fullName, 
+        name: profile.fullName,
+        phoneNumber: profile.contactPhone,
+        contactPhone: profile.contactPhone,
+        nicNumber: profile.nicNumber,
+        gender: profile.gender,
+        address: profile.address
+      };
       sessionStorage.setItem('user', JSON.stringify(updatedUser));
       localStorage.setItem('hb_user', JSON.stringify(updatedUser));
+      localStorage.setItem('user', JSON.stringify(updatedUser));
     } catch (err) {
       setError(err.message || 'Error saving profile. Please check server.');
     } finally {
@@ -195,26 +272,34 @@ export default function HealthPassport() {
         <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <UserCheck size={20} color={T.accent} /> Account Registration Details
         </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
           <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0 }}>
             <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>FULL NAME</div>
             <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={profile.fullName}>
               {profile.fullName || '—'}
             </div>
           </div>
-          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0, gridColumn: 'span 1' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0 }}>
             <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>EMAIL ADDRESS</div>
             <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.3' }} title={profile.email}>
               {profile.email || '—'}
             </div>
           </div>
-          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>PHONE NUMBER</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: profile.contactPhone ? '#0f172a' : '#94a3b8' }}>
               {profile.contactPhone || '—'}
             </div>
           </div>
-          <div style={{ padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f0fdf9', borderRadius: '12px', border: '1.5px solid #cce8e3' }}>
+            <div style={{ fontSize: '0.75rem', color: '#0d7c6b', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <CreditCard size={14} color="#0d7c6b" /> NATIONAL ID (NIC)
+            </div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 800, color: profile.nicNumber ? '#095e51' : '#94a3b8', letterSpacing: profile.nicNumber ? '0.5px' : 'normal' }}>
+              {profile.nicNumber || '—'}
+            </div>
+          </div>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>GENDER</div>
             <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a' }}>
               {profile.gender || '—'}

@@ -230,6 +230,9 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     final patientCode = _patient?.patientCode.isNotEmpty == true
         ? _patient!.patientCode
         : (AuthState.patientCode ?? EmrApiService.activePatientCode);
+    final nic = _patient?.nicNumber.isNotEmpty == true
+        ? _patient!.nicNumber
+        : 'Not provided';
     final initials = _getInitials(name);
 
     return Scaffold(
@@ -391,6 +394,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                     child: Column(
                       children: [
                         _buildInfoRow(Icons.person_outline, 'Full Name', name),
+                        const Divider(height: 20),
+                        _buildInfoRow(Icons.badge_outlined, 'National ID (NIC)', nic),
                         const Divider(height: 20),
                         _buildInfoRow(Icons.numbers, 'Age', age != null && age > 0 ? '$age years' : 'Not specified'),
                         const Divider(height: 20),
