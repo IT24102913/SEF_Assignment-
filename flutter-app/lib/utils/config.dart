@@ -3,12 +3,12 @@ import 'package:http/http.dart' as http;
 class ApiConfig {
   /// Remote Production Backend Host (e.g. Railway URL)
   /// Can be supplied at build time:
-  ///   flutter build apk --dart-define=BACKEND_URL=https://your-backend.up.railway.app
-  /// Or assigned directly below:
+  ///   flutter build apk --dart-define=BACKEND_URL=https://sefassignment-production.up.railway.app
+  /// Or defaults to manualRemoteHost below:
   static const String _dartDefinedBackendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
 
-  /// Optional manual remote host override (e.g. 'https://your-backend.up.railway.app')
-  static String manualRemoteHost = '';
+  /// Configured Railway production backend host
+  static String manualRemoteHost = 'https://sefassignment-production.up.railway.app';
 
   static String get productionHost {
     final raw = _dartDefinedBackendUrl.isNotEmpty ? _dartDefinedBackendUrl : manualRemoteHost;
