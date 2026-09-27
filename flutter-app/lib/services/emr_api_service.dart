@@ -370,22 +370,17 @@ class EmrApiService {
 
   static Future<dynamic> _get(String path) async {
     final headers = await _buildHeaders();
-    // Try ADB reverse (physical device via USB) first with fast timeout
-    const preferredHost = 'http://127.0.0.1:5126';
-    try {
-      final uri = Uri.parse('$preferredHost/api/emr$path');
-      final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 3));
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        return jsonDecode(res.body);
-      }
-    } catch (_) {}
 
-    // Fall through to other candidate hosts
-    for (final host in ApiConfig.candidateHosts) {
-      if (host == preferredHost) continue; // already tried
+    // Iterate through candidates (production host if defined, then local candidate hosts, then 127.0.0.1)
+    final hostsToTry = <String>{
+      ...ApiConfig.candidateHosts,
+      'http://127.0.0.1:5126',
+    }.toList();
+
+    for (final host in hostsToTry) {
       try {
         final uri = Uri.parse('$host/api/emr$path');
-        final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 3));
+        final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 4));
         if (res.statusCode >= 200 && res.statusCode < 300) {
           return jsonDecode(res.body);
         }
