@@ -35,20 +35,51 @@ public class EMRController : ControllerBase
     }
 
     /// <summary>
-    /// Get the current logged-in patient's own EMR record (from JWT token)
+    /// Get the current logged-in patient's own EMR record (from JWT token or fallback identifiers)
     /// </summary>
     [HttpGet("patients/me")]
-    [Authorize]
-    public async Task<ActionResult<PatientDto>> GetMyPatient()
+    public async Task<ActionResult<PatientDto>> GetMyPatient(
+        [FromQuery] string? patientCode, 
+        [FromQuery] string? email)
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                       ?? User.FindFirstValue("sub")
-                       ?? User.FindFirstValue("nameid");
+        int? userId = null;
+        string? userEmail = email;
 
-        if (!int.TryParse(userIdClaim, out var userId))
-            return Unauthorized(new { message = "Invalid token: cannot identify user." });
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                           ?? User.FindFirstValue("sub")
+                           ?? User.FindFirstValue("nameid");
 
-        var patient = await _emrService.GetPatientByUserIdAsync(userId);
+            if (int.TryParse(userIdClaim, out var parsedId))
+            {
+                userId = parsedId;
+            }
+
+            userEmail ??= User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
+        }
+
+        PatientDto? patient = null;
+
+        // 1. Try finding by userId
+        if (userId.HasValue)
+        {
+            patient = await _emrService.GetPatientByUserIdAsync(userId.Value);
+        }
+
+        // 2. Try finding by patientCode
+        if (patient == null && !string.IsNullOrWhiteSpace(patientCode))
+        {
+            patient = await _emrService.GetPatientByCodeAsync(patientCode.Trim());
+        }
+
+        // 3. Try finding by email
+        if (patient == null && !string.IsNullOrWhiteSpace(userEmail))
+        {
+            var list = await _emrService.GetAllPatientsAsync(userEmail.Trim());
+            patient = list.FirstOrDefault(p => string.Equals(p.Email, userEmail.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
         if (patient == null)
             return NotFound(new { message = "No EMR patient record found for your account." });
 

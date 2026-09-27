@@ -56,6 +56,7 @@ class Patient {
   final String bloodGroup;
   final String contactPhone;
   final String email;
+  final String nicNumber;
   final String address;
   final String allergies;
   final String chronicConditions;
@@ -72,6 +73,7 @@ class Patient {
     required this.bloodGroup,
     required this.contactPhone,
     required this.email,
+    this.nicNumber = '',
     required this.address,
     required this.allergies,
     required this.chronicConditions,
@@ -89,6 +91,7 @@ class Patient {
         bloodGroup: json['bloodGroup'] ?? '',
         contactPhone: json['contactPhone'] ?? '',
         email: json['email'] ?? '',
+        nicNumber: json['nicNumber'] ?? '',
         address: json['address'] ?? '',
         allergies: json['allergies'] ?? '',
         chronicConditions: json['chronicConditions'] ?? '',

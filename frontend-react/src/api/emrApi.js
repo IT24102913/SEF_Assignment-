@@ -17,10 +17,36 @@ function authHeaders() {
 
 export const emrApi = {
   // ── My Patient (logged-in user's own record) ───────────────────────────────
-  async getMyPatient() {
-    const res = await fetch(`${API_BASE}/patients/me`, { headers: authHeaders() });
-    if (!res.ok) throw new Error(`Failed to fetch your patient profile: ${res.statusText}`);
-    return await res.json();
+  async getMyPatient(fallbackCode = '', fallbackEmail = '') {
+    if (!fallbackCode || !fallbackEmail) {
+      try {
+        const raw = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
+        const u = JSON.parse(raw);
+        if (!fallbackCode && u.patientCode) fallbackCode = u.patientCode;
+        if (!fallbackEmail && u.email) fallbackEmail = u.email;
+      } catch {}
+    }
+
+    const params = new URLSearchParams();
+    if (fallbackCode) params.append('patientCode', fallbackCode);
+    if (fallbackEmail) params.append('email', fallbackEmail);
+    const query = params.toString() ? `?${params.toString()}` : '';
+
+    try {
+      const res = await fetch(`${API_BASE}/patients/me${query}`, { headers: authHeaders() });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Error calling /patients/me:', e);
+    }
+
+    if (fallbackCode) {
+      try {
+        const res = await fetch(`${API_BASE}/patients/${encodeURIComponent(fallbackCode)}`, { headers: authHeaders() });
+        if (res.ok) return await res.json();
+      } catch {}
+    }
+
+    throw new Error('Failed to fetch your patient profile');
   },
 
   // ── My Notifications (100% User-Specific from Database) ───────────────────
