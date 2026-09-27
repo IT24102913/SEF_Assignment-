@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { API_BASE_URL } from './config';
 
-const BASE_URL = 'http://localhost:5126/api/lab';
+const BASE_URL = `${API_BASE_URL}/lab`;
 
 const api = axios.create({ baseURL: BASE_URL });
 
@@ -47,13 +48,13 @@ export const deleteBookingAdmin = (id) => api.delete(`/admin/bookings/${id}`);
 export const uploadFile = (file) => {
   const formData = new FormData();
   formData.append('file', file);
-  return axios.post('http://localhost:5126/api/uploads', formData, {
+  return axios.post(`${API_BASE_URL}/uploads`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
 };
 
 // ─── Centralized Payments Subsystem ──────────────────────────────────────────
-const PAYMENTS_URL = 'http://localhost:5126/api/payments';
+const PAYMENTS_URL = `${API_BASE_URL}/payments`;
 
 export const payBookingOnline = ({ bookingId, amount, cardHolderName, cardNumber, expiryDate, cvv, patientEmail }) =>
   axios.post(`${PAYMENTS_URL}/checkout`, {

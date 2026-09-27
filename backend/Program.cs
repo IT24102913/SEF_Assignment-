@@ -12,9 +12,21 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Railway dynamic PORT binding (defaults to standard ports locally)
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
+
 // 1. Configure Database (PostgreSQL EF Core)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+// Supports local DefaultConnection as well as Railway DATABASE_URL / DATABASE_PUBLIC_URL
+var rawConnectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? Environment.GetEnvironmentVariable("DATABASE_PUBLIC_URL")
+    ?? builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' or 'DATABASE_URL' not found.");
+
+var connectionString = ProgramHelper.ParsePostgreSqlConnectionString(rawConnectionString);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -150,21 +162,18 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Seed Database (Development Only)
-if (app.Environment.IsDevelopment())
+// Seed and Migrate Database (Runs automatically in Dev and on Cloud/Railway)
+using (var scope = app.Services.CreateScope())
 {
-    using (var scope = app.Services.CreateScope())
+    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    try
     {
-        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        try
-        {
-            await DbInitializer.SeedAsync(context);
-        }
-        catch (Exception ex)
-        {
-            var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-            logger.LogError(ex, "An error occurred while seeding the database.");
-        }
+        await DbInitializer.SeedAsync(context);
+    }
+    catch (Exception ex)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while seeding / migrating the database.");
     }
 }
 
@@ -172,7 +181,10 @@ if (app.Environment.IsDevelopment())
 app.UseCors("DefaultCorsPolicy");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-if (app.Environment.IsDevelopment())
+// Enable Swagger in Development or if ENABLE_SWAGGER is set / enabled in config
+if (app.Environment.IsDevelopment() ||
+    string.Equals(Environment.GetEnvironmentVariable("ENABLE_SWAGGER"), "true", StringComparison.OrdinalIgnoreCase) ||
+    app.Configuration.GetValue<bool>("EnableSwagger", true))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
@@ -217,4 +229,38 @@ public class SuppressAntiforgeryFeature : Microsoft.AspNetCore.Antiforgery.IAnti
 {
     public bool IsValid => true;
     public Exception? Error => null;
+}
+
+public static partial class ProgramHelper
+{
+    /// <summary>
+    /// Converts a Railway/Heroku PostgreSQL URI (postgres:// or postgresql://) to a standard Npgsql connection string.
+    /// Returns the raw string unchanged if already in standard Npgsql key=value format.
+    /// </summary>
+    public static string ParsePostgreSqlConnectionString(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return raw;
+
+        if (raw.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+            raw.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var uri = new Uri(raw);
+                var userInfo = uri.UserInfo.Split(':');
+                var username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
+                var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+                var database = uri.AbsolutePath.TrimStart('/');
+                var port = uri.Port > 0 ? uri.Port : 5432;
+
+                return $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Prefer;Trust Server Certificate=true;Timeout=30;Command Timeout=30;Keepalive=30;";
+            }
+            catch
+            {
+                return raw;
+            }
+        }
+
+        return raw;
+    }
 }
