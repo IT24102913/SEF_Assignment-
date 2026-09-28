@@ -35,6 +35,12 @@ public class EmailService : IEmailService
         var fromEmail = _config["Brevo:FromEmail"] ?? "noreply@labsystem.com";
         var fromName = _config["Brevo:FromName"] ?? "HealthCare Lab System";
 
+        if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass))
+        {
+            _logger.LogWarning("[Email] Brevo SMTP credentials not configured. Skipping email dispatch to {Email}.", toEmail);
+            return;
+        }
+
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(fromName, fromEmail));
         message.To.Add(new MailboxAddress(toName, toEmail));
@@ -47,11 +53,13 @@ public class EmailService : IEmailService
         {
             _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
             
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             using var client = new SmtpClient();
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(smtpUser, smtpPass);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
+            client.Timeout = 4000;
+            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls, cts.Token);
+            await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
+            await client.SendAsync(message, cts.Token);
+            await client.DisconnectAsync(true, cts.Token);
             
             _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo SMTP", toEmail);
         }
