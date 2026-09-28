@@ -363,8 +363,16 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
 
     private static string CleanJsonText(string text)
     {
+        if (string.IsNullOrWhiteSpace(text)) return "{}";
         var trimmed = text.Trim();
-        if (trimmed.StartsWith("```json"))
+        var startIdx = trimmed.IndexOf('{');
+        var endIdx = trimmed.LastIndexOf('}');
+        if (startIdx >= 0 && endIdx > startIdx)
+        {
+            return trimmed.Substring(startIdx, endIdx - startIdx + 1);
+        }
+
+        if (trimmed.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
             trimmed = trimmed.Substring(7);
         else if (trimmed.StartsWith("```"))
             trimmed = trimmed.Substring(3);

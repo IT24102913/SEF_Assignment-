@@ -32,8 +32,8 @@ public class EmailService : IEmailService
         var smtpPort = int.Parse(_config["Brevo:SmtpPort"] ?? "587");
         var smtpUser = _config["Brevo:SmtpUser"];
         var smtpPass = _config["Brevo:SmtpPass"];
-        var fromEmail = _config["Brevo:FromEmail"] ?? "noreply@labsystem.com";
-        var fromName = _config["Brevo:FromName"] ?? "HealthCare Lab System";
+        var fromEmail = _config["Brevo:FromEmail"] ?? "diniruga@gmail.com";
+        var fromName = _config["Brevo:FromName"] ?? "Health Bridge Pvt - Lab System";
 
         if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass))
         {
@@ -53,10 +53,12 @@ public class EmailService : IEmailService
         {
             _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
             
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             using var client = new SmtpClient();
-            client.Timeout = 4000;
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls, cts.Token);
+            client.Timeout = 15000;
+            client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+            client.CheckCertificateRevocation = false;
+            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.Auto, cts.Token);
             await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
             await client.SendAsync(message, cts.Token);
             await client.DisconnectAsync(true, cts.Token);
