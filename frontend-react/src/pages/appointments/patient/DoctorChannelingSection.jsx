@@ -86,6 +86,28 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     fetchDoctorsList();
   }, []);
 
+  // ─── Browser Back Button Support for Multi-Step Wizard ──────────────────
+  // Push a history entry when advancing past step 1 so the browser back
+  // button walks backward through wizard steps instead of leaving the page.
+  useEffect(() => {
+    if (currentStep > 1) {
+      window.history.pushState({ channelingStep: currentStep }, '');
+    }
+  }, [currentStep]);
+
+  useEffect(() => {
+    const handlePopState = (e) => {
+      // If we're past step 1, go back one step instead of leaving
+      if (currentStep > 1) {
+        e.preventDefault();
+        setCurrentStep(prev => Math.max(1, prev - 1));
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentStep]);
+
+
   const notify = (msg, type = 'success') => {
     if (showToast) showToast(msg, type);
     else alert(msg);

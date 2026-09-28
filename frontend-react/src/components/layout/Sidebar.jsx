@@ -94,7 +94,15 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-logo">
+      <div
+        className="sidebar-logo"
+        style={{ cursor: 'pointer', transition: 'background 0.2s ease' }}
+        onClick={() => navigate('/laboratory/dashboard')}
+        title="Go to Lab Dashboard"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') navigate('/laboratory/dashboard'); }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <h2>🧪 LabSystem</h2>
           <span style={{ 

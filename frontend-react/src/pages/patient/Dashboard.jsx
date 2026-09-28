@@ -50,7 +50,14 @@ const Sidebar = ({ active, onNavigate, user, onLogout }) => {
     ];
     return (
         <aside style={ps.sidebar}>
-            <div style={ps.sidebarLogo}>
+            <div
+                style={{ ...ps.sidebarLogo, cursor: 'pointer', transition: 'background 0.2s ease' }}
+                onClick={() => onNavigate('home')}
+                title="Go to Dashboard Overview"
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('home'); }}
+            >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <img src={logoImage} alt="Health Bridge Private" style={ps.logoImg} />
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1364,10 +1371,12 @@ const PatientDashboard = () => {
         }
         if (tab === activeTab) return;
 
+        // Use replace:true for tab switches to prevent back-button loops
+        // between dashboard tabs. The user can always click sidebar items.
         if (tab === 'home') {
-            navigate('/patient/dashboard');
+            navigate('/patient/dashboard', { replace: true });
         } else {
-            navigate(`/patient/dashboard?tab=${tab}`);
+            navigate(`/patient/dashboard?tab=${tab}`, { replace: true });
         }
     };
 
