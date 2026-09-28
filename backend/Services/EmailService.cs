@@ -53,9 +53,9 @@ public class EmailService : IEmailService
         {
             _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
             
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             using var client = new SmtpClient();
-            client.Timeout = 4000;
+            client.Timeout = 15000;
             await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls, cts.Token);
             await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
             await client.SendAsync(message, cts.Token);
