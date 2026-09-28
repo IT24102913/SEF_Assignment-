@@ -571,6 +571,66 @@ public class EMRService : IEMRService
         return true;
     }
 
+    public async Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return null;
+
+        rx.HasAuthorizationRequest = true;
+        rx.AuthorizationType = string.IsNullOrWhiteSpace(dto.RequestType) ? "Delete" : dto.RequestType.Trim();
+        rx.AuthorizationReason = dto.Reason?.Trim() ?? string.Empty;
+        rx.AuthorizationRequestedBy = dto.RequestedBy?.Trim() ?? "Pharmacist";
+        rx.AuthorizationRequestedAt = DateTime.UtcNow;
+        rx.AuthorizationStatus = "Pending";
+        rx.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Pharmacist requested {Type} authorization for prescription {Id} ({Med}). Reason: {Reason}",
+            rx.AuthorizationType, rx.Id, rx.MedicationName, rx.AuthorizationReason);
+
+        return MapPrescriptionToDto(rx);
+    }
+
+    public async Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string? adminNote = null)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return false;
+
+        _logger.LogInformation("[EMR] Admin approved pharmacist deletion request for prescription {Id} ({Med}). Note: {Note}",
+            rx.Id, rx.MedicationName, adminNote ?? "None");
+
+        _db.Prescriptions.Remove(rx);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string? adminNote = null)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return null;
+
+        rx.HasAuthorizationRequest = false;
+        rx.AuthorizationStatus = "Rejected";
+        rx.UpdatedAt = DateTime.UtcNow;
+
+        _logger.LogInformation("[EMR] Admin rejected pharmacist authorization request for prescription {Id}. Note: {Note}",
+            rx.Id, adminNote ?? "None");
+
+        await _db.SaveChangesAsync();
+        return MapPrescriptionToDto(rx);
+    }
+
+    public async Task<IEnumerable<PrescriptionDto>> GetPendingPrescriptionAuthorizationsAsync()
+    {
+        var list = await _db.Prescriptions
+            .Include(p => p.Patient)
+            .Where(p => p.HasAuthorizationRequest && p.AuthorizationStatus == "Pending")
+            .OrderByDescending(p => p.AuthorizationRequestedAt)
+            .ToListAsync();
+
+        return list.Select(MapPrescriptionToDto);
+    }
+
     // ─── Business-Specific Operation: Clinical Health Summary & Safety Checks ──
 
     public async Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId)
@@ -1025,6 +1085,12 @@ public class EMRService : IEMRService
         UnitPrice = p.UnitPrice,
         PrescribedDoctor = p.PrescribedDoctor,
         Status = p.Status,
+        HasAuthorizationRequest = p.HasAuthorizationRequest,
+        AuthorizationType = p.AuthorizationType,
+        AuthorizationReason = p.AuthorizationReason,
+        AuthorizationRequestedBy = p.AuthorizationRequestedBy,
+        AuthorizationRequestedAt = p.AuthorizationRequestedAt,
+        AuthorizationStatus = p.AuthorizationStatus,
         CreatedAt = p.CreatedAt,
         UpdatedAt = p.UpdatedAt
     };

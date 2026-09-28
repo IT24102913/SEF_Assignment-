@@ -15,7 +15,8 @@ import {
   FlaskConical,
   CheckCircle2,
   Clock,
-  RotateCcw
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -249,6 +250,23 @@ export default function AdminPortalDashboard({ staffSession }) {
     toast.success(`Prescription status changed to ${newStatus}.`);
   };
 
+  // Pharmacist Edit / Delete Authorization Requests
+  const pendingRxAuthorizations = useMemo(() => {
+    return prescriptions.filter(rx => rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending');
+  }, [prescriptions]);
+
+  const handleApproveAndDeletePrescription = async (id, medName) => {
+    if (window.confirm(`Admin Action: Permanently delete "${medName}" based on pharmacist authorization request?`)) {
+      await emrStore.approveAndDeletePrescription(id, 'Admin approved deletion request');
+      toast.success(`"${medName}" has been permanently deleted based on pharmacist request.`);
+    }
+  };
+
+  const handleRejectRxAuthorization = async (id, medName) => {
+    await emrStore.rejectPrescriptionAuthorization(id, 'Admin rejected authorization');
+    toast('Pharmacist authorization request dismissed.', { icon: 'ℹ️' });
+  };
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
       {/* 1. Admin Header Banner */}
@@ -353,6 +371,18 @@ export default function AdminPortalDashboard({ staffSession }) {
           }}
         >
           <Pill size={18} /> Pharmacy Records ({prescriptions.length})
+          {pendingRxAuthorizations.length > 0 && (
+            <span style={{
+              backgroundColor: '#ef4444',
+              color: '#ffffff',
+              fontSize: '0.72rem',
+              fontWeight: 800,
+              padding: '2px 8px',
+              borderRadius: '12px'
+            }}>
+              {pendingRxAuthorizations.length} Request{pendingRxAuthorizations.length > 1 ? 's' : ''}
+            </span>
+          )}
         </button>
 
         <button
@@ -939,6 +969,158 @@ export default function AdminPortalDashboard({ staffSession }) {
             </div>
           </div>
 
+          {/* Pharmacist Authorization Requests Alert Box */}
+          {pendingRxAuthorizations.length > 0 && (
+            <div style={{
+              backgroundColor: '#fff7ed',
+              border: '2px solid #fdba74',
+              borderRadius: '14px',
+              padding: '20px 22px',
+              marginBottom: '24px',
+              boxShadow: '0 4px 12px rgba(234, 88, 12, 0.08)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '10px',
+                    backgroundColor: '#ea580c',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <AlertTriangle size={20} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#9a3412' }}>
+                      Pharmacist Authorization Requests ({pendingRxAuthorizations.length} Pending)
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: '#c2410c' }}>
+                      Pharmacists have requested admin authorization to delete or correct dispensed medicines due to mistakes.
+                    </p>
+                  </div>
+                </div>
+
+                <span style={{
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  backgroundColor: '#ea580c',
+                  color: '#ffffff',
+                  padding: '3px 12px',
+                  borderRadius: '14px'
+                }}>
+                  Action Required
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {pendingRxAuthorizations.map(rx => (
+                  <div
+                    key={rx.id}
+                    style={{
+                      backgroundColor: '#ffffff',
+                      border: '1.5px solid #fed7aa',
+                      borderRadius: '12px',
+                      padding: '16px 18px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '14px'
+                    }}
+                  >
+                    <div style={{ flex: '1 1 450px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>
+                          {rx.medication}
+                        </span>
+                        <span style={{
+                          fontSize: '0.74rem',
+                          backgroundColor: rx.authorizationType === 'Delete' ? '#fee2e2' : '#f3e8ff',
+                          color: rx.authorizationType === 'Delete' ? '#dc2626' : '#7e22ce',
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: '8px',
+                          border: rx.authorizationType === 'Delete' ? '1px solid #fca5a5' : '1px solid #d8b4fe'
+                        }}>
+                          Requested: {rx.authorizationType || 'Delete'}
+                        </span>
+                        <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                          Customer: <strong>{rx.patientName} ({rx.patientId})</strong>
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '0.84rem', color: '#475569', marginBottom: '6px' }}>
+                        Dosage: <strong>{rx.dosage}</strong> • Doctor: <strong>{rx.prescribedDoctor}</strong> • Cost: {rx.unitPrice}
+                      </div>
+
+                      <div style={{
+                        fontSize: '0.82rem',
+                        backgroundColor: '#fffbeb',
+                        border: '1px solid #fef3c7',
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        color: '#92400e'
+                      }}>
+                        <strong>Pharmacist Note:</strong> "{rx.authorizationReason || 'No details provided'}"
+                        {rx.authorizationRequestedBy && (
+                          <span style={{ color: '#b45309', marginLeft: '6px' }}>
+                            (By {rx.authorizationRequestedBy})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Admin Action Buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleApproveAndDeletePrescription(rx.id, rx.medication)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          backgroundColor: '#dc2626',
+                          color: '#ffffff',
+                          border: 'none',
+                          padding: '9px 16px',
+                          borderRadius: '8px',
+                          fontSize: '0.84rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(220, 38, 38, 0.25)',
+                          transition: 'background 0.2s'
+                        }}
+                        title="Permanently delete this medicine based on pharmacist request"
+                      >
+                        <Trash2 size={15} /> Approve & Delete Medicine
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRejectRxAuthorization(rx.id, rx.medication)}
+                        style={{
+                          backgroundColor: '#f1f5f9',
+                          color: '#475569',
+                          border: '1px solid #cbd5e1',
+                          padding: '9px 14px',
+                          borderRadius: '8px',
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Pharmacy Search & Filter Toolbar */}
           <div style={{
             display: 'flex',
@@ -1132,6 +1314,26 @@ export default function AdminPortalDashboard({ staffSession }) {
                         <strong>Instructions:</strong> {rx.dosage}
                       </div>
                     )}
+
+                    {rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' && (
+                      <div style={{
+                        marginTop: '8px',
+                        backgroundColor: '#fff7ed',
+                        border: '1px solid #fed7aa',
+                        borderRadius: '8px',
+                        padding: '6px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.82rem',
+                        color: '#c2410c'
+                      }}>
+                        <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                        <span>
+                          <strong>Pharmacist requested deletion:</strong> "{rx.authorizationReason}" {rx.authorizationRequestedBy ? `(By ${rx.authorizationRequestedBy})` : ''}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1162,11 +1364,17 @@ export default function AdminPortalDashboard({ staffSession }) {
                     </div>
 
                     <button
-                      onClick={() => handleDeletePrescription(rx.id)}
+                      onClick={() => {
+                        if (rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending') {
+                          handleApproveAndDeletePrescription(rx.id, rx.medication);
+                        } else {
+                          handleDeletePrescription(rx.id);
+                        }
+                      }}
                       style={{
-                        backgroundColor: '#fef2f2',
-                        border: '1px solid #fecaca',
-                        color: '#dc2626',
+                        backgroundColor: rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' ? '#dc2626' : '#fef2f2',
+                        border: rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' ? '1px solid #b91c1c' : '1px solid #fecaca',
+                        color: rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' ? '#ffffff' : '#dc2626',
                         padding: '8px 14px',
                         borderRadius: '8px',
                         cursor: 'pointer',
@@ -1174,10 +1382,13 @@ export default function AdminPortalDashboard({ staffSession }) {
                         alignItems: 'center',
                         gap: '6px',
                         fontSize: '0.82rem',
-                        fontWeight: 700
+                        fontWeight: 700,
+                        boxShadow: rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' ? '0 2px 6px rgba(220, 38, 38, 0.25)' : 'none'
                       }}
+                      title={rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' ? 'Approve pharmacist request and delete medicine' : 'Delete prescription'}
                     >
-                      <Trash2 size={16} /> Delete
+                      <Trash2 size={16} />
+                      {rx.hasAuthorizationRequest && rx.authorizationStatus === 'Pending' ? 'Delete (Pharmacist Request)' : 'Delete'}
                     </button>
                   </div>
                 </div>

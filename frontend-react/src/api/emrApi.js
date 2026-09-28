@@ -211,6 +211,51 @@ export const emrApi = {
     return true;
   },
 
+  async requestPrescriptionAuthorization(id, data) {
+    const res = await fetch(`${API_BASE}/prescriptions/${id}/request-authorization`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `Failed to submit authorization request: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
+  async getPendingPrescriptionAuthorizations() {
+    const res = await fetch(`${API_BASE}/prescriptions/authorizations/pending`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`Failed to fetch pending authorizations: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async approveAndDeletePrescription(id, adminNote = '') {
+    const res = await fetch(`${API_BASE}/prescriptions/${id}/approve-delete`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'ApproveDelete', adminNote })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `Failed to approve and delete prescription: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
+  async rejectPrescriptionAuthorization(id, adminNote = '') {
+    const res = await fetch(`${API_BASE}/prescriptions/${id}/reject-authorization`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ action: 'Reject', adminNote })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `Failed to reject authorization: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
   // ── Channeling Appointments ───────────────────────────────────────────────
   async getChannelingAppointments(patientCode = '') {
     const url = patientCode ? `${API_BASE}/channeling-appointments?patientCode=${encodeURIComponent(patientCode)}` : `${API_BASE}/channeling-appointments`;
