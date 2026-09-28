@@ -19,21 +19,67 @@ public class EmailService : IEmailService
 {
     private readonly IConfiguration _config;
     private readonly ILogger<EmailService> _logger;
+    private readonly HttpClient _httpClient;
 
-    public EmailService(IConfiguration config, ILogger<EmailService> logger)
+    public EmailService(IConfiguration config, ILogger<EmailService> logger, IHttpClientFactory? httpClientFactory = null)
     {
         _config = config;
         _logger = logger;
+        _httpClient = httpClientFactory != null ? httpClientFactory.CreateClient() : new HttpClient();
     }
 
     private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
     {
+        var apiKey = _config["Brevo:ApiKey"];
+        var fromEmail = _config["Brevo:FromEmail"] ?? "diniruga@gmail.com";
+        var fromName = _config["Brevo:FromName"] ?? "Health Bridge Pvt - Lab System";
+
+        // 1. Try Brevo HTTPS REST API (Port 443 - Works reliably on Railway without firewall block)
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            try
+            {
+                _logger.LogInformation("[Email] Sending email via Brevo HTTPS REST API FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+                request.Headers.Add("api-key", apiKey);
+
+                var payload = new
+                {
+                    sender = new { name = fromName, email = fromEmail },
+                    to = new[] { new { email = toEmail, name = toName } },
+                    subject = subject,
+                    htmlContent = htmlContent
+                };
+
+                request.Content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(payload), 
+                    System.Text.Encoding.UTF8, 
+                    "application/json");
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var response = await _httpClient.SendAsync(request, cts.Token);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo HTTPS REST API", toEmail);
+                    return;
+                }
+
+                var errBody = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("[Email] Brevo HTTPS API returned {StatusCode}: {Error}. Falling back to SMTP.", response.StatusCode, errBody);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Email] Brevo HTTPS API failed: {Message}. Falling back to SMTP.", ex.Message);
+            }
+        }
+
+        // 2. Fallback to SMTP relay
         var smtpServer = _config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com";
         var smtpPort = int.Parse(_config["Brevo:SmtpPort"] ?? "587");
         var smtpUser = _config["Brevo:SmtpUser"];
         var smtpPass = _config["Brevo:SmtpPass"];
-        var fromEmail = _config["Brevo:FromEmail"] ?? "diniruga@gmail.com";
-        var fromName = _config["Brevo:FromName"] ?? "Health Bridge Pvt - Lab System";
 
         if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass))
         {
@@ -51,7 +97,7 @@ public class EmailService : IEmailService
 
         try
         {
-            _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
+            _logger.LogInformation("[Email] Attempting fallback to SMTP relay FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
             
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             using var client = new SmtpClient();
