@@ -285,7 +285,8 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                 itemBuilder: (context, index) {
                   final session = _sessionsForDate[index];
                   final isSelected = _selectedSession?.id == session.id;
-                  final available = session.isAvailable;
+                  final isExpired = session.isExpired;
+                  final available = session.isAvailable && !isExpired;
 
                   return InkWell(
                     onTap: available
@@ -296,17 +297,21 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: !available
-                            ? const Color(0xFFF1F5F9)
-                            : isSelected
-                                ? const Color(0xFFE0F2F1)
-                                : Colors.white,
+                        color: isExpired
+                            ? const Color(0xFFFFF1F2)
+                            : !available
+                                ? const Color(0xFFF1F5F9)
+                                : isSelected
+                                    ? const Color(0xFFE0F2F1)
+                                    : Colors.white,
                         border: Border.all(
                           color: isSelected
                               ? kPrimary
-                              : available
-                                  ? kBorder
-                                  : const Color(0xFFE2E8F0),
+                              : isExpired
+                                  ? const Color(0xFFFECDD3)
+                                  : available
+                                      ? kBorder
+                                      : const Color(0xFFE2E8F0),
                           width: isSelected ? 2 : 1,
                         ),
                         borderRadius: BorderRadius.circular(8),
@@ -319,14 +324,22 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: !available ? Colors.grey : kPrimaryDark,
+                              color: isExpired
+                                  ? const Color(0xFFE11D48)
+                                  : !available
+                                      ? Colors.grey
+                                      : kPrimaryDark,
                             ),
                           ),
                           Text(
-                            available ? 'Available' : 'Booked',
+                            isExpired
+                                ? 'Expired'
+                                : (available ? 'Available' : 'Booked'),
                             style: TextStyle(
                               fontSize: 9,
-                              color: available ? kPrimary : Colors.grey,
+                              color: isExpired
+                                  ? const Color(0xFFBE123C)
+                                  : (available ? kPrimary : Colors.grey),
                               fontWeight: FontWeight.w600,
                             ),
                           ),

@@ -10,10 +10,10 @@ const api = axios.create({
   }
 });
 
-// Attach JWT token from localStorage if available
+// Attach JWT token from sessionStorage or localStorage if available
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+  if (token && !token.startsWith('mock-demo')) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -91,5 +91,25 @@ export const getAppointmentStats = () =>
 
 export const deleteAppointment = (id) =>
   api.delete(`/doctorappointments/${id}`);
+
+// ─── Check-In & Session Workflow ─────────────────────────────────────────────
+
+export const checkInAppointment = (id, qrToken) =>
+  api.post(`/doctorappointments/${id}/checkin`, { qrToken });
+
+export const getSessionQueue = (sessionId) =>
+  api.get(`/doctorsessions/${sessionId}/queue`);
+
+export const startSession = (sessionId) =>
+  api.post(`/doctorsessions/${sessionId}/start`);
+
+export const delaySession = (sessionId, expectedStartTime, reason = '') =>
+  api.post(`/doctorsessions/${sessionId}/delay`, { expectedStartTime, reason });
+
+export const callNextPatient = (sessionId) =>
+  api.post(`/doctorsessions/${sessionId}/callnext`);
+
+export const cancelSession = (sessionId) =>
+  api.post(`/doctorsessions/${sessionId}/cancel`);
 
 export default api;

@@ -93,12 +93,16 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
             Text('Ref: ${apt.appointmentNumber}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 12),
             Image.network(
-              'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${Uri.encodeComponent(apt.qrCodeText.isNotEmpty ? apt.qrCodeText : apt.appointmentNumber)}',
+              'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${Uri.encodeComponent(apt.qrToken.isNotEmpty ? apt.qrToken : (apt.qrCodeText.isNotEmpty ? apt.qrCodeText : apt.appointmentNumber))}',
               width: 160,
               height: 160,
+              errorBuilder: (context, error, stackTrace) => const Icon(Icons.qr_code, size: 80, color: kPrimary),
             ),
             const SizedBox(height: 10),
             Text('${apt.doctorName} • ${apt.timeSlot}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 4),
+            Text(apt.bookingType == 'Reservation' ? 'Reserved — Pay at Channeling Desk' : 'Paid Online',
+                style: TextStyle(fontSize: 10, color: apt.bookingType == 'Reservation' ? Colors.orange.shade800 : Colors.green.shade800, fontWeight: FontWeight.bold)),
           ],
         ),
         actions: [
@@ -109,7 +113,7 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
   }
 
   List<DoctorAppointment> get _upcomingAppointments =>
-      _appointments.where((a) => a.status == 'Confirmed' || a.status == 'InProgress' || a.status == 'PendingPayment').toList();
+      _appointments.where((a) => a.status == 'Confirmed' || a.status == 'InProgress' || a.status == 'PendingPayment' || a.status == 'Reserved').toList();
 
   List<DoctorAppointment> get _completedAppointments =>
       _appointments.where((a) => a.status == 'Completed').toList();
@@ -184,17 +188,20 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
       itemCount: list.length,
       itemBuilder: (context, index) {
         final apt = list[index];
+        final isReserved = apt.status == 'Reserved' || apt.bookingType == 'Reservation';
         final isConfirmed = apt.status == 'Confirmed';
         final isInProgress = apt.status == 'InProgress';
         final isCompleted = apt.status == 'Completed';
 
-        Color statusColor = isConfirmed
-            ? Colors.green
-            : isInProgress
-                ? Colors.orange
-                : isCompleted
-                    ? Colors.blue
-                    : Colors.red;
+        Color statusColor = isReserved
+            ? Colors.amber.shade800
+            : isConfirmed
+                ? Colors.green
+                : isInProgress
+                    ? Colors.orange
+                    : isCompleted
+                        ? Colors.blue
+                        : Colors.red;
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -210,16 +217,52 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      apt.status,
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
-                    ),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          apt.status,
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: apt.bookingType == 'Reservation' ? Colors.orange.shade50 : Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          apt.bookingType == 'Reservation' ? 'Reservation' : 'Paid Online',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: apt.bookingType == 'Reservation' ? Colors.orange.shade800 : Colors.blue.shade800,
+                          ),
+                        ),
+                      ),
+                      if (apt.arrivalStatus != 'Pending')
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: apt.arrivalStatus == 'OnTime' ? Colors.green.shade50 : Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Arrival: ${apt.arrivalStatus}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: apt.arrivalStatus == 'OnTime' ? Colors.green.shade800 : Colors.blue.shade800,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   Text('Queue #${apt.queueNumber.toString().padLeft(2, '0')}',
                       style: const TextStyle(fontWeight: FontWeight.w900, color: kPrimaryDark, fontSize: 13)),
@@ -251,7 +294,7 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
                     label: const Text('View QR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                     style: TextButton.styleFrom(foregroundColor: kPrimary),
                   ),
-                  if (isConfirmed) ...[
+                  if (isConfirmed || isReserved) ...[
                     const SizedBox(width: 6),
                     TextButton(
                       onPressed: () => _cancelBooking(apt.id),

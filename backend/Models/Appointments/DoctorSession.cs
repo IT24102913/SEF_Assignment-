@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
+using HealthBridge.Api.Models.Appointments;
 
 namespace HealthBridge.Api.Models;
 
@@ -25,6 +26,16 @@ public class DoctorSession
     public int CurrentBookings { get; set; } = 0;
 
     public bool IsActive { get; set; } = true;
+
+    public SessionStatus SessionStatus { get; set; } = SessionStatus.Scheduled;
+
+    public DateTime? ActualStartTime { get; set; }
+
+    public DateTime? ExpectedStartTime { get; set; }
+
+    public int? CurrentlyServingQueueNumber { get; set; }
+
+    public string? DelayReason { get; set; }
 
     [NotMapped]
     public bool IsAvailable => IsActive && CurrentBookings < MaxCapacity;
