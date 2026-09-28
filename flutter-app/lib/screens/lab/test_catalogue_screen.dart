@@ -37,14 +37,22 @@ class _TestCatalogueScreenState extends State<TestCatalogueScreen> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
-      final results = await Future.wait([
-        LabApiService.getTests(search: _search, category: _selectedCategory),
-        LabApiService.getCategories(),
-      ]);
+      final testsFuture = LabApiService.getTests(search: _search, category: _selectedCategory)
+          .catchError((_) => <LabTest>[]);
+      final catsFuture = LabApiService.getCategories()
+          .catchError((_) => <String>[]);
+
+      final tests = await testsFuture;
+      final cats = await catsFuture;
+
       if (!mounted) return;
       setState(() {
-        _tests = results[0] as List<LabTest>;
-        _categories = results[1] as List<String>;
+        _tests = tests;
+        if (cats.isNotEmpty) {
+          _categories = cats;
+        } else if (_tests.isNotEmpty) {
+          _categories = _tests.map((t) => t.category).where((c) => c.isNotEmpty).toSet().toList();
+        }
         _loading = false;
       });
     } catch (_) {
