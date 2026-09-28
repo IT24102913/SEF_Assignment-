@@ -297,79 +297,62 @@ public class AppointmentService : IAppointmentService
             throw new InvalidOperationException("Selected time slot has already passed and is no longer available.");
         }
 
-        DoctorAppointment appointment = null!;
-        Doctor doctor = null!;
-        var isReservation = string.Equals(request.BookingType, "Reservation", StringComparison.OrdinalIgnoreCase);
-
-        var strategy = _context.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        if (!session.IsActive || session.CurrentBookings >= session.MaxCapacity)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            throw new InvalidOperationException("Selected time slot is no longer available. Please select another slot.");
+        }
 
-            // Atomic conditional update to prevent race conditions
-            var affected = await _context.DoctorSessions
-                .Where(s => s.Id == request.DoctorSessionId && s.IsActive && s.CurrentBookings < s.MaxCapacity)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.CurrentBookings, x => x.CurrentBookings + 1));
+        var doctor = session.Doctor ?? await _context.Doctors.FindAsync(request.DoctorId)
+            ?? throw new InvalidOperationException("Doctor not found.");
 
-            if (affected == 0)
-            {
-                throw new InvalidOperationException("Selected time slot is no longer available. Please select another slot.");
-            }
+        session.CurrentBookings += 1;
+        var queueNumber = session.CurrentBookings;
+        var aptNumber = $"APT-{session.SessionDate:yyyyMMdd}-{session.Id:D4}-{queueNumber:D3}";
+        var aptDateTime = session.SessionDate.ToDateTime(session.SessionTime, DateTimeKind.Utc);
 
-            doctor = session.Doctor ?? await _context.Doctors.FindAsync(request.DoctorId)
-                ?? throw new InvalidOperationException("Doctor not found.");
+        var fee = doctor.ConsultationFee;
+        var serviceCharge = 300.00m;
+        var total = fee + serviceCharge;
 
-            var queueNumber = session.CurrentBookings;
-            var aptNumber = $"APT-{session.SessionDate:yyyyMMdd}-{session.Id:D4}-{queueNumber:D3}";
-            var aptDateTime = session.SessionDate.ToDateTime(session.SessionTime, DateTimeKind.Utc);
+        var isReservation = string.Equals(request.BookingType, "Reservation", StringComparison.OrdinalIgnoreCase);
+        var bookingType = isReservation ? BookingType.Reservation : BookingType.OnlinePayment;
+        var initialStatus = isReservation ? AppointmentStatus.Reserved : AppointmentStatus.PendingPayment;
+        var paymentStatus = isReservation ? "NotRequired" : "Pending";
+        var paymentMethod = isReservation ? "PayOnArrival" : "CreditCard";
+        var qrToken = Guid.NewGuid();
 
-            var fee = doctor.ConsultationFee;
-            var serviceCharge = 300.00m;
-            var total = fee + serviceCharge;
+        var appointment = new DoctorAppointment
+        {
+            AppointmentNumber = aptNumber,
+            DoctorId = doctor.Id,
+            DoctorName = doctor.FullName,
+            Specialization = doctor.Specialization,
+            PatientId = patientId,
+            PatientName = request.PatientName.Trim(),
+            PatientPhone = request.PatientPhone.Trim(),
+            PatientEmail = request.PatientEmail.Trim(),
+            PatientNic = request.PatientNic.Trim(),
+            PatientAddress = request.PatientAddress?.Trim(),
+            AppointmentDate = aptDateTime,
+            TimeSlot = FormatTimeSlot(session.SessionTime),
+            DoctorSessionId = session.Id,
+            QueueNumber = queueNumber,
+            ConsultationFee = fee,
+            ServiceCharge = serviceCharge,
+            TotalAmount = total,
+            Status = initialStatus,
+            BookingType = bookingType,
+            QrToken = qrToken,
+            ArrivalStatus = ArrivalStatus.NotArrived,
+            QueueStatus = QueueStatus.NotCheckedIn,
+            PaymentMethod = paymentMethod,
+            PaymentStatus = paymentStatus,
+            Notes = request.Notes,
+            CreatedAt = DateTime.UtcNow
+        };
 
-            var bookingType = isReservation ? BookingType.Reservation : BookingType.OnlinePayment;
-            var initialStatus = isReservation ? AppointmentStatus.Reserved : AppointmentStatus.PendingPayment;
-            var paymentStatus = isReservation ? "NotRequired" : "Pending";
-            var paymentMethod = isReservation ? "PayOnArrival" : "CreditCard";
-
-            var qrToken = Guid.NewGuid();
-
-            appointment = new DoctorAppointment
-            {
-                AppointmentNumber = aptNumber,
-                DoctorId = doctor.Id,
-                Doctor = doctor,
-                DoctorName = doctor.FullName,
-                Specialization = doctor.Specialization,
-                PatientId = patientId,
-                PatientName = request.PatientName.Trim(),
-                PatientPhone = request.PatientPhone.Trim(),
-                PatientEmail = request.PatientEmail.Trim(),
-                PatientNic = request.PatientNic.Trim(),
-                PatientAddress = request.PatientAddress?.Trim(),
-                AppointmentDate = aptDateTime,
-                TimeSlot = FormatTimeSlot(session.SessionTime),
-                DoctorSessionId = session.Id,
-                DoctorSession = session,
-                QueueNumber = queueNumber,
-                ConsultationFee = fee,
-                ServiceCharge = serviceCharge,
-                TotalAmount = total,
-                Status = initialStatus,
-                BookingType = bookingType,
-                QrToken = qrToken,
-                ArrivalStatus = ArrivalStatus.NotArrived,
-                QueueStatus = QueueStatus.NotCheckedIn,
-                PaymentMethod = paymentMethod,
-                PaymentStatus = paymentStatus,
-                Notes = request.Notes,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.DoctorAppointments.Add(appointment);
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-        });
+        _context.DoctorAppointments.Add(appointment);
+        await _context.SaveChangesAsync();
 
         _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}, BookingType={Type}",
             appointment.AppointmentNumber, doctor.Id, appointment.QueueNumber, appointment.BookingType);
@@ -527,39 +510,27 @@ public class AppointmentService : IAppointmentService
             throw new InvalidOperationException("Selected reschedule slot has already passed. Please choose an upcoming slot.");
         }
 
-        var strategy = _context.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
+        if (!newSession.IsActive || newSession.CurrentBookings >= newSession.MaxCapacity)
+            throw new InvalidOperationException("Selected reschedule slot is no longer available.");
+
+        // Release old session capacity
+        if (apt.DoctorSessionId.HasValue)
         {
-            using var tx = await _context.Database.BeginTransactionAsync();
-
-            var affected = await _context.DoctorSessions
-                .Where(s => s.Id == newSessionId && s.IsActive && s.CurrentBookings < s.MaxCapacity)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.CurrentBookings, x => x.CurrentBookings + 1));
-
-            if (affected == 0)
-                throw new InvalidOperationException("Selected reschedule slot is no longer available.");
-
-            // Release old session capacity
-            if (apt.DoctorSession != null && apt.DoctorSession.CurrentBookings > 0)
+            var oldSession = await _context.DoctorSessions.FindAsync(apt.DoctorSessionId.Value);
+            if (oldSession != null && oldSession.CurrentBookings > 0)
             {
-                await _context.DoctorSessions
-                    .Where(s => s.Id == apt.DoctorSessionId)
-                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.CurrentBookings, x => Math.Max(0, x.CurrentBookings - 1)));
+                oldSession.CurrentBookings -= 1;
             }
+        }
 
-            newSession = await _context.DoctorSessions
-                .Include(s => s.Doctor)
-                .FirstAsync(s => s.Id == newSessionId);
+        newSession.CurrentBookings += 1;
 
-            apt.DoctorSessionId = newSession.Id;
-            apt.DoctorSession = newSession;
-            apt.AppointmentDate = newSession.SessionDate.ToDateTime(newSession.SessionTime, DateTimeKind.Utc);
-            apt.TimeSlot = FormatTimeSlot(newSession.SessionTime);
-            apt.QueueNumber = newSession.CurrentBookings;
+        apt.DoctorSessionId = newSession.Id;
+        apt.AppointmentDate = newSession.SessionDate.ToDateTime(newSession.SessionTime, DateTimeKind.Utc);
+        apt.TimeSlot = FormatTimeSlot(newSession.SessionTime);
+        apt.QueueNumber = newSession.CurrentBookings;
 
-            await _context.SaveChangesAsync();
-            await tx.CommitAsync();
-        });
+        await _context.SaveChangesAsync();
 
         _logger.LogInformation("Appointment {AptNo} rescheduled to {Date} {Slot}", apt.AppointmentNumber, apt.AppointmentDate, apt.TimeSlot);
 
