@@ -87,7 +87,12 @@ class DoctorSession {
   final int maxCapacity;
   final int currentBookings;
   final bool isAvailable;
+  final bool isExpired;
   final int slotsLeft;
+  final String sessionStatus;
+  final String? expectedStartTime;
+  final int currentlyServingQueueNumber;
+  final String? delayReason;
 
   DoctorSession({
     required this.id,
@@ -99,7 +104,12 @@ class DoctorSession {
     required this.maxCapacity,
     required this.currentBookings,
     required this.isAvailable,
+    this.isExpired = false,
     required this.slotsLeft,
+    this.sessionStatus = 'Scheduled',
+    this.expectedStartTime,
+    this.currentlyServingQueueNumber = 0,
+    this.delayReason,
   });
 
   factory DoctorSession.fromJson(Map<String, dynamic> json) => DoctorSession(
@@ -112,7 +122,12 @@ class DoctorSession {
     maxCapacity: (json['maxCapacity'] as num?)?.toInt() ?? 1,
     currentBookings: (json['currentBookings'] as num?)?.toInt() ?? 0,
     isAvailable: json['isAvailable'] == true,
+    isExpired: json['isExpired'] == true,
     slotsLeft: (json['slotsLeft'] as num?)?.toInt() ?? 0,
+    sessionStatus: json['sessionStatus']?.toString() ?? 'Scheduled',
+    expectedStartTime: json['expectedStartTime']?.toString(),
+    currentlyServingQueueNumber: (json['currentlyServingQueueNumber'] as num?)?.toInt() ?? 0,
+    delayReason: json['delayReason']?.toString(),
   );
 }
 
@@ -156,11 +171,18 @@ class DoctorAppointment {
   final double serviceCharge;
   final double totalAmount;
   final String status;
+  final String bookingType;
   final String paymentMethod;
   final String paymentStatus;
   final String? paymentReference;
   final String? notes;
   final String qrCodeText;
+  final String qrToken;
+  final String? checkedInAt;
+  final String arrivalStatus;
+  final String queueStatus;
+  final String? calledAt;
+  final String? displaySummary;
 
   DoctorAppointment({
     required this.id,
@@ -184,11 +206,18 @@ class DoctorAppointment {
     required this.serviceCharge,
     required this.totalAmount,
     required this.status,
+    this.bookingType = 'Reservation',
     required this.paymentMethod,
     required this.paymentStatus,
     this.paymentReference,
     this.notes,
     required this.qrCodeText,
+    this.qrToken = '',
+    this.checkedInAt,
+    this.arrivalStatus = 'Pending',
+    this.queueStatus = 'Waiting',
+    this.calledAt,
+    this.displaySummary,
   });
 
   factory DoctorAppointment.fromJson(Map<String, dynamic> json) => DoctorAppointment(
@@ -213,11 +242,18 @@ class DoctorAppointment {
     serviceCharge: (json['serviceCharge'] as num?)?.toDouble() ?? 300.0,
     totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
     status: json['status']?.toString() ?? 'PendingPayment',
+    bookingType: json['bookingType']?.toString() ?? 'Reservation',
     paymentMethod: json['paymentMethod']?.toString() ?? '',
     paymentStatus: json['paymentStatus']?.toString() ?? 'Pending',
     paymentReference: json['paymentReference']?.toString(),
     notes: json['notes']?.toString(),
     qrCodeText: json['qrCodeText']?.toString() ?? '',
+    qrToken: json['qrToken']?.toString() ?? '',
+    checkedInAt: json['checkedInAt']?.toString(),
+    arrivalStatus: json['arrivalStatus']?.toString() ?? 'Pending',
+    queueStatus: json['queueStatus']?.toString() ?? 'Waiting',
+    calledAt: json['calledAt']?.toString(),
+    displaySummary: json['displaySummary']?.toString(),
   );
 }
 

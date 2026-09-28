@@ -55,6 +55,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     address: user?.address || '',
     notes: ''
   });
+  const [bookingType, setBookingType] = useState('Reservation'); // 'Reservation' or 'OnlinePayment'
   const [validatingAvailability, setValidatingAvailability] = useState(false);
   const [isSessionValidated, setIsSessionValidated] = useState(false);
 
@@ -216,9 +217,12 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     try {
       const res = await getDoctorSessions(selectedDoctor.id, selectedSessionDate);
       const currentSlot = res.data.find(s => s.id === selectedSession.id);
-      if (currentSlot && currentSlot.isAvailable) {
+      if (currentSlot && currentSlot.isAvailable && !currentSlot.isExpired) {
         setIsSessionValidated(true);
         notify('Session slot confirmed! Available to book.', 'success');
+      } else if (currentSlot && currentSlot.isExpired) {
+        setIsSessionValidated(false);
+        notify('This time slot has already passed and can no longer be booked.', 'error');
       } else {
         setIsSessionValidated(false);
         notify('This slot was just booked or is unavailable. Please select another slot.', 'error');
@@ -246,15 +250,57 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     setCurrentStep(5);
   };
 
+  // ─── Reservation Handler (Pay on Arrival) ──────────────────────────────────
+  const handleConfirmReservation = async () => {
+    if (!patientDetails.fullName.trim()) {
+      notify('Please enter your full name', 'error');
+      return;
+    }
+    if (!patientDetails.nic.trim()) {
+      notify('Please enter your NIC / Passport number', 'error');
+      return;
+    }
+    if (!patientDetails.phone.trim()) {
+      notify('Please enter your contact phone number', 'error');
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    try {
+      const bookRes = await bookAppointment({
+        doctorId: selectedDoctor.id,
+        doctorSessionId: selectedSession.id,
+        bookingType: 'Reservation',
+        patientName: patientDetails.fullName,
+        patientPhone: patientDetails.phone,
+        patientEmail: patientDetails.email,
+        patientNic: patientDetails.nic,
+        patientAddress: patientDetails.address,
+        notes: patientDetails.notes
+      });
+
+      setConfirmedAppointment(bookRes.data);
+      setCurrentStep(5);
+      notify('Place reserved successfully! Show your QR code at the desk on arrival.', 'success');
+    } catch (err) {
+      console.error('Reservation failed', err);
+      const msg = err.response?.data?.message || 'Failed to reserve appointment';
+      notify(msg, 'error');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
   // ─── Step 5: Payment & Finalize Booking ────────────────────────────────────
 
   const handleConfirmAndPay = async () => {
     setIsProcessingPayment(true);
     try {
-      // 1. Create Appointment
+      // 1. Create Appointment with OnlinePayment booking type
       const bookRes = await bookAppointment({
         doctorId: selectedDoctor.id,
         doctorSessionId: selectedSession.id,
+        bookingType: 'OnlinePayment',
         patientName: patientDetails.fullName,
         patientPhone: patientDetails.phone,
         patientEmail: patientDetails.email,
@@ -310,8 +356,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     try {
       const res = await getDoctorSessions(apt.doctorId);
       if (Array.isArray(res.data)) {
-        // Exclude current session
-        setRescheduleSessions(res.data.filter(s => s.id !== apt.doctorSessionId && s.isAvailable));
+        // Exclude current session and expired/unavailable sessions
+        setRescheduleSessions(res.data.filter(s => s.id !== apt.doctorSessionId && s.isAvailable && !s.isExpired));
       }
     } catch (err) {
       notify('Failed to load reschedule sessions', 'error');
@@ -364,7 +410,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   // Filter My Appointments by active tab
   const filteredMyAppointments = myAppointments.filter(apt => {
     if (appointmentsTab === 'Upcoming') {
-      return apt.status === 'Confirmed' || apt.status === 'InProgress' || apt.status === 'PendingPayment';
+      return apt.status === 'Confirmed' || apt.status === 'InProgress' || apt.status === 'PendingPayment' || apt.status === 'Reserved';
     }
     if (appointmentsTab === 'Completed') {
       return apt.status === 'Completed';
@@ -1346,7 +1392,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 }}>
                   {sessionsForSelectedDate.map(session => {
                     const isSelected = selectedSession?.id === session.id;
-                    const disabled = !session.isAvailable;
+                    const isExpired = session.isExpired || false;
+                    const disabled = !session.isAvailable || isExpired;
 
                     return (
                       <button
@@ -1356,25 +1403,37 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         style={{
                           padding: '12px 10px',
                           borderRadius: '8px',
-                          border: isSelected ? '2px solid #00796B' : '1px solid #B2DFDB',
-                          backgroundColor: disabled
-                            ? '#ECEFF1'
-                            : isSelected
-                              ? '#E0F2F1'
-                              : '#FFFFFF',
-                          color: disabled ? '#90A4AE' : '#004D40',
+                          border: isSelected
+                            ? '2px solid #00796B'
+                            : isExpired
+                              ? '1px solid #FFCDD2'
+                              : '1px solid #B2DFDB',
+                          backgroundColor: isExpired
+                            ? '#FFF5F5'
+                            : disabled
+                              ? '#ECEFF1'
+                              : isSelected
+                                ? '#E0F2F1'
+                                : '#FFFFFF',
+                          color: isExpired ? '#C62828' : disabled ? '#90A4AE' : '#004D40',
                           fontWeight: '700',
                           fontSize: '13px',
                           cursor: disabled ? 'not-allowed' : 'pointer',
                           textAlign: 'center',
-                          boxShadow: isSelected ? '0 2px 8px rgba(0,121,107,0.2)' : 'none'
+                          boxShadow: isSelected ? '0 2px 8px rgba(0,121,107,0.2)' : 'none',
+                          opacity: isExpired ? 0.75 : 1
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                           <Clock size={13} /> {session.timeFormatted}
                         </div>
-                        <div style={{ fontSize: '10px', marginTop: '4px', color: disabled ? '#B0BEC5' : '#00796B' }}>
-                          {disabled ? 'Booked' : 'Available'}
+                        <div style={{
+                          fontSize: '10px',
+                          marginTop: '4px',
+                          color: isExpired ? '#D32F2F' : disabled ? '#B0BEC5' : '#00796B',
+                          fontWeight: isExpired ? '800' : '600'
+                        }}>
+                          {isExpired ? 'Expired' : disabled ? 'Booked' : 'Available'}
                         </div>
                       </button>
                     );
@@ -1629,6 +1688,76 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 />
               </div>
 
+              {/* Booking Mode Selection: Reserve vs Pay Online */}
+              <div style={{ marginTop: '10px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#37474F', marginBottom: '8px' }}>
+                  BOOKING & PAYMENT PREFERENCE *
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                  <div
+                    onClick={() => setBookingType('Reservation')}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '10px',
+                      border: bookingType === 'Reservation' ? '2px solid #00796B' : '1px solid #CFD8DC',
+                      backgroundColor: bookingType === 'Reservation' ? '#E0F2F1' : '#FFFFFF',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#004D40' }}>
+                        Reserve a Place
+                      </span>
+                      <span style={{
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#DCFCE7',
+                        color: '#15803D'
+                      }}>
+                        Pay at Desk
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#546E7A' }}>
+                      Get your queue number and QR instantly. Pay consultation fee in-person at hospital counter.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setBookingType('OnlinePayment')}
+                    style={{
+                      padding: '14px',
+                      borderRadius: '10px',
+                      border: bookingType === 'OnlinePayment' ? '2px solid #00796B' : '1px solid #CFD8DC',
+                      backgroundColor: bookingType === 'OnlinePayment' ? '#E0F2F1' : '#FFFFFF',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#004D40' }}>
+                        Book & Pay Online
+                      </span>
+                      <span style={{
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: '#E0F2FE',
+                        color: '#0369A1'
+                      }}>
+                        Card / Wallet
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#546E7A' }}>
+                      Complete payment now using Credit/Debit Card or Mobile Wallet for fast-track arrival.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               {/* Action Buttons */}
               <div style={{
                 display: 'flex',
@@ -1660,26 +1789,51 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   {validatingAvailability ? 'Checking...' : isSessionValidated ? '✓ Slot Validated' : 'Validate Availability'}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handleProceedToPayment}
-                  style={{
-                    padding: '10px 24px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: '#00796B',
-                    color: '#FFFFFF',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    boxShadow: '0 2px 8px rgba(0,121,107,0.25)'
-                  }}
-                >
-                  Proceed to Payment <ArrowRight size={16} />
-                </button>
+                {bookingType === 'Reservation' ? (
+                  <button
+                    type="button"
+                    onClick={handleConfirmReservation}
+                    disabled={isProcessingPayment}
+                    style={{
+                      padding: '10px 24px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#00796B',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: isProcessingPayment ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      boxShadow: '0 2px 8px rgba(0,121,107,0.25)'
+                    }}
+                  >
+                    {isProcessingPayment ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                    {isProcessingPayment ? 'Reserving...' : 'Confirm Reservation & Get QR'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleProceedToPayment}
+                    style={{
+                      padding: '10px 24px',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#00796B',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      boxShadow: '0 2px 8px rgba(0,121,107,0.25)'
+                    }}
+                  >
+                    Proceed to Payment <ArrowRight size={16} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1943,19 +2097,19 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               </div>
 
               <span style={{
-                backgroundColor: '#DCFCE7',
-                color: '#15803D',
+                backgroundColor: confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? '#FEF3C7' : '#DCFCE7',
+                color: confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? '#B45309' : '#15803D',
                 fontSize: '11px',
                 fontWeight: '800',
                 padding: '4px 10px',
                 borderRadius: '20px',
                 textTransform: 'uppercase'
               }}>
-                Payment Confirmed
+                {confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? 'Place Reserved — Pay at Desk' : 'Payment Confirmed'}
               </span>
 
               <h2 style={{ margin: '8px 0 4px 0', fontSize: '20px', fontWeight: '900', color: '#004D40' }}>
-                Appointment Confirmed!
+                {confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? 'Place Reserved Successfully!' : 'Appointment Confirmed!'}
               </h2>
               <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#607D8B' }}>
                 Ref: <strong>{confirmedAppointment.appointmentNumber}</strong>
@@ -1992,10 +2146,10 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 <div><strong>Date & Time:</strong> {confirmedAppointment.appointmentDate} at {confirmedAppointment.timeSlot}</div>
                 <div><strong>Hospital Branch:</strong> {confirmedAppointment.hospitalBranch}</div>
                 <div><strong>Patient:</strong> {confirmedAppointment.patientName} (NIC: {confirmedAppointment.patientNic})</div>
-                <div><strong>Total Paid:</strong> LKR {confirmedAppointment.totalAmount.toLocaleString()}</div>
+                <div><strong>Amount:</strong> LKR {confirmedAppointment.totalAmount.toLocaleString()} ({confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.paymentStatus === 'NotRequired' ? 'Pay at Counter' : 'Paid Online'})</div>
               </div>
 
-              {/* Real-time QR Code for Check-in (api.qrserver.com URL pattern) */}
+              {/* Real-time QR Code for Check-in */}
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
                   Hospital Check-in QR Code:
@@ -2009,13 +2163,13 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
                 }}>
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(confirmedAppointment.qrCodeText || `MEDIX:${confirmedAppointment.appointmentNumber}`)}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(confirmedAppointment.qrToken || confirmedAppointment.qrCodeText || confirmedAppointment.appointmentNumber)}`}
                     alt="Appointment Check-in QR"
                     style={{ width: '160px', height: '160px', display: 'block' }}
                   />
                 </div>
                 <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: '#94A3B8' }}>
-                  Show this QR code at the 24/7 Channeling Desk on visit date
+                  Show this QR at the Channeling Desk on arrival to verify and check in
                 </p>
               </div>
 
@@ -2181,18 +2335,21 @@ const DoctorChannelingSection = ({ user, showToast }) => {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {filteredMyAppointments.map(apt => {
+                const isReserved = apt.status === 'Reserved' || apt.bookingType === 'Reservation';
                 const isConfirmed = apt.status === 'Confirmed';
                 const isInProgress = apt.status === 'InProgress';
                 const isCompleted = apt.status === 'Completed';
                 const isCancelled = apt.status === 'Cancelled' || apt.status === 'NoShow';
 
-                const statusColor = isConfirmed
-                  ? { bg: '#DCFCE7', text: '#15803D' }
-                  : isInProgress
-                    ? { bg: '#FFEDD5', text: '#C2410C' }
-                    : isCompleted
-                      ? { bg: '#E0F2FE', text: '#0369A1' }
-                      : { bg: '#FEE2E2', text: '#B91C1C' };
+                const statusColor = isReserved
+                  ? { bg: '#FEF3C7', text: '#B45309' }
+                  : isConfirmed
+                    ? { bg: '#DCFCE7', text: '#15803D' }
+                    : isInProgress
+                      ? { bg: '#FFEDD5', text: '#C2410C' }
+                      : isCompleted
+                        ? { bg: '#E0F2FE', text: '#0369A1' }
+                        : { bg: '#FEE2E2', text: '#B91C1C' };
 
                 return (
                   <div
@@ -2212,7 +2369,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   >
                     {/* Left: Details */}
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                         <span style={{
                           backgroundColor: statusColor.bg,
                           color: statusColor.text,
@@ -2223,6 +2380,44 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         }}>
                           {apt.status}
                         </span>
+
+                        <span style={{
+                          backgroundColor: apt.bookingType === 'Reservation' ? '#FEF9C3' : '#E0F2FE',
+                          color: apt.bookingType === 'Reservation' ? '#854D0E' : '#075985',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          padding: '2px 8px',
+                          borderRadius: '12px'
+                        }}>
+                          {apt.bookingType === 'Reservation' ? 'Reservation' : 'Paid Online'}
+                        </span>
+
+                        {apt.arrivalStatus && apt.arrivalStatus !== 'Pending' && (
+                          <span style={{
+                            backgroundColor: apt.arrivalStatus === 'OnTime' ? '#DCFCE7' : apt.arrivalStatus === 'Early' ? '#DBEAFE' : '#FEE2E2',
+                            color: apt.arrivalStatus === 'OnTime' ? '#166534' : apt.arrivalStatus === 'Early' ? '#1E40AF' : '#991B1B',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            padding: '2px 8px',
+                            borderRadius: '12px'
+                          }}>
+                            Arrival: {apt.arrivalStatus}
+                          </span>
+                        )}
+
+                        {apt.queueStatus && (
+                          <span style={{
+                            backgroundColor: apt.queueStatus === 'InConsultation' ? '#FEF08A' : apt.queueStatus === 'Waiting' ? '#E0F2FE' : '#F1F5F9',
+                            color: apt.queueStatus === 'InConsultation' ? '#854D0E' : apt.queueStatus === 'Waiting' ? '#0369A1' : '#475569',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            padding: '2px 8px',
+                            borderRadius: '12px'
+                          }}>
+                            Queue: {apt.queueStatus}
+                          </span>
+                        )}
+
                         <span style={{ fontSize: '11px', color: '#78909C' }}>
                           Ref: {apt.appointmentNumber}
                         </span>
@@ -2381,7 +2576,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               marginBottom: '16px'
             }}>
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(activeQrApt.qrCodeText || `MEDIX:${activeQrApt.appointmentNumber}`)}`}
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(activeQrApt.qrToken || activeQrApt.qrCodeText || activeQrApt.appointmentNumber)}`}
                 alt="Appointment QR"
                 style={{ width: '180px', height: '180px', display: 'block' }}
               />

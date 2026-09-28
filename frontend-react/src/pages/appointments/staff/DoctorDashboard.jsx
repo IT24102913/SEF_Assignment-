@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import {
-  getDoctors, getDoctorQueue, updateAppointmentStatus
+  getDoctors, getDoctorQueue, updateAppointmentStatus,
+  getDoctorSessions, getSessionQueue, callNextPatient
 } from '../../../api/doctorApi';
 import logoImage from '../../../assets/mediz.png';
 import {
   Stethoscope, User, Calendar, Clock, CheckCircle2,
   AlertCircle, RefreshCw, LogOut, ChevronRight, Activity,
-  Phone, FileText, Check, ShieldCheck, UserCheck, Play
+  Phone, FileText, Check, ShieldCheck, UserCheck, Play,
+  Volume2, AlertTriangle, ArrowRight
 } from 'lucide-react';
 
 const DoctorDashboard = () => {
@@ -17,7 +19,12 @@ const DoctorDashboard = () => {
   const [selectedDoctorId, setSelectedDoctorId] = useState(null);
   const [currentDoctor, setCurrentDoctor] = useState(null);
 
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+
   const [queue, setQueue] = useState([]);
+  const [currentlyServing, setCurrentlyServing] = useState(0);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [notesModalApt, setNotesModalApt] = useState(null);
@@ -35,9 +42,17 @@ const DoctorDashboard = () => {
 
   useEffect(() => {
     if (selectedDoctorId) {
-      fetchQueue(selectedDoctorId);
+      loadDoctorSessions(selectedDoctorId);
     }
   }, [selectedDoctorId]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      fetchSessionQueueData(activeSessionId);
+    } else if (selectedDoctorId) {
+      fetchDoctorQueueData(selectedDoctorId);
+    }
+  }, [activeSessionId, selectedDoctorId]);
 
   const initDoctors = async () => {
     setLoading(true);
@@ -63,6 +78,26 @@ const DoctorDashboard = () => {
     }
   };
 
+  const loadDoctorSessions = async (docId) => {
+    try {
+      const res = await getDoctorSessions(docId);
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        setSessions(res.data);
+        // Default to first active session or first session
+        const active = res.data.find(s => s.sessionStatus === 'InProgress') || res.data[0];
+        setActiveSessionId(active.id);
+        setActiveSession(active);
+        setCurrentlyServing(active.currentlyServingQueueNumber || 0);
+      } else {
+        setSessions([]);
+        setActiveSessionId(null);
+        setActiveSession(null);
+      }
+    } catch (err) {
+      console.error('Failed to load sessions', err);
+    }
+  };
+
   const handleSelectDoctorChange = (e) => {
     const docId = parseInt(e.target.value, 10);
     setSelectedDoctorId(docId);
@@ -70,7 +105,35 @@ const DoctorDashboard = () => {
     setCurrentDoctor(doc || null);
   };
 
-  const fetchQueue = async (docId) => {
+  const handleSelectSessionChange = (e) => {
+    const sId = parseInt(e.target.value, 10);
+    setActiveSessionId(sId);
+    const sess = sessions.find(s => s.id === sId);
+    setActiveSession(sess || null);
+    if (sess) setCurrentlyServing(sess.currentlyServingQueueNumber || 0);
+  };
+
+  const fetchSessionQueueData = async (sessionId) => {
+    setLoading(true);
+    try {
+      const res = await getSessionQueue(sessionId);
+      if (res.data) {
+        setQueue(res.data.queue || []);
+        setCurrentlyServing(res.data.currentlyServingQueueNumber || 0);
+        if (activeSession) {
+          setActiveSession({ ...activeSession, sessionStatus: res.data.sessionStatus, delayReason: res.data.delayReason, expectedStartTime: res.data.expectedStartTime });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch session queue', err);
+      // Fallback to doctor queue
+      fetchDoctorQueueData(selectedDoctorId);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchDoctorQueueData = async (docId) => {
     setLoading(true);
     try {
       const res = await getDoctorQueue(docId);
@@ -85,12 +148,33 @@ const DoctorDashboard = () => {
     }
   };
 
+  const handleCallNext = async () => {
+    if (!activeSessionId) {
+      showToast('No active session selected', 'error');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await callNextPatient(activeSessionId);
+      const nextApt = res.data;
+      setCurrentlyServing(nextApt.queueNumber);
+      showToast(`Now Serving Queue #${String(nextApt.queueNumber).padStart(2, '0')}: ${nextApt.patientName}`, 'success');
+      fetchSessionQueueData(activeSessionId);
+    } catch (err) {
+      console.error('Call next error', err);
+      showToast(err.response?.data?.message || 'No more waiting patients to call', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleStatusChange = async (aptId, newStatus, notes = '') => {
     setActionLoading(true);
     try {
       await updateAppointmentStatus(aptId, newStatus, notes);
       showToast(`Patient status updated: ${newStatus}`, 'success');
-      fetchQueue(selectedDoctorId);
+      if (activeSessionId) fetchSessionQueueData(activeSessionId);
+      else fetchDoctorQueueData(selectedDoctorId);
     } catch (err) {
       showToast('Failed to update consultation status', 'error');
     } finally {
@@ -156,10 +240,10 @@ const DoctorDashboard = () => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           {/* Doctor Switcher for Viva Evaluation Demo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B' }}>CONSULTANT:</span>
+            <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B' }}>DOCTOR:</span>
             <select
               value={selectedDoctorId || ''}
               onChange={handleSelectDoctorChange}
@@ -182,8 +266,38 @@ const DoctorDashboard = () => {
             </select>
           </div>
 
+          {/* Session Switcher */}
+          {sessions.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B' }}>SESSION:</span>
+              <select
+                value={activeSessionId || ''}
+                onChange={handleSelectSessionChange}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid #CBD5E1',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  color: '#0369A1',
+                  backgroundColor: '#F0F9FF',
+                  outline: 'none'
+                }}
+              >
+                {sessions.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.sessionDate} • {s.timeFormatted} ({s.sessionStatus})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <button
-            onClick={() => fetchQueue(selectedDoctorId)}
+            onClick={() => {
+              if (activeSessionId) fetchSessionQueueData(activeSessionId);
+              else if (selectedDoctorId) fetchDoctorQueueData(selectedDoctorId);
+            }}
             disabled={loading}
             style={{
               padding: '6px 12px',
@@ -233,7 +347,7 @@ const DoctorDashboard = () => {
             color: '#FFFFFF',
             borderRadius: '14px',
             padding: '20px 24px',
-            marginBottom: '24px',
+            marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -281,22 +395,70 @@ const DoctorDashboard = () => {
               </div>
             </div>
 
-            {/* Availability Badge */}
-            <div style={{ textAlign: 'right' }}>
-              <span style={{
-                backgroundColor: '#DCFCE7',
-                color: '#15803D',
-                fontSize: '12px',
-                fontWeight: '800',
-                padding: '6px 14px',
-                borderRadius: '20px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px'
+            {/* Currently Serving Box & Call Next Action */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{
+                backgroundColor: 'rgba(255,255,255,0.15)',
+                backdropFilter: 'blur(4px)',
+                borderRadius: '10px',
+                padding: '10px 18px',
+                textAlign: 'center',
+                border: '1px solid rgba(255,255,255,0.2)'
               }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#22C55E' }} />
-                On Duty / Active
-              </span>
+                <div style={{ fontSize: '10px', color: '#A7F3D0', fontWeight: '800', textTransform: 'uppercase' }}>
+                  CURRENTLY SERVING
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: '900', color: '#FFFFFF' }}>
+                  #{String(currentlyServing).padStart(2, '0')}
+                </div>
+              </div>
+
+              <button
+                onClick={handleCallNext}
+                disabled={actionLoading || !activeSessionId}
+                style={{
+                  padding: '12px 20px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  backgroundColor: '#FFFFFF',
+                  color: '#004D40',
+                  fontSize: '13px',
+                  fontWeight: '800',
+                  cursor: actionLoading || !activeSessionId ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 10px rgba(0,0,0,0.15)'
+                }}
+              >
+                <Volume2 size={18} color="#00796B" />
+                Call Next Patient
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Delayed Session Warning Banner (if session is delayed) */}
+        {activeSession?.sessionStatus === 'Delayed' && (
+          <div style={{
+            backgroundColor: '#FEF3C7',
+            border: '1px solid #F59E0B',
+            borderRadius: '10px',
+            padding: '12px 18px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            color: '#92400E'
+          }}>
+            <AlertTriangle size={20} color="#D97706" />
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: '800' }}>
+                Session Delayed by Operations Desk
+              </div>
+              <div style={{ fontSize: '12px' }}>
+                Expected Start Time: <strong>{activeSession.expectedStartTime || 'In progress soon'}</strong> • Reason: <em>{activeSession.delayReason || 'Doctor consultation delayed'}</em>. Patients have been notified.
+              </div>
             </div>
           </div>
         )}
@@ -342,7 +504,7 @@ const DoctorDashboard = () => {
               Patient Consultation Queue
             </h3>
             <span style={{ fontSize: '12px', color: '#64748B' }}>
-              Sorted by session queue order
+              {activeSession ? `${activeSession.sessionDate} • ${activeSession.timeFormatted} (Room ${activeSession.roomNumber})` : 'Sorted by queue order'}
             </span>
           </div>
 
@@ -354,15 +516,15 @@ const DoctorDashboard = () => {
           ) : queue.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748B' }}>
               <UserCheck size={40} color="#94A3B8" style={{ margin: '0 auto 10px auto' }} />
-              <h4 style={{ margin: '0 0 6px 0', color: '#334155' }}>No patients scheduled</h4>
+              <h4 style={{ margin: '0 0 6px 0', color: '#334155' }}>No patients in session queue</h4>
               <p style={{ margin: 0, fontSize: '13px' }}>
-                All channeling appointments for this consultant have been completed or none are scheduled.
+                All channeling appointments for this consultant session have been completed or none are scheduled.
               </p>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {queue.map(apt => {
-                const isConfirmed = apt.status === 'Confirmed';
+                const isConfirmed = apt.status === 'Confirmed' || apt.status === 'Reserved';
                 const isInProgress = apt.status === 'InProgress';
                 const isCompleted = apt.status === 'Completed';
 
@@ -399,7 +561,7 @@ const DoctorDashboard = () => {
                       </div>
 
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px', flexWrap: 'wrap' }}>
                           <span style={{
                             backgroundColor: isConfirmed ? '#DCFCE7' : isInProgress ? '#FEF08A' : isCompleted ? '#E0F2FE' : '#FEE2E2',
                             color: isConfirmed ? '#15803D' : isInProgress ? '#854D0E' : isCompleted ? '#0369A1' : '#B91C1C',
@@ -410,6 +572,44 @@ const DoctorDashboard = () => {
                           }}>
                             {apt.status}
                           </span>
+
+                          <span style={{
+                            backgroundColor: apt.bookingType === 'Reservation' ? '#FEF9C3' : '#E0F2FE',
+                            color: apt.bookingType === 'Reservation' ? '#854D0E' : '#0369A1',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            padding: '2px 6px',
+                            borderRadius: '4px'
+                          }}>
+                            {apt.bookingType || 'Online'}
+                          </span>
+
+                          {apt.arrivalStatus && apt.arrivalStatus !== 'Pending' && (
+                            <span style={{
+                              backgroundColor: apt.arrivalStatus === 'OnTime' ? '#DCFCE7' : apt.arrivalStatus === 'Early' ? '#DBEAFE' : '#FEE2E2',
+                              color: apt.arrivalStatus === 'OnTime' ? '#166534' : apt.arrivalStatus === 'Early' ? '#1E40AF' : '#991B1B',
+                              fontSize: '10px',
+                              fontWeight: '700',
+                              padding: '2px 6px',
+                              borderRadius: '4px'
+                            }}>
+                              Arrival: {apt.arrivalStatus}
+                            </span>
+                          )}
+
+                          {apt.queueStatus && (
+                            <span style={{
+                              backgroundColor: apt.queueStatus === 'InConsultation' ? '#FEF08A' : apt.queueStatus === 'Waiting' ? '#E0F2FE' : '#F1F5F9',
+                              color: apt.queueStatus === 'InConsultation' ? '#854D0E' : apt.queueStatus === 'Waiting' ? '#0369A1' : '#475569',
+                              fontSize: '10px',
+                              fontWeight: '700',
+                              padding: '2px 6px',
+                              borderRadius: '4px'
+                            }}>
+                              Queue: {apt.queueStatus}
+                            </span>
+                          )}
+
                           <span style={{ fontSize: '11px', color: '#64748B' }}>
                             Ref: {apt.appointmentNumber}
                           </span>

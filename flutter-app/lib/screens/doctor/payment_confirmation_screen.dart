@@ -13,6 +13,7 @@ class PaymentConfirmationScreen extends StatefulWidget {
   final String patientEmail;
   final String? patientAddress;
   final String? notes;
+  final DoctorAppointment? initialConfirmedAppointment;
 
   const PaymentConfirmationScreen({
     super.key,
@@ -25,6 +26,7 @@ class PaymentConfirmationScreen extends StatefulWidget {
     required this.patientEmail,
     this.patientAddress,
     this.notes,
+    this.initialConfirmedAppointment,
   });
 
   @override
@@ -43,6 +45,14 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
   DoctorAppointment? _confirmedAppointment;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialConfirmedAppointment != null) {
+      _confirmedAppointment = widget.initialConfirmedAppointment;
+    }
+  }
+
+  @override
   void dispose() {
     _cardNumCtrl.dispose();
     _expiryCtrl.dispose();
@@ -57,10 +67,11 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
   Future<void> _processPayment() async {
     setState(() => _isProcessing = true);
     try {
-      // 1. Book Appointment
+      // 1. Book Appointment with OnlinePayment bookingType
       final booking = await DoctorApiService.bookAppointment({
         'doctorId': widget.doctor.id,
         'doctorSessionId': widget.session.id,
+        'bookingType': 'OnlinePayment',
         'patientName': widget.patientName,
         'patientPhone': widget.patientPhone,
         'patientEmail': widget.patientEmail,
@@ -101,7 +112,7 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
       appBar: AppBar(
         backgroundColor: kPrimaryDark,
         foregroundColor: Colors.white,
-        title: Text(confirmed != null ? 'Appointment Confirmed' : 'Secure Payment', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        title: Text(confirmed != null ? (confirmed.bookingType == 'Reservation' ? 'Reservation Confirmed' : 'Appointment Confirmed') : 'Secure Payment', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -329,14 +340,15 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                 _detailRow('Date & Time', '${apt.appointmentDate} at ${apt.timeSlot}'),
                 _detailRow('Hospital', apt.hospitalBranch),
                 _detailRow('Patient', '${apt.patientName} (${apt.patientNic})'),
-                _detailRow('Paid', 'LKR ${apt.totalAmount.toStringAsFixed(0)}'),
+                _detailRow('Status', apt.bookingType == 'Reservation' || apt.status == 'Reserved' ? 'Reserved (Pay at Desk)' : 'Paid Online'),
+                _detailRow('Amount', 'LKR ${apt.totalAmount.toStringAsFixed(0)}'),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
           // QR Code via api.qrserver.com public URL scheme
-          const Text('Check-in QR Code:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kText)),
+          const Text('Hospital Check-in QR Code:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kText)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(8),
@@ -346,14 +358,14 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Image.network(
-              'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${Uri.encodeComponent(apt.qrCodeText.isNotEmpty ? apt.qrCodeText : apt.appointmentNumber)}',
+              'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${Uri.encodeComponent(apt.qrToken.isNotEmpty ? apt.qrToken : (apt.qrCodeText.isNotEmpty ? apt.qrCodeText : apt.appointmentNumber))}',
               width: 150,
               height: 150,
               errorBuilder: (context, error, stackTrace) => const Icon(Icons.qr_code, size: 80, color: kPrimary),
             ),
           ),
           const SizedBox(height: 6),
-          const Text('Show this QR at the Channeling Desk on visit date', style: TextStyle(fontSize: 10, color: Colors.grey)),
+          const Text('Show this QR at the Channeling Desk on arrival', style: TextStyle(fontSize: 10, color: Colors.grey)),
           const SizedBox(height: 20),
 
           // Go to My Appointments Button

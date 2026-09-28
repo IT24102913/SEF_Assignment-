@@ -32,6 +32,8 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
 
   bool _validatingSlot = false;
   bool _slotValidated = false;
+  String _bookingType = 'Reservation'; // 'Reservation' or 'OnlinePayment'
+  bool _reserving = false;
 
   @override
   void initState() {
@@ -90,6 +92,52 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
       }
     } finally {
       if (mounted) setState(() => _validatingSlot = false);
+    }
+  }
+
+  Future<void> _confirmReservation() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _reserving = true);
+    try {
+      final appointment = await DoctorApiService.bookAppointment({
+        'doctorId': widget.doctor.id,
+        'doctorSessionId': widget.session.id,
+        'bookingType': 'Reservation',
+        'patientName': _nameCtrl.text.trim(),
+        'patientNic': _nicCtrl.text.trim(),
+        'patientPhone': _phoneCtrl.text.trim(),
+        'patientEmail': _emailCtrl.text.trim(),
+        'patientAddress': _addressCtrl.text.trim(),
+        'notes': _notesCtrl.text.trim(),
+      });
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PaymentConfirmationScreen(
+              doctor: widget.doctor,
+              session: widget.session,
+              sessionDate: widget.sessionDate,
+              patientName: _nameCtrl.text.trim(),
+              patientNic: _nicCtrl.text.trim(),
+              patientPhone: _phoneCtrl.text.trim(),
+              patientEmail: _emailCtrl.text.trim(),
+              patientAddress: _addressCtrl.text.trim(),
+              notes: _notesCtrl.text.trim(),
+              initialConfirmedAppointment: appointment,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reservation failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _reserving = false);
     }
   }
 
@@ -250,9 +298,89 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // Booking Type Preference Card Selector
+                    const Text('Booking & Payment Preference *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kText)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setState(() => _bookingType = 'Reservation'),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: _bookingType == 'Reservation' ? const Color(0xFFE0F2F1) : Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _bookingType == 'Reservation' ? kPrimary : kBorder,
+                                  width: _bookingType == 'Reservation' ? 2 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Reserve Place', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kPrimaryDark)),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
+                                        child: Text('Pay at Desk', style: TextStyle(color: Colors.green.shade800, fontSize: 9, fontWeight: FontWeight.bold)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text('Get queue & QR immediately. Pay at hospital counter.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setState(() => _bookingType = 'OnlinePayment'),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: _bookingType == 'OnlinePayment' ? const Color(0xFFE0F2F1) : Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: _bookingType == 'OnlinePayment' ? kPrimary : kBorder,
+                                  width: _bookingType == 'OnlinePayment' ? 2 : 1,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Pay Online', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kPrimaryDark)),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                        decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(4)),
+                                        child: Text('Card/Wallet', style: TextStyle(color: Colors.blue.shade800, fontSize: 9, fontWeight: FontWeight.bold)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text('Pay with Card or Mobile Wallet for fast-track arrival.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 20),
 
-                    // Action Buttons: Validate Availability + Proceed to Payment
+                    // Action Buttons
                     Row(
                       children: [
                         Expanded(
@@ -272,17 +400,31 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _proceedToPayment,
-                            icon: const Icon(Icons.payment, size: 16),
-                            label: const Text('To Payment', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kPrimary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
+                          child: _bookingType == 'Reservation'
+                              ? ElevatedButton.icon(
+                                  onPressed: _reserving ? null : _confirmReservation,
+                                  icon: _reserving
+                                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                      : const Icon(Icons.check_circle, size: 16),
+                                  label: Text(_reserving ? 'Reserving...' : 'Reserve Place', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kPrimary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                )
+                              : ElevatedButton.icon(
+                                  onPressed: _proceedToPayment,
+                                  icon: const Icon(Icons.payment, size: 16),
+                                  label: const Text('To Payment', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kPrimary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
                         ),
                       ],
                     ),
