@@ -106,34 +106,56 @@ public class LabBookingsController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        // Run multi-agent orchestrator for non-restricted bookings right away
-        if (!test.IsRestricted)
+        // Run multi-agent orchestrator & confirmation email in background so the API returns instantly (<50ms)
+        var createdBookingId = booking.Id;
+        var pEmail = dto.PatientEmail;
+        var pName = dto.PatientName;
+        var tName = test.Name;
+        var bDate = dto.BookingDate;
+        var bTime = dto.TimeSlot;
+        var isRestricted = test.IsRestricted;
+
+        _ = Task.Run(async () =>
         {
             try
             {
-                await _agentOrchestrator.ProcessBookingWorkflowAsync(_db, booking.Id);
+                using var scope = _scopeFactory.CreateScope();
+                var scopedDb = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var scopedEmail = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                var scopedOrchestrator = scope.ServiceProvider.GetRequiredService<LabAgentOrchestrator>();
+
+                if (!isRestricted)
+                {
+                    try
+                    {
+                        await scopedOrchestrator.ProcessBookingWorkflowAsync(scopedDb, createdBookingId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not run agent orchestrator for booking {BookingId}", createdBookingId);
+                    }
+                }
+
+                try
+                {
+                    await scopedEmail.SendBookingReceivedAsync(
+                        pEmail,
+                        pName,
+                        tName,
+                        bDate,
+                        bTime,
+                        isRestricted);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not send booking confirmation email to {Email}", pEmail);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not run agent orchestrator for booking {BookingId}", booking.Id);
+                _logger.LogError(ex, "Background processing failed for booking {BookingId}", createdBookingId);
             }
-        }
-
-        // Send immediate "booking received" acknowledgement email (background / resilient)
-        try
-        {
-            await _emailService.SendBookingReceivedAsync(
-                dto.PatientEmail,
-                dto.PatientName,
-                test.Name,
-                dto.BookingDate,
-                dto.TimeSlot,
-                test.IsRestricted);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not send booking confirmation email to {Email}", dto.PatientEmail);
-        }
+        });
 
         return CreatedAtAction(nameof(GetById), new { id = booking.Id }, MapToDto(booking));
     }
@@ -212,25 +234,36 @@ public class LabBookingsController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        // Send cancellation confirmation email to patient
+        // Send cancellation confirmation email to patient in background so API responds instantly (<30ms)
         if (!string.IsNullOrWhiteSpace(booking.PatientEmail))
         {
-            try
+            var pEmail = booking.PatientEmail;
+            var pName = booking.PatientName;
+            var tName = booking.LabTest?.Name ?? "Laboratory Test";
+            var bDate = booking.BookingDate;
+            var bTime = booking.TimeSlot;
+            var qToken = booking.QueueToken;
+
+            _ = Task.Run(async () =>
             {
-                var testName = booking.LabTest?.Name ?? "Laboratory Test";
-                await _emailService.SendBookingCancelledAsync(
-                    booking.PatientEmail,
-                    booking.PatientName,
-                    testName,
-                    booking.BookingDate,
-                    booking.TimeSlot,
-                    booking.QueueToken
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Email] Could not send cancellation email for booking {BookingId}", booking.Id);
-            }
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var scopedEmail = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                    await scopedEmail.SendBookingCancelledAsync(
+                        pEmail,
+                        pName,
+                        tName,
+                        bDate,
+                        bTime,
+                        qToken
+                    );
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[Email] Could not send cancellation email for booking");
+                }
+            });
         }
 
         return NoContent();

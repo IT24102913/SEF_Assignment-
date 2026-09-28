@@ -75,7 +75,12 @@ class _BookingScreenState extends State<BookingScreen> {
   Future<void> _pickImage(ImageSource source) async {
     try {
       final picker = ImagePicker();
-      final picked = await picker.pickImage(source: source, imageQuality: 75);
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
+      );
       if (picked != null) {
         setState(() => _selectedImage = File(picked.path));
         final bytes = await _selectedImage!.readAsBytes();

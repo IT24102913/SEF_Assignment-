@@ -170,21 +170,40 @@ class LabApiService {
   }
 
   static Future<LabBooking> uploadPrescription(String bookingId, String imageUrl) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.post(
+          Uri.parse('$host/api/lab/bookings/$bookingId/prescription'),
+          headers: _headers,
+          body: jsonEncode({'prescriptionImageUrl': imageUrl}),
+        ).timeout(const Duration(seconds: 15));
+        if (res.statusCode == 200) return LabBooking.fromJson(jsonDecode(res.body));
+      } catch (_) {}
+    }
     final res = await _client.post(
       Uri.parse('$baseUrl/bookings/$bookingId/prescription'),
       headers: _headers,
       body: jsonEncode({'prescriptionImageUrl': imageUrl}),
-    );
+    ).timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) return LabBooking.fromJson(jsonDecode(res.body));
     throw Exception('Failed to upload prescription');
   }
 
   static Future<void> cancelBooking(String bookingId, String patientId) async {
     final parsedId = int.tryParse(patientId) ?? 1;
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.delete(
+          Uri.parse('$host/api/lab/bookings/$bookingId?patientId=$parsedId'),
+          headers: _headers,
+        ).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 204 || res.statusCode == 200) return;
+      } catch (_) {}
+    }
     final res = await _client.delete(
       Uri.parse('$baseUrl/bookings/$bookingId?patientId=$parsedId'),
       headers: _headers,
-    );
+    ).timeout(const Duration(seconds: 8));
     if (res.statusCode != 204 && res.statusCode != 200) {
       String msg = 'Failed to cancel booking (${res.statusCode})';
       try {
