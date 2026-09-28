@@ -1,9 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-
 import '../utils/config.dart';
 
-final String baseUrl = ApiConfig.labUrl;
+String get baseUrl => ApiConfig.labUrl;
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 
@@ -97,6 +96,15 @@ class LabApiService {
 
   // Lab Tests
   static Future<List<LabTest>> getTests({String search = '', String category = ''}) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.get(Uri.parse('$host/api/lab/tests?search=$search&category=$category'))
+            .timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          return (jsonDecode(res.body) as List).map((j) => LabTest.fromJson(j)).toList();
+        }
+      } catch (_) {}
+    }
     final res = await _client.get(Uri.parse('$baseUrl/tests?search=$search&category=$category'));
     if (res.statusCode == 200) {
       return (jsonDecode(res.body) as List).map((j) => LabTest.fromJson(j)).toList();
@@ -105,6 +113,13 @@ class LabApiService {
   }
 
   static Future<List<String>> getCategories() async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.get(Uri.parse('$host/api/lab/tests/categories'))
+            .timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) return List<String>.from(jsonDecode(res.body));
+      } catch (_) {}
+    }
     final res = await _client.get(Uri.parse('$baseUrl/tests/categories'));
     if (res.statusCode == 200) return List<String>.from(jsonDecode(res.body));
     throw Exception('Failed to load categories');
