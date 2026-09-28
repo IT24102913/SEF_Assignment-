@@ -55,6 +55,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     address: user?.address || '',
     notes: ''
   });
+  const [formErrors, setFormErrors] = useState({});
   const [bookingType, setBookingType] = useState('Reservation'); // 'Reservation' or 'OnlinePayment'
   const [validatingAvailability, setValidatingAvailability] = useState(false);
   const [isSessionValidated, setIsSessionValidated] = useState(false);
@@ -256,17 +257,63 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     }
   };
 
+  const validateField = (field, value) => {
+    let error = null;
+    const trimmed = value.trim();
+    if (field === 'fullName') {
+      if (!trimmed) error = 'Full name is required';
+    } else if (field === 'nic') {
+      if (!trimmed) {
+        error = 'NIC / Passport number is required';
+      } else if (!/^([0-9]{9}[vVxX]|[0-9]{12}|[A-Za-z0-9]{7,10})$/.test(trimmed)) {
+        error = 'Invalid NIC or Passport format (e.g. 199512345678 or 987654321V)';
+      }
+    } else if (field === 'phone') {
+      if (!trimmed) {
+        error = 'Contact number is required';
+      } else if (!/^(?:07[0-9]{8}|\+947[0-9]{8}|0[0-9]{9})$/.test(value.replace(/\s+/g, ''))) {
+        error = 'Invalid Sri Lankan contact number';
+      }
+    } else if (field === 'email') {
+      if (trimmed && !/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+        error = 'Invalid email address format (e.g., missing @ or domain)';
+      }
+    }
+    return error;
+  };
+
+  const handleChange = (field, value) => {
+    setPatientDetails(prev => ({ ...prev, [field]: value }));
+    const error = validateField(field, value);
+    setFormErrors(prev => {
+      const newErrors = { ...prev };
+      if (error) {
+        newErrors[field] = error;
+      } else {
+        delete newErrors[field];
+      }
+      return newErrors;
+    });
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    const errName = validateField('fullName', patientDetails.fullName);
+    if (errName) errors.fullName = errName;
+    const errNic = validateField('nic', patientDetails.nic);
+    if (errNic) errors.nic = errNic;
+    const errPhone = validateField('phone', patientDetails.phone);
+    if (errPhone) errors.phone = errPhone;
+    const errEmail = validateField('email', patientDetails.email);
+    if (errEmail) errors.email = errEmail;
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleProceedToPayment = () => {
-    if (!patientDetails.fullName.trim()) {
-      notify('Please enter your full name', 'error');
-      return;
-    }
-    if (!patientDetails.nic.trim()) {
-      notify('Please enter your NIC / Passport number', 'error');
-      return;
-    }
-    if (!patientDetails.phone.trim()) {
-      notify('Please enter your contact phone number', 'error');
+    if (!validateForm()) {
+      notify('Please correct the highlighted errors in the form.', 'error');
       return;
     }
     setCurrentStep(5);
@@ -274,16 +321,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
   // ─── Reservation Handler (Pay on Arrival) ──────────────────────────────────
   const handleConfirmReservation = async () => {
-    if (!patientDetails.fullName.trim()) {
-      notify('Please enter your full name', 'error');
-      return;
-    }
-    if (!patientDetails.nic.trim()) {
-      notify('Please enter your NIC / Passport number', 'error');
-      return;
-    }
-    if (!patientDetails.phone.trim()) {
-      notify('Please enter your contact phone number', 'error');
+    if (!validateForm()) {
+      notify('Please correct the highlighted errors in the form.', 'error');
       return;
     }
 
@@ -1589,84 +1628,92 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#37474F', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: formErrors.fullName ? '#EF4444' : '#37474F', marginBottom: '6px' }}>
                   FULL NAME *
                 </label>
                 <input
                   type="text"
                   placeholder="e.g. Nuwan Perera"
                   value={patientDetails.fullName}
-                  onChange={(e) => setPatientDetails({ ...patientDetails, fullName: e.target.value })}
+                  onChange={(e) => handleChange('fullName', e.target.value)}
                   style={{
                     width: '100%',
                     padding: '10px 12px',
-                    border: '1px solid #CFD8DC',
+                    border: formErrors.fullName ? '1px solid #EF4444' : '1px solid #CFD8DC',
                     borderRadius: '8px',
                     fontSize: '13px',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    backgroundColor: formErrors.fullName ? '#FEF2F2' : '#FFFFFF'
                   }}
                 />
+                {formErrors.fullName && <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>{formErrors.fullName}</div>}
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#37474F', marginBottom: '6px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: formErrors.nic ? '#EF4444' : '#37474F', marginBottom: '6px' }}>
                   NIC / PASSPORT NUMBER *
                 </label>
                 <input
                   type="text"
                   placeholder="e.g. 199512345678 or 987654321V"
                   value={patientDetails.nic}
-                  onChange={(e) => setPatientDetails({ ...patientDetails, nic: e.target.value })}
+                  onChange={(e) => handleChange('nic', e.target.value)}
                   style={{
                     width: '100%',
                     padding: '10px 12px',
-                    border: '1px solid #CFD8DC',
+                    border: formErrors.nic ? '1px solid #EF4444' : '1px solid #CFD8DC',
                     borderRadius: '8px',
                     fontSize: '13px',
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    backgroundColor: formErrors.nic ? '#FEF2F2' : '#FFFFFF'
                   }}
                 />
+                {formErrors.nic && <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>{formErrors.nic}</div>}
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#37474F', marginBottom: '6px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: formErrors.phone ? '#EF4444' : '#37474F', marginBottom: '6px' }}>
                     CONTACT NUMBER *
                   </label>
                   <input
                     type="tel"
                     placeholder="e.g. +94 77 123 4567"
                     value={patientDetails.phone}
-                    onChange={(e) => setPatientDetails({ ...patientDetails, phone: e.target.value })}
+                    onChange={(e) => handleChange('phone', e.target.value)}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
-                      border: '1px solid #CFD8DC',
+                      border: formErrors.phone ? '1px solid #EF4444' : '1px solid #CFD8DC',
                       borderRadius: '8px',
                       fontSize: '13px',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      backgroundColor: formErrors.phone ? '#FEF2F2' : '#FFFFFF'
                     }}
                   />
+                  {formErrors.phone && <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>{formErrors.phone}</div>}
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#37474F', marginBottom: '6px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: formErrors.email ? '#EF4444' : '#37474F', marginBottom: '6px' }}>
                     EMAIL ADDRESS
                   </label>
                   <input
                     type="email"
                     placeholder="e.g. patient@gmail.com"
                     value={patientDetails.email}
-                    onChange={(e) => setPatientDetails({ ...patientDetails, email: e.target.value })}
+                    onChange={(e) => handleChange('email', e.target.value)}
                     style={{
                       width: '100%',
                       padding: '10px 12px',
-                      border: '1px solid #CFD8DC',
+                      border: formErrors.email ? '1px solid #EF4444' : '1px solid #CFD8DC',
                       borderRadius: '8px',
                       fontSize: '13px',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      backgroundColor: formErrors.email ? '#FEF2F2' : '#FFFFFF'
                     }}
                   />
+                  {formErrors.email && <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>{formErrors.email}</div>}
                 </div>
               </div>
 
