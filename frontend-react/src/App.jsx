@@ -264,6 +264,9 @@ function App() {
                             <PatientDashboard />
                         </ProtectedRoute>
                     } />
+                    <Route path="/channeling" element={<Navigate to="/patient/dashboard?tab=channeling" replace />} />
+                    <Route path="/doctor-channeling" element={<Navigate to="/patient/dashboard?tab=channeling" replace />} />
+                    <Route path="/appointments/book" element={<Navigate to="/patient/dashboard?tab=channeling" replace />} />
 
                     {/* ============================================ */}
                     {/* EMR (ELECTRONIC MEDICAL RECORDS) MODULE */}

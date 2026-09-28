@@ -1,6 +1,7 @@
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.EMR;
 using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
 using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -685,31 +686,212 @@ public class EMRService : IEMRService
 
     public async Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null)
     {
-        var query = _db.ChannelingAppointments.AsQueryable();
+        Patient? patient = null;
+        if (!string.IsNullOrWhiteSpace(patientCode))
+        {
+            var pCodeTrim = patientCode.Trim();
+            patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == pCodeTrim.ToUpper());
+            if (patient == null && int.TryParse(pCodeTrim, out int parsedUserId))
+            {
+                patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == parsedUserId);
+            }
+            if (patient == null && pCodeTrim.Contains('@'))
+            {
+                patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == pCodeTrim.ToLower());
+            }
+        }
+
+        var nowUtc = DateTime.UtcNow;
+
+        // 1. Fetch from DoctorAppointments (Channeling booking system)
+        var docQuery = _db.DoctorAppointments
+            .Include(a => a.Doctor)
+            .Include(a => a.DoctorSession)
+            .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
-            query = query.Where(a => a.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+            var pCodeTrim = patientCode.Trim().ToLower();
+            int? uId = patient?.UserId;
+            if (!uId.HasValue && int.TryParse(patientCode, out int parsedId))
+            {
+                uId = parsedId;
+            }
+            var pEmail = patient?.Email?.ToLower() ?? (patientCode.Contains('@') ? pCodeTrim : null);
+            var pPhone = patient?.ContactPhone;
+            var pName = patient?.FullName?.ToLower();
+
+            docQuery = docQuery.Where(a =>
+                (uId.HasValue && a.PatientId == uId.Value) ||
+                (!string.IsNullOrEmpty(pEmail) && a.PatientEmail.ToLower() == pEmail) ||
+                (!string.IsNullOrEmpty(pPhone) && a.PatientPhone == pPhone) ||
+                (pName != null && a.PatientName.ToLower() == pName)
+            );
         }
 
-        var list = await query.OrderByDescending(a => a.AppointmentDate).ToListAsync();
-        return list.Select(a => new ChannelingAppointmentDto
+        var docList = await docQuery.OrderByDescending(a => a.AppointmentDate).ToListAsync();
+
+        var mappedDoctorApts = docList.Select(a =>
         {
-            Id = a.Id,
-            AppointmentCode = a.AppointmentCode,
-            PatientCode = a.PatientCode,
-            DoctorName = a.DoctorName,
-            Specialty = a.Specialty,
-            AppointmentDate = a.AppointmentDate,
-            Room = a.Room,
-            Status = a.Status
-        });
+            string statusStr;
+            string categoryStr;
+
+            if (a.Status == AppointmentStatus.Cancelled)
+            {
+                statusStr = "Cancelled";
+                categoryStr = "Past";
+            }
+            else if (a.Status == AppointmentStatus.Completed || a.Status == AppointmentStatus.NoShow || a.QueueStatus == QueueStatus.Completed || a.QueueStatus == QueueStatus.NoShow)
+            {
+                statusStr = a.Status == AppointmentStatus.NoShow || a.QueueStatus == QueueStatus.NoShow ? "No Show" : "Completed";
+                categoryStr = "Past";
+            }
+            else if (a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called || a.CheckedInAt != null)
+            {
+                statusStr = a.QueueStatus == QueueStatus.InConsultation ? "In Consultation" : "Ongoing";
+                categoryStr = "Ongoing";
+            }
+            else
+            {
+                if (a.AppointmentDate.Date == nowUtc.Date)
+                {
+                    statusStr = a.Status == AppointmentStatus.PendingPayment ? "Pending Payment" : "Ongoing";
+                    categoryStr = "Ongoing";
+                }
+                else if (a.AppointmentDate.Date > nowUtc.Date)
+                {
+                    statusStr = a.Status == AppointmentStatus.PendingPayment ? "Pending Payment" : "Upcoming";
+                    categoryStr = "Upcoming";
+                }
+                else
+                {
+                    statusStr = "Completed";
+                    categoryStr = "Past";
+                }
+            }
+
+            var roomStr = !string.IsNullOrWhiteSpace(a.Doctor?.RoomNumber)
+                ? a.Doctor.RoomNumber
+                : "Consultation Suite";
+            if (!string.IsNullOrWhiteSpace(a.Doctor?.HospitalBranch))
+            {
+                roomStr += $", {a.Doctor.HospitalBranch}";
+            }
+
+            return new ChannelingAppointmentDto
+            {
+                Id = Guid.NewGuid(),
+                AppointmentCode = a.AppointmentNumber,
+                PatientCode = patient?.PatientCode ?? (a.PatientId.HasValue ? $"PAT-{a.PatientId}" : "PAT-USER"),
+                DoctorName = a.DoctorName,
+                Specialty = !string.IsNullOrWhiteSpace(a.Specialization) ? a.Specialization : (a.Doctor?.Specialization ?? "General Specialist"),
+                AppointmentDate = a.AppointmentDate,
+                Room = roomStr,
+                Status = statusStr,
+                Category = categoryStr,
+                QueueNumber = a.QueueNumber,
+                TotalAmount = a.TotalAmount,
+                PaymentStatus = a.PaymentStatus,
+                HospitalBranch = a.Doctor?.HospitalBranch ?? "Health Bridge Hospital - Colombo",
+                TimeSlot = a.TimeSlot
+            };
+        }).ToList();
+
+        // 2. Fetch from ChannelingAppointments (EMR Channeling table)
+        var chanQuery = _db.ChannelingAppointments.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(patientCode))
+        {
+            var targetCode = patient?.PatientCode?.ToUpper() ?? patientCode.Trim().ToUpper();
+            chanQuery = chanQuery.Where(a => a.PatientCode.ToUpper() == targetCode);
+        }
+        var chanList = await chanQuery.OrderByDescending(a => a.AppointmentDate).ToListAsync();
+
+        var mappedChanApts = chanList.Select(c =>
+        {
+            string statusStr = c.Status ?? "Upcoming";
+            string categoryStr = "Upcoming";
+            var sUpper = statusStr.Trim().ToUpper();
+
+            if (sUpper == "CANCELLED" || sUpper == "CANCELED")
+            {
+                categoryStr = "Past";
+                statusStr = "Cancelled";
+            }
+            else if (sUpper == "COMPLETED" || sUpper == "FINISHED")
+            {
+                categoryStr = "Past";
+                statusStr = "Completed";
+            }
+            else if (sUpper == "ONGOING" || sUpper == "IN CONSULTATION" || sUpper == "CHECKED IN" || sUpper == "IN PROGRESS")
+            {
+                categoryStr = "Ongoing";
+            }
+            else
+            {
+                if (c.AppointmentDate.Date == nowUtc.Date)
+                {
+                    categoryStr = "Ongoing";
+                    if (sUpper == "UPCOMING") statusStr = "Ongoing";
+                }
+                else if (c.AppointmentDate.Date > nowUtc.Date)
+                {
+                    categoryStr = "Upcoming";
+                }
+                else
+                {
+                    categoryStr = "Past";
+                    if (sUpper == "UPCOMING") statusStr = "Completed";
+                }
+            }
+
+            return new ChannelingAppointmentDto
+            {
+                Id = c.Id,
+                AppointmentCode = c.AppointmentCode,
+                PatientCode = c.PatientCode,
+                DoctorName = c.DoctorName,
+                Specialty = c.Specialty,
+                AppointmentDate = c.AppointmentDate,
+                Room = c.Room,
+                Status = statusStr,
+                Category = categoryStr,
+                QueueNumber = null,
+                TotalAmount = null,
+                PaymentStatus = null,
+                HospitalBranch = null,
+                TimeSlot = c.AppointmentDate.ToString("hh:mm tt")
+            };
+        }).ToList();
+
+        // Merge without duplicating AppointmentCode
+        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var merged = new List<ChannelingAppointmentDto>();
+
+        foreach (var apt in mappedDoctorApts)
+        {
+            if (!string.IsNullOrEmpty(apt.AppointmentCode) && seenCodes.Add(apt.AppointmentCode))
+            {
+                merged.Add(apt);
+            }
+        }
+
+        foreach (var apt in mappedChanApts)
+        {
+            if (string.IsNullOrEmpty(apt.AppointmentCode) || seenCodes.Add(apt.AppointmentCode))
+            {
+                merged.Add(apt);
+            }
+        }
+
+        return merged
+            .OrderByDescending(x => x.AppointmentDate)
+            .ThenBy(x => x.QueueNumber ?? 999);
     }
 
     public async Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto)
     {
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == dto.PatientCode.Trim().ToUpper());
-        var count = await _db.ChannelingAppointments.CountAsync();
+        var count = await _db.ChannelingAppointments.CountAsync() + await _db.DoctorAppointments.CountAsync();
         var code = $"APT-{3000 + count + 1}";
 
         var appointment = new ChannelingAppointment
@@ -737,7 +919,8 @@ public class EMRService : IEMRService
             Specialty = appointment.Specialty,
             AppointmentDate = appointment.AppointmentDate,
             Room = appointment.Room,
-            Status = appointment.Status
+            Status = appointment.Status,
+            Category = "Upcoming"
         };
     }
 

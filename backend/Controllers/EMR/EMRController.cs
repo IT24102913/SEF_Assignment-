@@ -492,6 +492,31 @@ public class EMRController : ControllerBase
     [HttpGet("channeling-appointments")]
     public async Task<ActionResult<IEnumerable<ChannelingAppointmentDto>>> GetChannelingAppointments([FromQuery] string? patientCode)
     {
+        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                           ?? User.FindFirstValue("sub")
+                           ?? User.FindFirstValue("nameid");
+            if (int.TryParse(userIdClaim, out var parsedId))
+            {
+                var p = await _emrService.GetPatientByUserIdAsync(parsedId);
+                if (p != null) patientCode = p.PatientCode;
+                else patientCode = userIdClaim;
+            }
+
+            if (string.IsNullOrWhiteSpace(patientCode))
+            {
+                var emailClaim = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
+                if (!string.IsNullOrWhiteSpace(emailClaim))
+                {
+                    var allPatients = await _emrService.GetAllPatientsAsync(emailClaim.Trim());
+                    var p = allPatients.FirstOrDefault(x => string.Equals(x.Email, emailClaim.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (p != null) patientCode = p.PatientCode;
+                    else patientCode = emailClaim;
+                }
+            }
+        }
+
         var list = await _emrService.GetChannelingAppointmentsAsync(patientCode);
         return Ok(list);
     }
