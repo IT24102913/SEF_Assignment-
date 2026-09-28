@@ -199,11 +199,9 @@ class _CustomerChannelingScreenState extends State<CustomerChannelingScreen> {
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF0F766E) : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.override(
-            border: Border.all(
-              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
-              width: 1.5,
-            ),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+            width: 1.5,
           ),
           boxShadow: isSelected
               ? [BoxShadow(color: const Color(0xFF0F766E).withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2))]
