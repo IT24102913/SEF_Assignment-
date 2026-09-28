@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class ApiConfig {
@@ -6,6 +7,19 @@ class ApiConfig {
   ///   flutter build apk --dart-define=BACKEND_URL=https://sefassignment-production.up.railway.app
   /// Or defaults to manualRemoteHost below:
   static const String _dartDefinedBackendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
+
+  /// Set to false if you want to test against Railway while debugging locally
+  static const bool _useLocalInDebug = true;
+
+  /// Automatically safe for Git and CI/CD:
+  /// - Release APK builds (GitHub Actions / production) ALWAYS use Railway hosted backend.
+  /// - Debug mode (flutter run on your PC) uses local backend unless _useLocalInDebug is set to false.
+  static bool get useLocalBackend {
+    if (kReleaseMode || _dartDefinedBackendUrl.isNotEmpty) {
+      return false;
+    }
+    return _useLocalInDebug;
+  }
 
   /// Configured Railway production backend host
   static String manualRemoteHost = 'https://sefassignment-production.up.railway.app';
@@ -26,23 +40,25 @@ class ApiConfig {
     return cleaned;
   }
 
-  static String _activeHost = productionHost.isNotEmpty
-      ? productionHost
-      : 'http://192.168.1.8:5126';
+  /// Preferred local host:
+  /// - 'http://192.168.1.6:5126' -> Physical Android phone on the same Wi-Fi
+  /// - 'http://10.0.2.2:5126'     -> Android Emulator
+  /// - 'http://localhost:5126'    -> Web, Windows, or Phone with `adb reverse tcp:5126 tcp:5126`
+  static String localHost = 'http://192.168.1.6:5126';
+
+  static String _activeHost = useLocalBackend ? localHost : productionHost;
 
   static List<String> get candidateHosts {
-    final list = <String>[];
-    if (productionHost.isNotEmpty) {
-      list.add(productionHost);
+    if (!useLocalBackend) {
+      return [productionHost];
     }
-    // Existing local candidate hosts preserved:
-    list.addAll([
-      'http://192.168.1.8:5126',   // ADB reverse port forwarding (USB connected physical device)
-      'http://10.35.16.140:5126', // LAN IPv4 address of PC
+    return [
+      localHost,
+      'http://192.168.1.6:5126',   // Current Wi-Fi IPv4 address of PC
       'http://10.0.2.2:5126',     // Android Emulator default loopback
       'http://localhost:5126',    // Web / Direct local
-    ]);
-    return list;
+      productionHost,             // Hosted fallback
+    ];
   }
 
   static String get baseUrl => '$_activeHost/api';
