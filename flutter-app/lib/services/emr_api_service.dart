@@ -237,6 +237,11 @@ class ChannelingAppointment {
   final String time;
   final String room;
   final String status;
+  final String category;
+  final int? queueNumber;
+  final double? totalAmount;
+  final String? paymentStatus;
+  final String? hospitalBranch;
 
   ChannelingAppointment({
     required this.id,
@@ -246,6 +251,11 @@ class ChannelingAppointment {
     required this.time,
     required this.room,
     required this.status,
+    this.category = 'Upcoming',
+    this.queueNumber,
+    this.totalAmount,
+    this.paymentStatus,
+    this.hospitalBranch,
   });
 
   factory ChannelingAppointment.fromJson(Map<String, dynamic> json) => ChannelingAppointment(
@@ -253,9 +263,14 @@ class ChannelingAppointment {
         doctorName: json['doctorName'] ?? '',
         specialty: json['specialty'] ?? '',
         date: json['formattedDate'] ?? json['date'] ?? '',
-        time: json['formattedTime'] ?? json['time'] ?? '',
+        time: json['timeSlot'] ?? json['formattedTime'] ?? json['time'] ?? '',
         room: json['room'] ?? '',
         status: json['status'] ?? 'Upcoming',
+        category: json['category'] ?? 'Upcoming',
+        queueNumber: json['queueNumber'] != null ? int.tryParse(json['queueNumber'].toString()) : null,
+        totalAmount: json['totalAmount'] != null ? double.tryParse(json['totalAmount'].toString()) : null,
+        paymentStatus: json['paymentStatus'],
+        hospitalBranch: json['hospitalBranch'],
       );
 }
 

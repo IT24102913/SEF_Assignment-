@@ -319,7 +319,6 @@ public class AppointmentService : IAppointmentService
         var initialStatus = isReservation ? AppointmentStatus.Reserved : AppointmentStatus.PendingPayment;
         var paymentStatus = isReservation ? "NotRequired" : "Pending";
         var paymentMethod = isReservation ? "PayOnArrival" : "CreditCard";
-
         var qrToken = Guid.NewGuid();
 
         var appointment = new DoctorAppointment
@@ -356,7 +355,7 @@ public class AppointmentService : IAppointmentService
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}, BookingType={Type}",
-            aptNumber, doctor.Id, queueNumber, bookingType);
+            appointment.AppointmentNumber, doctor.Id, appointment.QueueNumber, appointment.BookingType);
 
         // Send booking confirmation email asynchronously (fire-and-forget safe)
         _ = SendChannelingEmailAsync(
