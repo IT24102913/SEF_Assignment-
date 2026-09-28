@@ -242,7 +242,9 @@ public class LabBookingsController : ControllerBase
     [HttpPut("/api/lab/admin/bookings/{id}/status")]
     public async Task<IActionResult> UpdateBookingStatus(Guid id, [FromQuery] BookingStatus newStatus)
     {
-        var booking = await _db.LabBookings.FindAsync(id);
+        var booking = await _db.LabBookings
+            .Include(b => b.LabTest)
+            .FirstOrDefaultAsync(b => b.Id == id);
         if (booking == null) return NotFound();
 
         // If transitioning to Rejected or Cancelled from an active status, free up the slot
@@ -260,12 +262,22 @@ public class LabBookingsController : ControllerBase
         booking.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Send generic status update email
-        await _emailService.SendStatusUpdateAsync(
-            booking.PatientEmail, 
-            booking.PatientName, 
-            booking.LabTest?.Name ?? "Lab Test", 
-            newStatus.ToString());
+        // Send status update email (safe)
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(booking.PatientEmail))
+            {
+                await _emailService.SendStatusUpdateAsync(
+                    booking.PatientEmail, 
+                    booking.PatientName, 
+                    booking.LabTest?.Name ?? "Laboratory Test", 
+                    newStatus.ToString());
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Email] Could not send status update email to {Email}", booking.PatientEmail);
+        }
 
         return Ok(MapToDto(booking));
     }
