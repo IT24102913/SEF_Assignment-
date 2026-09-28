@@ -224,5 +224,19 @@ export const emrApi = {
     const res = await fetch(`${API_BASE}/patients/${encodeURIComponent(patientCodeOrId)}/clinical-summary`, { headers: authHeaders() });
     if (!res.ok) throw new Error(`Failed to generate clinical summary: ${res.statusText}`);
     return await res.json();
+  },
+
+  // ── Staff Authentication & Role Verification ─────────────────────────────
+  async staffLogin(payload) {
+    const res = await fetch(`${API_BASE}/staff/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.message || `Authentication failed with status ${res.status}`);
+    }
+    return data;
   }
 };
