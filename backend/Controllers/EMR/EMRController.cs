@@ -464,6 +464,58 @@ public class EMRController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Request authorization to Edit or Delete a dispensed medication (Pharmacist / Staff)
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/request-authorization")]
+    public async Task<ActionResult<PrescriptionDto>> RequestPrescriptionAuthorization(Guid id, [FromBody] RequestPrescriptionAuthorizationDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return BadRequest(new { message = "A reason must be provided for the authorization request." });
+
+        var updated = await _emrService.RequestPrescriptionAuthorizationAsync(id, dto);
+        if (updated == null)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// Get all pending pharmacist prescription authorization requests (Admin only)
+    /// </summary>
+    [HttpGet("prescriptions/authorizations/pending")]
+    public async Task<ActionResult<IEnumerable<PrescriptionDto>>> GetPendingPrescriptionAuthorizations()
+    {
+        var list = await _emrService.GetPendingPrescriptionAuthorizationsAsync();
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Admin approves deletion request and permanently removes the prescription based on pharmacist request
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/approve-delete")]
+    public async Task<IActionResult> ApproveAndDeletePrescription(Guid id, [FromBody] ResolvePrescriptionAuthorizationDto? dto)
+    {
+        var deleted = await _emrService.ApproveAndDeletePrescriptionAsync(id, dto?.AdminNote);
+        if (!deleted)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(new { message = "Prescription deleted based on pharmacist authorization request.", id });
+    }
+
+    /// <summary>
+    /// Admin rejects or dismisses the authorization request
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/reject-authorization")]
+    public async Task<ActionResult<PrescriptionDto>> RejectPrescriptionAuthorization(Guid id, [FromBody] ResolvePrescriptionAuthorizationDto? dto)
+    {
+        var updated = await _emrService.RejectPrescriptionAuthorizationAsync(id, dto?.AdminNote);
+        if (updated == null)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(updated);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // BUSINESS-SPECIFIC OPERATION: CLINICAL SUMMARY & HEALTH PASSPORT
     // ═══════════════════════════════════════════════════════════════════════════

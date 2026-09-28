@@ -33,6 +33,10 @@ public interface IEMRService
     Task<IEnumerable<PrescriptionDto>> CreatePrescriptionsBatchAsync(BatchCreatePrescriptionsDto dto);
     Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto);
     Task<bool> DeletePrescriptionAsync(Guid id);
+    Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto);
+    Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string? adminNote = null);
+    Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string? adminNote = null);
+    Task<IEnumerable<PrescriptionDto>> GetPendingPrescriptionAuthorizationsAsync();
 
     // Channeling Appointments
     Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null);

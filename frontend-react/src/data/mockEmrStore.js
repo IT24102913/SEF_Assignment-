@@ -151,7 +151,13 @@ class EmrStore {
           startDate: p.startDate ? p.startDate.split('T')[0] : '',
           endDate: p.endDate ? p.endDate.split('T')[0] : '',
           prescribedDoctor: p.prescribedDoctor,
-          status: p.status
+          status: p.status,
+          hasAuthorizationRequest: Boolean(p.hasAuthorizationRequest),
+          authorizationType: p.authorizationType || null,
+          authorizationReason: p.authorizationReason || null,
+          authorizationRequestedBy: p.authorizationRequestedBy || null,
+          authorizationRequestedAt: p.authorizationRequestedAt || null,
+          authorizationStatus: p.authorizationStatus || null
         }));
       }
 
@@ -385,6 +391,64 @@ class EmrStore {
       await emrApi.deletePrescription(id);
     } catch (e) {
       console.warn('[EmrStore] Error deleting prescription from API:', e);
+    }
+  }
+
+  async requestPrescriptionAuthorization(id, { requestType = 'Delete', reason = '', requestedBy = 'Pharmacist' }) {
+    this.prescriptions = this.prescriptions.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          hasAuthorizationRequest: true,
+          authorizationType: requestType,
+          authorizationReason: reason,
+          authorizationRequestedBy: requestedBy,
+          authorizationRequestedAt: new Date().toISOString(),
+          authorizationStatus: 'Pending'
+        };
+      }
+      return p;
+    });
+    this.saveData();
+
+    try {
+      await emrApi.requestPrescriptionAuthorization(id, { requestType, reason, requestedBy });
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error requesting authorization from API:', e);
+    }
+  }
+
+  async approveAndDeletePrescription(id, adminNote = '') {
+    this.prescriptions = this.prescriptions.filter(p => p.id !== id);
+    this.saveData();
+
+    try {
+      await emrApi.approveAndDeletePrescription(id, adminNote);
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error approving delete prescription in API:', e);
+    }
+  }
+
+  async rejectPrescriptionAuthorization(id, adminNote = '') {
+    this.prescriptions = this.prescriptions.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          hasAuthorizationRequest: false,
+          authorizationStatus: 'Rejected'
+        };
+      }
+      return p;
+    });
+    this.saveData();
+
+    try {
+      await emrApi.rejectPrescriptionAuthorization(id, adminNote);
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error rejecting prescription authorization in API:', e);
     }
   }
 }

@@ -17,6 +17,12 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"CardPrice\" numeric(18,2) DEFAULT 0;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"AdditionalImagesJson\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Patients\" ADD COLUMN IF NOT EXISTS \"UserId\" integer;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"HasAuthorizationRequest\" boolean DEFAULT false;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationType\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationReason\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedBy\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedAt\" timestamp with time zone;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationStatus\" text;");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
             await context.Database.ExecuteSqlRawAsync(@"
