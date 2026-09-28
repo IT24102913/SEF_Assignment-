@@ -8,8 +8,9 @@ class ApiConfig {
   /// Or defaults to manualRemoteHost below:
   static const String _dartDefinedBackendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
 
-  /// Set to false if you want to test against Railway while debugging locally
-  static const bool _useLocalInDebug = true;
+  /// Set to true only when you are running your local backend with `dotnet run`
+  /// Defaults to false so the mobile app connects to the live hosted Railway backend
+  static const bool _useLocalInDebug = false;
 
   /// Automatically safe for Git and CI/CD:
   /// - Release APK builds (GitHub Actions / production) ALWAYS use Railway hosted backend.
