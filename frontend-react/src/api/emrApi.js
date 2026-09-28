@@ -283,5 +283,29 @@ export const emrApi = {
       throw new Error(data.message || `Authentication failed with status ${res.status}`);
     }
     return data;
+  },
+
+  // ── Agentic AI Clinical Insights ─────────────────────────────────────────
+  async getAIClinicalInsight(patientCode = '') {
+    const url = patientCode ? `${API_BASE}/ai/insight?patientCode=${encodeURIComponent(patientCode)}` : `${API_BASE}/ai/insight`;
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `Failed to fetch AI insights: ${res.statusText}`);
+    }
+    return await res.json();
+  },
+
+  async askAIAgent(question, patientCode = '') {
+    const res = await fetch(`${API_BASE}/ai/ask`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ question, patientCode })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `AI Agent query failed: ${res.statusText}`);
+    }
+    return await res.json();
   }
 };
