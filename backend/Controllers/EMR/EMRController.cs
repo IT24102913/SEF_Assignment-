@@ -533,4 +533,30 @@ public class EMRController : ControllerBase
         var created = await _emrService.CreateChannelingAppointmentAsync(dto);
         return Ok(created);
     }
+
+    /// <summary>
+    /// Authenticate a staff member for the EMR Staff Portal with strict role verification
+    /// </summary>
+    [HttpPost("staff/login")]
+    [AllowAnonymous]
+    public async Task<ActionResult<StaffLoginResponseDto>> StaffLogin([FromBody] EmrStaffLoginDto dto)
+    {
+        try
+        {
+            var res = await _emrService.StaffLoginAsync(dto);
+            return Ok(res);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+    }
 }

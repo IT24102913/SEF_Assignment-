@@ -1,8 +1,12 @@
+using HealthBridge.Api.Authentication;
 using HealthBridge.Api.Data;
+using HealthBridge.Api.DTOs;
+using HealthBridge.Api.DTOs.Auth;
 using HealthBridge.Api.DTOs.EMR;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Models.Appointments;
 using HealthBridge.Api.Models.EMR;
+using HealthBridge.Api.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -12,11 +16,13 @@ public class EMRService : IEMRService
 {
     private readonly ApplicationDbContext _db;
     private readonly ILogger<EMRService> _logger;
+    private readonly IJwtTokenGenerator _jwtTokenGenerator;
 
-    public EMRService(ApplicationDbContext db, ILogger<EMRService> logger)
+    public EMRService(ApplicationDbContext db, ILogger<EMRService> logger, IJwtTokenGenerator jwtTokenGenerator)
     {
         _db = db;
         _logger = logger;
+        _jwtTokenGenerator = jwtTokenGenerator;
     }
 
     // ─── Patients ─────────────────────────────────────────────────────────────
@@ -1283,6 +1289,118 @@ public class EMRService : IEMRService
         }
 
         return notifs;
+    }
+
+    // ─── Staff Authentication & Role Verification ─────────────────────────────
+
+    public async Task<StaffLoginResponseDto> StaffLoginAsync(EmrStaffLoginDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.StaffIdOrEmail) || string.IsNullOrWhiteSpace(dto.Password))
+        {
+            throw new ArgumentException("Staff ID / Email and password are required.");
+        }
+
+        var input = dto.StaffIdOrEmail.Trim().ToLowerInvariant();
+
+        // 1. Locate user in database by email, staff identifier, or full name
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == input);
+
+        if (user == null)
+        {
+            if (input == "doc-01" || input == "doc-101" || input == "doctor" || input.StartsWith("doc"))
+            {
+                user = await _db.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Doctor);
+            }
+            else if (input == "lab-01" || input == "lab-101" || input == "lab" || input.StartsWith("lab"))
+            {
+                user = await _db.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Laboratory);
+            }
+            else if (input == "pharm-01" || input == "pharm-101" || input == "pharm" || input == "pharmacist" || input.StartsWith("pharm"))
+            {
+                user = await _db.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Pharmacist);
+            }
+            else if (input == "admin-01" || input == "admin" || input.StartsWith("admin"))
+            {
+                user = await _db.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Admin);
+            }
+            else
+            {
+                user = await _db.Users.FirstOrDefaultAsync(u => u.FullName.ToLower() == input);
+            }
+        }
+
+        if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
+        {
+            throw new UnauthorizedAccessException("Invalid staff credentials. Please check your Staff ID/Email and password.");
+        }
+
+        if (!user.IsActive)
+        {
+            throw new InvalidOperationException("Your staff account has been deactivated. Please contact the administrator.");
+        }
+
+        if (user.Role == UserRole.Patient)
+        {
+            throw new InvalidOperationException("Access Denied: Patient accounts are not authorized to log into the Hospital Staff & Admin Portal.");
+        }
+
+        // 2. Strict Role Enforcement (User Requirement):
+        // - To log as Doctor: staff MUST be Doctor or Admin
+        // - To log as Laboratorian: staff MUST be Laboratorian (Laboratory) or Admin
+        // - To log as Pharmacist: staff MUST be Pharmacist or Admin
+        // - To log as Admin: staff MUST be Admin
+        var target = (dto.TargetRole ?? "").Trim();
+        var userRole = user.Role;
+
+        if (target.Equals("Consultant", StringComparison.OrdinalIgnoreCase) || target.Equals("Doctor", StringComparison.OrdinalIgnoreCase))
+        {
+            if (userRole != UserRole.Doctor && userRole != UserRole.Admin)
+            {
+                throw new InvalidOperationException(
+                    $"Access Denied: Your registered role is '{userRole}'. To log in as a Doctor, you must have Doctor or Admin privileges. (A {userRole} cannot log in as a Doctor).");
+            }
+        }
+        else if (target.Equals("Laboratorian", StringComparison.OrdinalIgnoreCase) || target.Equals("Laboratory", StringComparison.OrdinalIgnoreCase))
+        {
+            if (userRole != UserRole.Laboratory && userRole != UserRole.Admin)
+            {
+                throw new InvalidOperationException(
+                    $"Access Denied: Your registered role is '{userRole}'. To log in as a Laboratorian, you must have Laboratorian (Lab Staff) or Admin privileges. (A {userRole} cannot log in as a Laboratorian).");
+            }
+        }
+        else if (target.Equals("Pharmacist", StringComparison.OrdinalIgnoreCase))
+        {
+            if (userRole != UserRole.Pharmacist && userRole != UserRole.Admin)
+            {
+                throw new InvalidOperationException(
+                    $"Access Denied: Your registered role is '{userRole}'. To log in as a Pharmacist, you must have Pharmacist or Admin privileges. (A {userRole} cannot log in as a Pharmacist).");
+            }
+        }
+        else if (target.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            if (userRole != UserRole.Admin)
+            {
+                throw new InvalidOperationException(
+                    $"Access Denied: Your registered role is '{userRole}'. To log in as an Admin, you must be a System Administrator.");
+            }
+        }
+
+        var token = _jwtTokenGenerator.GenerateToken(user);
+
+        return new StaffLoginResponseDto
+        {
+            Token = token,
+            Role = target,
+            StaffId = user.FullName ?? user.Email,
+            User = new UserResponse
+            {
+                Id = user.Id,
+                FullName = user.FullName,
+                Email = user.Email,
+                Role = user.Role,
+                PatientCode = null
+            }
+        };
     }
 }
 

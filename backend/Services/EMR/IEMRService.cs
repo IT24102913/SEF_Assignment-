@@ -43,4 +43,7 @@ public interface IEMRService
 
     // Notifications (100% User-Specific and Role-Based)
     Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role);
+
+    // Staff Authentication & Role Enforcement
+    Task<StaffLoginResponseDto> StaffLoginAsync(EmrStaffLoginDto dto);
 }
