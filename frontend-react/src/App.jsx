@@ -45,6 +45,7 @@ import LabReports from './pages/emr/patient/LabReports';
 import Prescriptions from './pages/emr/patient/Prescriptions';
 import ChannelingHistory from './pages/emr/patient/ChannelingHistory';
 import HealthPassport from './pages/emr/patient/HealthPassport';
+import AIClinicalAdvisor from './pages/emr/patient/AIClinicalAdvisor';
 import EmrStaffPortal from './pages/emr/staff/StaffPortal';
 import NotificationsCenter from './pages/emr/NotificationsCenter';
 
@@ -278,6 +279,7 @@ function App() {
                     }>
                         <Route index element={<Navigate to="/emr/overview" replace />} />
                         <Route path="overview" element={<EmrOverview />} />
+                        <Route path="ai-insights" element={<AIClinicalAdvisor />} />
                         <Route path="consultation-notes" element={<ConsultationNotes />} />
                         <Route path="lab-reports" element={<LabReports />} />
                         <Route path="pharmacy" element={<Prescriptions />} />

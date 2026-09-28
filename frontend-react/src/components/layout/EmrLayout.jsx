@@ -12,7 +12,8 @@ import {
   Bell, 
   Activity,
   ArrowLeft,
-  CheckCheck
+  CheckCheck,
+  Sparkles
 } from 'lucide-react';
 import EmrFooter from './EmrFooter';
 import { emrApi } from '../../api/emrApi';
@@ -85,6 +86,7 @@ export default function EmrLayout() {
 
   const navItems = [
     { name: 'Overview',           path: '/emr/overview',           icon: LayoutGrid },
+    { name: 'AI Health Advisor',  path: '/emr/ai-insights',        icon: Sparkles, badge: 'Agentic AI' },
     { name: 'Consultation Notes', path: '/emr/consultation-notes', icon: FileText },
     { name: 'Lab Reports',        path: '/emr/lab-reports',        icon: Microscope },
     { name: 'Pharmacy',           path: '/emr/pharmacy',           icon: Pill },
@@ -140,7 +142,22 @@ export default function EmrLayout() {
                   })}
                 >
                   <Icon size={19} />
-                  {item.name}
+                  <span style={{ flex: 1 }}>{item.name}</span>
+                  {item.badge && (
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: '#ffffff',
+                      padding: '2px 7px',
+                      borderRadius: '999px',
+                      border: '1px solid rgba(255, 255, 255, 0.35)'
+                    }}>
+                      {item.badge}
+                    </span>
+                  )}
                 </NavLink>
               );
             })}

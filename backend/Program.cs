@@ -103,7 +103,8 @@ builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.InventoryForecastingAgent>();
 builder.Services.AddHttpClient("GeminiClient");
 
-// ✅ Register EMR Service
+// ✅ Register EMR Service & Clinical AI Agent
+builder.Services.AddScoped<HealthBridge.Api.Agents.EMR.EMRClinicalInsightAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Services.EMR.IEMRService, HealthBridge.Api.Services.EMR.EMRService>();
 
 // ✅ Register Lab Management Multi-Agent System (2 Distinct Agents + Orchestrator)

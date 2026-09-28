@@ -17,12 +17,18 @@ public class EMRService : IEMRService
     private readonly ApplicationDbContext _db;
     private readonly ILogger<EMRService> _logger;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
+    private readonly HealthBridge.Api.Agents.EMR.EMRClinicalInsightAgent _aiAgent;
 
-    public EMRService(ApplicationDbContext db, ILogger<EMRService> logger, IJwtTokenGenerator jwtTokenGenerator)
+    public EMRService(
+        ApplicationDbContext db,
+        ILogger<EMRService> logger,
+        IJwtTokenGenerator jwtTokenGenerator,
+        HealthBridge.Api.Agents.EMR.EMRClinicalInsightAgent aiAgent)
     {
         _db = db;
         _logger = logger;
         _jwtTokenGenerator = jwtTokenGenerator;
+        _aiAgent = aiAgent;
     }
 
     // ─── Patients ─────────────────────────────────────────────────────────────
@@ -746,6 +752,109 @@ public class EMRService : IEMRService
             OverallAssessment = overallAssessment,
             GeneratedAt = DateTime.UtcNow
         };
+    }
+
+    // ─── Agentic AI Clinical Insights ──────────────────────────────────────────
+
+    public async Task<AIClinicalInsightResponse?> GetPatientClinicalAIInsightAsync(string patientCodeOrId)
+    {
+        Patient? patient = null;
+
+        if (Guid.TryParse(patientCodeOrId, out var patientGuid))
+        {
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.Id == patientGuid);
+        }
+
+        if (patient == null)
+        {
+            var pCode = patientCodeOrId.Trim().ToUpperInvariant();
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == pCode);
+        }
+
+        if (patient == null && int.TryParse(patientCodeOrId, out var parsedUserId))
+        {
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.UserId == parsedUserId);
+        }
+
+        if (patient == null && patientCodeOrId.Contains('@'))
+        {
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.Email.ToLower() == patientCodeOrId.Trim().ToLower());
+        }
+
+        if (patient == null) return null;
+
+        return await _aiAgent.AnalyzePatientRecordsAsync(patient);
+    }
+
+    public async Task<AskAIAgentResponse> AskPatientClinicalAIAgentAsync(string patientCodeOrId, string question)
+    {
+        Patient? patient = null;
+
+        if (Guid.TryParse(patientCodeOrId, out var patientGuid))
+        {
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.Id == patientGuid);
+        }
+
+        if (patient == null)
+        {
+            var pCode = patientCodeOrId.Trim().ToUpperInvariant();
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == pCode);
+        }
+
+        if (patient == null && int.TryParse(patientCodeOrId, out var parsedUserId))
+        {
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.UserId == parsedUserId);
+        }
+
+        if (patient == null && patientCodeOrId.Contains('@'))
+        {
+            patient = await _db.Patients
+                .Include(p => p.ConsultationNotes)
+                .Include(p => p.LabReports)
+                .Include(p => p.Prescriptions)
+                .FirstOrDefaultAsync(p => p.Email.ToLower() == patientCodeOrId.Trim().ToLower());
+        }
+
+        if (patient == null)
+        {
+            return new AskAIAgentResponse
+            {
+                Question = question,
+                Answer = "Unable to locate your medical records. Please ensure your patient profile is registered.",
+                ClinicalReferences = new List<string> { "System Notice" },
+                AnsweredAt = DateTime.UtcNow
+            };
+        }
+
+        return await _aiAgent.AnswerQuestionAsync(patient, question);
     }
 
     // ─── Channeling Appointments ──────────────────────────────────────────────

@@ -611,4 +611,115 @@ public class EMRController : ControllerBase
             return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AGENTIC AI CLINICAL HEALTH ADVISOR
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Agentic AI: Evaluates patient lab reports, prescriptions, medications, and doctor consultation notes
+    /// to explain what the doctor said, explain diagnostics, and summarize patient health condition.
+    /// </summary>
+    [HttpGet("ai/insight")]
+    public async Task<ActionResult<AIClinicalInsightResponse>> GetAIClinicalInsight([FromQuery] string? patientCode)
+    {
+        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                           ?? User.FindFirstValue("sub")
+                           ?? User.FindFirstValue("nameid");
+            if (int.TryParse(userIdClaim, out var parsedId))
+            {
+                var p = await _emrService.GetPatientByUserIdAsync(parsedId);
+                if (p != null) patientCode = p.PatientCode;
+                else patientCode = userIdClaim;
+            }
+
+            if (string.IsNullOrWhiteSpace(patientCode))
+            {
+                var emailClaim = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
+                if (!string.IsNullOrWhiteSpace(emailClaim))
+                {
+                    var allPatients = await _emrService.GetAllPatientsAsync(emailClaim.Trim());
+                    var p = allPatients.FirstOrDefault(x => string.Equals(x.Email, emailClaim.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (p != null) patientCode = p.PatientCode;
+                    else patientCode = emailClaim;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(patientCode))
+        {
+            var all = await _emrService.GetAllPatientsAsync();
+            var first = all.FirstOrDefault();
+            if (first != null) patientCode = first.PatientCode;
+        }
+
+        if (string.IsNullOrWhiteSpace(patientCode))
+        {
+            return BadRequest(new { message = "Patient code could not be resolved. Please specify patientCode." });
+        }
+
+        var insight = await _emrService.GetPatientClinicalAIInsightAsync(patientCode);
+        if (insight == null)
+        {
+            return NotFound(new { message = $"Patient with identifier '{patientCode}' not found." });
+        }
+
+        return Ok(insight);
+    }
+
+    /// <summary>
+    /// Agentic AI: Allows patients to ask questions about their health records, reports, or medications
+    /// and receive intelligent, personalized clinical explanations.
+    /// </summary>
+    [HttpPost("ai/ask")]
+    public async Task<ActionResult<AskAIAgentResponse>> AskAIClinicalAgent([FromBody] AskAIAgentRequest dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Question))
+        {
+            return BadRequest(new { message = "Question is required." });
+        }
+
+        var patientCode = dto.PatientCode;
+        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                           ?? User.FindFirstValue("sub")
+                           ?? User.FindFirstValue("nameid");
+            if (int.TryParse(userIdClaim, out var parsedId))
+            {
+                var p = await _emrService.GetPatientByUserIdAsync(parsedId);
+                if (p != null) patientCode = p.PatientCode;
+                else patientCode = userIdClaim;
+            }
+
+            if (string.IsNullOrWhiteSpace(patientCode))
+            {
+                var emailClaim = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
+                if (!string.IsNullOrWhiteSpace(emailClaim))
+                {
+                    var allPatients = await _emrService.GetAllPatientsAsync(emailClaim.Trim());
+                    var p = allPatients.FirstOrDefault(x => string.Equals(x.Email, emailClaim.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (p != null) patientCode = p.PatientCode;
+                    else patientCode = emailClaim;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(patientCode))
+        {
+            var all = await _emrService.GetAllPatientsAsync();
+            var first = all.FirstOrDefault();
+            if (first != null) patientCode = first.PatientCode;
+        }
+
+        if (string.IsNullOrWhiteSpace(patientCode))
+        {
+            return BadRequest(new { message = "Patient code could not be resolved." });
+        }
+
+        var answer = await _emrService.AskPatientClinicalAIAgentAsync(patientCode, dto.Question);
+        return Ok(answer);
+    }
 }

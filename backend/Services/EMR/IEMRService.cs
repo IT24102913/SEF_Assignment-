@@ -45,6 +45,10 @@ public interface IEMRService
     // Business-Specific Operation
     Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId);
 
+    // Agentic AI Clinical Insights
+    Task<AIClinicalInsightResponse?> GetPatientClinicalAIInsightAsync(string patientCodeOrId);
+    Task<AskAIAgentResponse> AskPatientClinicalAIAgentAsync(string patientCodeOrId, string question);
+
     // Notifications (100% User-Specific and Role-Based)
     Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role);
 
