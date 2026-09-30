@@ -3,15 +3,12 @@ using HealthBridge.Api.DTOs.Appointments;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Models.Appointments;
 using Microsoft.EntityFrameworkCore;
-using MimeKit;
-using MailKit.Net.Smtp;
 
 namespace HealthBridge.Api.Services;
 
 public class AppointmentService : IAppointmentService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<AppointmentService> _logger;
 
     private static readonly string[] FixedSpecialties = new[]
@@ -20,49 +17,15 @@ public class AppointmentService : IAppointmentService
         "Gynaecology", "Dermatology", "ENT", "General Medicine"
     };
 
-    public AppointmentService(
-        ApplicationDbContext context,
-        IConfiguration configuration,
-        ILogger<AppointmentService> logger)
+    public AppointmentService(ApplicationDbContext context, ILogger<AppointmentService> logger)
     {
         _context = context;
-        _configuration = configuration;
         _logger = logger;
-    }
-
-    private static readonly TimeZoneInfo LocalHospitalTimeZone = GetHospitalTimeZone();
-
-    private static TimeZoneInfo GetHospitalTimeZone()
-    {
-        // Try Sri Lanka Standard Time (Windows) or Asia/Colombo (Linux / macOS)
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Sri Lanka Standard Time");
-        }
-        catch
-        {
-            try
-            {
-                return TimeZoneInfo.FindSystemTimeZoneById("Asia/Colombo");
-            }
-            catch
-            {
-                // Custom fixed UTC+05:30 fallback for Sri Lanka Standard Time
-                return TimeZoneInfo.CreateCustomTimeZone("SLST", TimeSpan.FromHours(5.5), "Sri Lanka Standard Time", "Sri Lanka Standard Time");
-            }
-        }
-    }
-
-    public static DateTime GetLocalNow()
-    {
-        return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, LocalHospitalTimeZone);
     }
 
     public async Task<List<DoctorDto>> GetDoctorsAsync(string? search, string? specialization, string? hospitalBranch, string? date, string? sortBy)
     {
-        var localNow = GetLocalNow();
-        var today = DateOnly.FromDateTime(localNow);
-        var nowTime = TimeOnly.FromDateTime(localNow);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var tomorrow = today.AddDays(1);
 
         var query = _context.Doctors
@@ -89,25 +52,14 @@ public class AppointmentService : IAppointmentService
 
         if (!string.IsNullOrWhiteSpace(date) && DateOnly.TryParse(date, out var filterDate))
         {
-            if (filterDate < today)
-            {
-                query = query.Where(d => false);
-            }
-            else if (filterDate == today)
-            {
-                query = query.Where(d => d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity && s.SessionTime > nowTime));
-            }
-            else
-            {
-                query = query.Where(d => d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity));
-            }
+            query = query.Where(d => d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity));
         }
 
         var doctors = await query.ToListAsync();
 
         var result = doctors.Select(d =>
         {
-            var upcomingSessions = d.Sessions.Where(s => s.IsActive && (s.SessionDate > today || (s.SessionDate == today && s.SessionTime > nowTime))).ToList();
+            var upcomingSessions = d.Sessions.Where(s => s.IsActive && s.SessionDate >= today).ToList();
             var todaySessions = upcomingSessions.Where(s => s.SessionDate == today && s.CurrentBookings < s.MaxCapacity).ToList();
             var tomorrowSessions = upcomingSessions.Where(s => s.SessionDate == tomorrow && s.CurrentBookings < s.MaxCapacity).ToList();
             var totalAvailableSlots = upcomingSessions.Sum(s => Math.Max(0, s.MaxCapacity - s.CurrentBookings));
@@ -185,18 +137,14 @@ public class AppointmentService : IAppointmentService
 
     public async Task<DoctorDto?> GetDoctorByIdAsync(int id)
     {
-        var localNow = GetLocalNow();
-        var today = DateOnly.FromDateTime(localNow);
-        var nowTime = TimeOnly.FromDateTime(localNow);
-        var tomorrow = today.AddDays(1);
-
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var doc = await _context.Doctors
             .Include(d => d.Sessions)
             .FirstOrDefaultAsync(d => d.Id == id);
 
         if (doc == null) return null;
 
-        var upcoming = doc.Sessions.Where(s => s.IsActive && (s.SessionDate > today || (s.SessionDate == today && s.SessionTime > nowTime))).ToList();
+        var upcoming = doc.Sessions.Where(s => s.IsActive && s.SessionDate >= today).ToList();
 
         return new DoctorDto
         {
@@ -220,17 +168,13 @@ public class AppointmentService : IAppointmentService
             Email = doc.Email,
             IsAvailable = doc.IsAvailable,
             AvailableToday = upcoming.Any(s => s.SessionDate == today && s.CurrentBookings < s.MaxCapacity),
-            AvailableTomorrow = upcoming.Any(s => s.SessionDate == tomorrow && s.CurrentBookings < s.MaxCapacity),
+            AvailableTomorrow = upcoming.Any(s => s.SessionDate == today.AddDays(1) && s.CurrentBookings < s.MaxCapacity),
             SlotsLeft = upcoming.Sum(s => Math.Max(0, s.MaxCapacity - s.CurrentBookings))
         };
     }
 
     public async Task<List<DoctorSessionDto>> GetDoctorSessionsAsync(int doctorId, DateOnly? date)
     {
-        var localNow = GetLocalNow();
-        var today = DateOnly.FromDateTime(localNow);
-        var nowTime = TimeOnly.FromDateTime(localNow);
-
         var query = _context.DoctorSessions
             .Include(s => s.Doctor)
             .Where(s => s.DoctorId == doctorId && s.IsActive);
@@ -241,6 +185,7 @@ public class AppointmentService : IAppointmentService
         }
         else
         {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
             query = query.Where(s => s.SessionDate >= today);
         }
 
@@ -249,82 +194,53 @@ public class AppointmentService : IAppointmentService
             .ThenBy(s => s.SessionTime)
             .ToListAsync();
 
-        return list.Select(s =>
+        return list.Select(s => new DoctorSessionDto
         {
-            var isPast = s.SessionDate < today || (s.SessionDate == today && s.SessionTime <= nowTime);
-            var isAvailable = s.IsActive && !isPast && s.CurrentBookings < s.MaxCapacity;
-            var slotsLeft = isPast ? 0 : Math.Max(0, s.MaxCapacity - s.CurrentBookings);
-
-            return new DoctorSessionDto
-            {
-                Id = s.Id,
-                DoctorId = s.DoctorId,
-                DoctorName = s.Doctor?.FullName ?? string.Empty,
-                SessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
-                SessionTime = s.SessionTime.ToString("HH:mm"),
-                TimeFormatted = FormatTimeSlot(s.SessionTime),
-                MaxCapacity = s.MaxCapacity,
-                CurrentBookings = s.CurrentBookings,
-                IsAvailable = isAvailable,
-                IsExpired = isPast,
-                SlotsLeft = slotsLeft,
-                SessionStatus = isPast && s.SessionStatus == SessionStatus.Scheduled ? "Expired" : s.SessionStatus.ToString(),
-                ActualStartTime = s.ActualStartTime,
-                ExpectedStartTime = s.ExpectedStartTime,
-                CurrentlyServingQueueNumber = s.CurrentlyServingQueueNumber,
-                DelayReason = s.DelayReason
-            };
+            Id = s.Id,
+            DoctorId = s.DoctorId,
+            DoctorName = s.Doctor?.FullName ?? string.Empty,
+            SessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
+            SessionTime = s.SessionTime.ToString("HH:mm"),
+            TimeFormatted = FormatTimeSlot(s.SessionTime),
+            MaxCapacity = s.MaxCapacity,
+            CurrentBookings = s.CurrentBookings,
+            IsAvailable = s.IsAvailable,
+            SlotsLeft = Math.Max(0, s.MaxCapacity - s.CurrentBookings)
         }).ToList();
     }
 
     public async Task<AppointmentDto> BookAppointmentAsync(BookAppointmentRequest request, int? patientId)
     {
-        var localNow = GetLocalNow();
-        var today = DateOnly.FromDateTime(localNow);
-        var nowTime = TimeOnly.FromDateTime(localNow);
-
         var session = await _context.DoctorSessions
             .Include(s => s.Doctor)
             .FirstOrDefaultAsync(s => s.Id == request.DoctorSessionId);
 
         if (session == null)
-        {
-            throw new InvalidOperationException("Doctor session not found.");
-        }
-
-        if (session.SessionDate < today || (session.SessionDate == today && session.SessionTime <= nowTime))
-        {
-            throw new InvalidOperationException("Selected time slot has already passed and is no longer available.");
-        }
+            throw new InvalidOperationException("Selected doctor session was not found.");
 
         if (!session.IsActive || session.CurrentBookings >= session.MaxCapacity)
-        {
             throw new InvalidOperationException("Selected time slot is no longer available. Please select another slot.");
-        }
 
         var doctor = session.Doctor ?? await _context.Doctors.FindAsync(request.DoctorId)
             ?? throw new InvalidOperationException("Doctor not found.");
 
+        // Allocate slot
         session.CurrentBookings += 1;
         var queueNumber = session.CurrentBookings;
-        var aptNumber = $"APT-{session.SessionDate:yyyyMMdd}-{session.Id:D4}-{queueNumber:D3}";
-        var aptDateTime = session.SessionDate.ToDateTime(session.SessionTime, DateTimeKind.Utc);
 
         var fee = doctor.ConsultationFee;
         var serviceCharge = 300.00m;
         var total = fee + serviceCharge;
 
-        var isReservation = string.Equals(request.BookingType, "Reservation", StringComparison.OrdinalIgnoreCase);
-        var bookingType = isReservation ? BookingType.Reservation : BookingType.OnlinePayment;
-        var initialStatus = isReservation ? AppointmentStatus.Reserved : AppointmentStatus.PendingPayment;
-        var paymentStatus = isReservation ? "NotRequired" : "Pending";
-        var paymentMethod = isReservation ? "PayOnArrival" : "CreditCard";
-        var qrToken = Guid.NewGuid();
+        var aptNumber = $"APT-{DateTime.UtcNow:yyyyMMdd}-{Random.Shared.Next(100, 999)}";
+
+        var aptDateTime = session.SessionDate.ToDateTime(session.SessionTime, DateTimeKind.Utc);
 
         var appointment = new DoctorAppointment
         {
             AppointmentNumber = aptNumber,
             DoctorId = doctor.Id,
+            Doctor = doctor,
             DoctorName = doctor.FullName,
             Specialization = doctor.Specialization,
             PatientId = patientId,
@@ -336,17 +252,14 @@ public class AppointmentService : IAppointmentService
             AppointmentDate = aptDateTime,
             TimeSlot = FormatTimeSlot(session.SessionTime),
             DoctorSessionId = session.Id,
+            DoctorSession = session,
             QueueNumber = queueNumber,
             ConsultationFee = fee,
             ServiceCharge = serviceCharge,
             TotalAmount = total,
-            Status = initialStatus,
-            BookingType = bookingType,
-            QrToken = qrToken,
-            ArrivalStatus = ArrivalStatus.NotArrived,
-            QueueStatus = QueueStatus.NotCheckedIn,
-            PaymentMethod = paymentMethod,
-            PaymentStatus = paymentStatus,
+            Status = AppointmentStatus.PendingPayment,
+            PaymentMethod = "CreditCard",
+            PaymentStatus = "Pending",
             Notes = request.Notes,
             CreatedAt = DateTime.UtcNow
         };
@@ -354,25 +267,8 @@ public class AppointmentService : IAppointmentService
         _context.DoctorAppointments.Add(appointment);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}, BookingType={Type}",
-            appointment.AppointmentNumber, doctor.Id, appointment.QueueNumber, appointment.BookingType);
-
-        // Send booking confirmation email asynchronously (fire-and-forget safe)
-        _ = SendChannelingEmailAsync(
-            appointment.PatientEmail,
-            appointment.PatientName,
-            isReservation ? $"Reservation Confirmed: {appointment.AppointmentNumber}" : $"Appointment Booking Created: {appointment.AppointmentNumber}",
-            $@"<h2>HealthBridge Channeling {(isReservation ? "Reservation" : "Booking")}</h2>
-               <p>Dear {appointment.PatientName},</p>
-               <p>Your appointment with <strong>{appointment.DoctorName}</strong> ({appointment.Specialization}) has been {(isReservation ? "reserved" : "created")}.</p>
-               <ul>
-                 <li><strong>Appointment Ref:</strong> {appointment.AppointmentNumber}</li>
-                 <li><strong>Queue Number:</strong> #{appointment.QueueNumber}</li>
-                 <li><strong>Date & Time:</strong> {appointment.AppointmentDate:yyyy-MM-dd} at {appointment.TimeSlot}</li>
-                 <li><strong>Status:</strong> {appointment.Status}</li>
-                 <li><strong>Fee:</strong> LKR {appointment.TotalAmount:N2}</li>
-               </ul>
-               <p>Please present your Check-in QR Token on arrival at the hospital channeling desk: <code>{appointment.QrToken}</code></p>");
+        _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}",
+            aptNumber, doctor.Id, queueNumber);
 
         return MapToDto(appointment, doctor.HospitalBranch);
     }
@@ -389,19 +285,6 @@ public class AppointmentService : IAppointmentService
 
         if (apt.Status == AppointmentStatus.Cancelled)
             throw new InvalidOperationException("Cannot pay for a cancelled appointment.");
-
-        // Payment decline test branch (e.g. card ending in 0000 or contains 'decline' / 'fail')
-        if (request.PaymentMethod == "CreditCard" && !string.IsNullOrWhiteSpace(request.CardMaskedReference))
-        {
-            var refLower = request.CardMaskedReference.ToLower();
-            if (refLower.Contains("decline") || refLower.Contains("fail") || refLower.EndsWith("0000"))
-            {
-                apt.PaymentStatus = "Failed";
-                await _context.SaveChangesAsync();
-                _logger.LogWarning("Payment declined for appointment {AptNo}", apt.AppointmentNumber);
-                throw new InvalidOperationException("Payment was declined by the card issuer. Please use another card.");
-            }
-        }
 
         apt.PaymentMethod = request.PaymentMethod;
         apt.PaymentStatus = "Paid";
@@ -425,21 +308,10 @@ public class AppointmentService : IAppointmentService
         await _context.SaveChangesAsync();
         _logger.LogInformation("Payment processed for Appointment {AptNo}, Status Confirmed", apt.AppointmentNumber);
 
-        // Send confirmation email
-        _ = SendChannelingEmailAsync(
-            apt.PatientEmail,
-            apt.PatientName,
-            $"Payment Confirmed - HealthBridge Appointment #{apt.QueueNumber}",
-            $@"<h2>Payment Confirmation</h2>
-               <p>Dear {apt.PatientName},</p>
-               <p>Your payment of <strong>LKR {apt.TotalAmount:N2}</strong> for Appointment <strong>{apt.AppointmentNumber}</strong> has been successfully received.</p>
-               <p>Doctor: {apt.DoctorName} | Queue: #{apt.QueueNumber}</p>
-               <p>Your check-in QR Token is: <code>{apt.QrToken}</code></p>");
-
         return MapToDto(apt, apt.Doctor?.HospitalBranch);
     }
 
-    public async Task<AppointmentDto> CancelAppointmentAsync(int appointmentId, int? patientId, bool isAdmin = false)
+    public async Task<AppointmentDto> CancelAppointmentAsync(int appointmentId, int? patientId)
     {
         var apt = await _context.DoctorAppointments
             .Include(a => a.Doctor)
@@ -449,14 +321,13 @@ public class AppointmentService : IAppointmentService
         if (apt == null)
             throw new KeyNotFoundException("Appointment not found.");
 
-        if (!isAdmin && patientId.HasValue && apt.PatientId.HasValue && apt.PatientId.Value != patientId.Value)
+        if (patientId.HasValue && apt.PatientId.HasValue && apt.PatientId.Value != patientId.Value)
             throw new UnauthorizedAccessException("You are not authorized to cancel this appointment.");
 
         if (apt.Status == AppointmentStatus.Completed)
             throw new InvalidOperationException("Completed appointments cannot be cancelled.");
 
         apt.Status = AppointmentStatus.Cancelled;
-        apt.QueueStatus = QueueStatus.Skipped;
 
         // Release slot capacity
         if (apt.DoctorSession != null && apt.DoctorSession.CurrentBookings > 0)
@@ -466,14 +337,6 @@ public class AppointmentService : IAppointmentService
 
         await _context.SaveChangesAsync();
         _logger.LogInformation("Appointment {AptNo} cancelled, capacity freed", apt.AppointmentNumber);
-
-        _ = SendChannelingEmailAsync(
-            apt.PatientEmail,
-            apt.PatientName,
-            $"Appointment Cancelled - {apt.AppointmentNumber}",
-            $@"<h2>Appointment Cancellation</h2>
-               <p>Dear {apt.PatientName},</p>
-               <p>Your appointment <strong>{apt.AppointmentNumber}</strong> with {apt.DoctorName} on {apt.AppointmentDate:yyyy-MM-dd} has been cancelled.</p>");
 
         return MapToDto(apt, apt.Doctor?.HospitalBranch);
     }
@@ -499,39 +362,26 @@ public class AppointmentService : IAppointmentService
             .FirstOrDefaultAsync(s => s.Id == newSessionId);
 
         if (newSession == null)
-            throw new KeyNotFoundException("Selected reschedule session not found.");
-
-        var localNow = GetLocalNow();
-        var today = DateOnly.FromDateTime(localNow);
-        var nowTime = TimeOnly.FromDateTime(localNow);
-
-        if (newSession.SessionDate < today || (newSession.SessionDate == today && newSession.SessionTime <= nowTime))
-        {
-            throw new InvalidOperationException("Selected reschedule slot has already passed. Please choose an upcoming slot.");
-        }
+            throw new InvalidOperationException("New session slot not found.");
 
         if (!newSession.IsActive || newSession.CurrentBookings >= newSession.MaxCapacity)
             throw new InvalidOperationException("Selected reschedule slot is no longer available.");
 
-        // Release old session capacity
-        if (apt.DoctorSessionId.HasValue)
+        // Release old session
+        if (apt.DoctorSession != null && apt.DoctorSession.CurrentBookings > 0)
         {
-            var oldSession = await _context.DoctorSessions.FindAsync(apt.DoctorSessionId.Value);
-            if (oldSession != null && oldSession.CurrentBookings > 0)
-            {
-                oldSession.CurrentBookings -= 1;
-            }
+            apt.DoctorSession.CurrentBookings -= 1;
         }
 
+        // Allocate new session
         newSession.CurrentBookings += 1;
-
         apt.DoctorSessionId = newSession.Id;
+        apt.DoctorSession = newSession;
         apt.AppointmentDate = newSession.SessionDate.ToDateTime(newSession.SessionTime, DateTimeKind.Utc);
         apt.TimeSlot = FormatTimeSlot(newSession.SessionTime);
         apt.QueueNumber = newSession.CurrentBookings;
 
         await _context.SaveChangesAsync();
-
         _logger.LogInformation("Appointment {AptNo} rescheduled to {Date} {Slot}", apt.AppointmentNumber, apt.AppointmentDate, apt.TimeSlot);
 
         return MapToDto(apt, apt.Doctor?.HospitalBranch);
@@ -626,21 +476,9 @@ public class AppointmentService : IAppointmentService
             apt.Notes = notes;
         }
 
-        if (newStatus == AppointmentStatus.InProgress)
+        // If cancelled, release slot
+        if (newStatus == AppointmentStatus.Cancelled && apt.DoctorSession != null && apt.DoctorSession.CurrentBookings > 0)
         {
-            apt.QueueStatus = QueueStatus.InConsultation;
-        }
-        else if (newStatus == AppointmentStatus.Completed)
-        {
-            apt.QueueStatus = QueueStatus.Completed;
-        }
-        else if (newStatus == AppointmentStatus.NoShow)
-        {
-            apt.QueueStatus = QueueStatus.NoShow;
-        }
-        else if (newStatus == AppointmentStatus.Cancelled && apt.DoctorSession != null && apt.DoctorSession.CurrentBookings > 0)
-        {
-            apt.QueueStatus = QueueStatus.Skipped;
             apt.DoctorSession.CurrentBookings -= 1;
         }
 
@@ -657,8 +495,8 @@ public class AppointmentService : IAppointmentService
         {
             TotalAppointments = appointments.Count,
             TodayQueueCount = appointments.Count(a => a.AppointmentDate.Date == today &&
-                                                      (a.Status == AppointmentStatus.Confirmed || a.Status == AppointmentStatus.Reserved || a.Status == AppointmentStatus.InProgress)),
-            ConfirmedCount = appointments.Count(a => a.Status == AppointmentStatus.Confirmed || a.Status == AppointmentStatus.Reserved),
+                                                      (a.Status == AppointmentStatus.Confirmed || a.Status == AppointmentStatus.InProgress)),
+            ConfirmedCount = appointments.Count(a => a.Status == AppointmentStatus.Confirmed),
             InProgressCount = appointments.Count(a => a.Status == AppointmentStatus.InProgress),
             CompletedCount = appointments.Count(a => a.Status == AppointmentStatus.Completed),
             TotalRevenue = appointments.Where(a => a.PaymentStatus == "Paid").Sum(a => a.TotalAmount)
@@ -683,291 +521,6 @@ public class AppointmentService : IAppointmentService
         return true;
     }
 
-    // ── Phase 2 Workflow Operations ────────────────────────────────────────────────
-
-    public async Task<AppointmentDto> CheckInAsync(int appointmentId, string qrToken)
-    {
-        var apt = await _context.DoctorAppointments
-            .Include(a => a.Doctor)
-            .Include(a => a.DoctorSession)
-            .FirstOrDefaultAsync(a => a.Id == appointmentId);
-
-        if (apt == null)
-            throw new KeyNotFoundException("Appointment not found.");
-
-        // Validation 1: Token resolves to appointment
-        if (!Guid.TryParse(qrToken, out var parsedToken) || apt.QrToken != parsedToken)
-        {
-            throw new InvalidOperationException("Invalid QR check-in token.");
-        }
-
-        // Validation 2: Status is Confirmed or Reserved
-        if (apt.Status != AppointmentStatus.Confirmed && apt.Status != AppointmentStatus.Reserved)
-        {
-            throw new InvalidOperationException($"Cannot check in an appointment with status: {apt.Status}.");
-        }
-
-        // Validation 3: Not already checked in
-        if (apt.CheckedInAt.HasValue)
-        {
-            throw new InvalidOperationException("Patient has already checked in for this appointment.");
-        }
-
-        // Validation 4: Parent session IsActive
-        if (apt.DoctorSession == null || !apt.DoctorSession.IsActive || apt.DoctorSession.SessionStatus == SessionStatus.Cancelled)
-        {
-            throw new InvalidOperationException("The doctor's session for this appointment is not active.");
-        }
-
-        var now = DateTime.UtcNow;
-        var earlyThreshold = int.TryParse(_configuration["CheckIn:EarlyThresholdMinutes"], out var t) ? t : 15;
-
-        var expectedStart = apt.DoctorSession.ExpectedStartTime ?? 
-            apt.DoctorSession.SessionDate.ToDateTime(apt.DoctorSession.SessionTime, DateTimeKind.Utc);
-
-        var diffMinutes = (expectedStart - now).TotalMinutes;
-        ArrivalStatus arrival;
-        if (diffMinutes > earlyThreshold)
-        {
-            arrival = ArrivalStatus.Early;
-        }
-        else if (diffMinutes >= -earlyThreshold)
-        {
-            arrival = ArrivalStatus.OnTime;
-        }
-        else
-        {
-            arrival = ArrivalStatus.Late;
-        }
-
-        apt.CheckedInAt = now;
-        apt.ArrivalStatus = arrival;
-        apt.QueueStatus = QueueStatus.Waiting;
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Patient checked in for Appointment {AptNo}. ArrivalStatus={Status}", apt.AppointmentNumber, arrival);
-
-        _ = SendChannelingEmailAsync(
-            apt.PatientEmail,
-            apt.PatientName,
-            $"Checked In - HealthBridge Queue #{apt.QueueNumber}",
-            $@"<h2>Check-In Confirmed</h2>
-               <p>Dear {apt.PatientName},</p>
-               <p>You have successfully checked in for your consultation with <strong>{apt.DoctorName}</strong>.</p>
-               <p><strong>Queue Number:</strong> #{apt.QueueNumber}</p>
-               <p><strong>Arrival Status:</strong> {arrival}</p>
-               <p>Please take a seat in the waiting area. Your number will be called shortly.</p>");
-
-        return MapToDto(apt, apt.Doctor?.HospitalBranch);
-    }
-
-    public async Task<DoctorSessionQueueDto> GetSessionQueueAsync(int sessionId)
-    {
-        var session = await _context.DoctorSessions
-            .Include(s => s.Doctor)
-            .FirstOrDefaultAsync(s => s.Id == sessionId);
-
-        if (session == null)
-            throw new KeyNotFoundException("Doctor session not found.");
-
-        var queueAppointments = await _context.DoctorAppointments
-            .Include(a => a.Doctor)
-            .Where(a => a.DoctorSessionId == sessionId &&
-                       (a.QueueStatus == QueueStatus.Waiting || a.QueueStatus == QueueStatus.Called || a.QueueStatus == QueueStatus.InConsultation))
-            .OrderBy(a => a.QueueNumber)
-            .ToListAsync();
-
-        return new DoctorSessionQueueDto
-        {
-            SessionId = session.Id,
-            DoctorId = session.DoctorId,
-            DoctorName = session.Doctor?.FullName ?? string.Empty,
-            Specialization = session.Doctor?.Specialization ?? string.Empty,
-            SessionStatus = session.SessionStatus.ToString(),
-            SessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
-            SessionTime = session.SessionTime.ToString("HH:mm"),
-            ExpectedStartTime = session.ExpectedStartTime,
-            ActualStartTime = session.ActualStartTime,
-            CurrentlyServingQueueNumber = session.CurrentlyServingQueueNumber,
-            DelayReason = session.DelayReason,
-            Queue = queueAppointments.Select(a => MapToDto(a, session.Doctor?.HospitalBranch)).ToList()
-        };
-    }
-
-    public async Task<DoctorSessionDto> StartSessionAsync(int sessionId)
-    {
-        var session = await _context.DoctorSessions
-            .Include(s => s.Doctor)
-            .FirstOrDefaultAsync(s => s.Id == sessionId);
-
-        if (session == null)
-            throw new KeyNotFoundException("Doctor session not found.");
-
-        if (session.SessionStatus == SessionStatus.Cancelled || session.SessionStatus == SessionStatus.Completed)
-        {
-            throw new InvalidOperationException($"Cannot start a session in {session.SessionStatus} state.");
-        }
-
-        session.SessionStatus = SessionStatus.Active;
-        session.ActualStartTime ??= DateTime.UtcNow;
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Doctor session {SessionId} started at {Time}", sessionId, session.ActualStartTime);
-
-        return new DoctorSessionDto
-        {
-            Id = session.Id,
-            DoctorId = session.DoctorId,
-            DoctorName = session.Doctor?.FullName ?? string.Empty,
-            SessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
-            SessionTime = session.SessionTime.ToString("HH:mm"),
-            TimeFormatted = FormatTimeSlot(session.SessionTime),
-            MaxCapacity = session.MaxCapacity,
-            CurrentBookings = session.CurrentBookings,
-            IsAvailable = session.IsAvailable,
-            SlotsLeft = Math.Max(0, session.MaxCapacity - session.CurrentBookings),
-            SessionStatus = session.SessionStatus.ToString(),
-            ActualStartTime = session.ActualStartTime,
-            ExpectedStartTime = session.ExpectedStartTime,
-            CurrentlyServingQueueNumber = session.CurrentlyServingQueueNumber,
-            DelayReason = session.DelayReason
-        };
-    }
-
-    public async Task<DoctorSessionDto> DelaySessionAsync(int sessionId, DateTime expectedStartTime, string? reason)
-    {
-        var session = await _context.DoctorSessions
-            .Include(s => s.Doctor)
-            .FirstOrDefaultAsync(s => s.Id == sessionId);
-
-        if (session == null)
-            throw new KeyNotFoundException("Doctor session not found.");
-
-        if (session.SessionStatus == SessionStatus.Cancelled || session.SessionStatus == SessionStatus.Completed)
-        {
-            throw new InvalidOperationException($"Cannot delay a session in {session.SessionStatus} state.");
-        }
-
-        session.SessionStatus = SessionStatus.Delayed;
-        session.ExpectedStartTime = expectedStartTime;
-        session.DelayReason = reason;
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Doctor session {SessionId} delayed to {ExpectedTime}. Reason: {Reason}", sessionId, expectedStartTime, reason);
-
-        return new DoctorSessionDto
-        {
-            Id = session.Id,
-            DoctorId = session.DoctorId,
-            DoctorName = session.Doctor?.FullName ?? string.Empty,
-            SessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
-            SessionTime = session.SessionTime.ToString("HH:mm"),
-            TimeFormatted = FormatTimeSlot(session.SessionTime),
-            MaxCapacity = session.MaxCapacity,
-            CurrentBookings = session.CurrentBookings,
-            IsAvailable = session.IsAvailable,
-            SlotsLeft = Math.Max(0, session.MaxCapacity - session.CurrentBookings),
-            SessionStatus = session.SessionStatus.ToString(),
-            ActualStartTime = session.ActualStartTime,
-            ExpectedStartTime = session.ExpectedStartTime,
-            CurrentlyServingQueueNumber = session.CurrentlyServingQueueNumber,
-            DelayReason = session.DelayReason
-        };
-    }
-
-    public async Task<AppointmentDto> CallNextPatientAsync(int sessionId)
-    {
-        var nextApt = await _context.DoctorAppointments
-            .Include(a => a.Doctor)
-            .Include(a => a.DoctorSession)
-            .Where(a => a.DoctorSessionId == sessionId && a.QueueStatus == QueueStatus.Waiting)
-            .OrderBy(a => a.QueueNumber)
-            .FirstOrDefaultAsync();
-
-        if (nextApt == null)
-        {
-            throw new KeyNotFoundException("No patients waiting in queue for this session.");
-        }
-
-        nextApt.QueueStatus = QueueStatus.Called;
-        nextApt.CalledAt = DateTime.UtcNow;
-
-        var session = await _context.DoctorSessions.FindAsync(sessionId);
-        if (session != null)
-        {
-            session.CurrentlyServingQueueNumber = nextApt.QueueNumber;
-            if (session.SessionStatus == SessionStatus.Scheduled || session.SessionStatus == SessionStatus.Delayed)
-            {
-                session.SessionStatus = SessionStatus.Active;
-                session.ActualStartTime ??= DateTime.UtcNow;
-            }
-        }
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Calling next patient for session {SessionId}: Queue #{QueueNo} (Apt {AptNo})",
-            sessionId, nextApt.QueueNumber, nextApt.AppointmentNumber);
-
-        return MapToDto(nextApt, nextApt.Doctor?.HospitalBranch);
-    }
-
-    public async Task<DoctorSessionDto> CancelSessionAsync(int sessionId)
-    {
-        var session = await _context.DoctorSessions
-            .Include(s => s.Doctor)
-            .FirstOrDefaultAsync(s => s.Id == sessionId);
-
-        if (session == null)
-            throw new KeyNotFoundException("Doctor session not found.");
-
-        session.SessionStatus = SessionStatus.Cancelled;
-        session.IsActive = false;
-
-        // Cascade cancel affected appointments
-        var affectedAppointments = await _context.DoctorAppointments
-            .Where(a => a.DoctorSessionId == sessionId &&
-                       (a.Status == AppointmentStatus.Confirmed ||
-                        a.Status == AppointmentStatus.Reserved ||
-                        a.Status == AppointmentStatus.PendingPayment))
-            .ToListAsync();
-
-        foreach (var apt in affectedAppointments)
-        {
-            apt.Status = AppointmentStatus.Cancelled;
-            apt.QueueStatus = QueueStatus.Skipped;
-
-            _ = SendChannelingEmailAsync(
-                apt.PatientEmail,
-                apt.PatientName,
-                $"Session Cancelled: Appointment {apt.AppointmentNumber}",
-                $@"<h2>Doctor Session Cancelled</h2>
-                   <p>Dear {apt.PatientName},</p>
-                   <p>We regret to inform you that the consultation session for <strong>{session.Doctor?.FullName}</strong> on {session.SessionDate:yyyy-MM-dd} at {FormatTimeSlot(session.SessionTime)} has been cancelled.</p>
-                   <p>Your appointment <strong>{apt.AppointmentNumber}</strong> has been cancelled. Please log in to your portal to reschedule or contact our desk for support.</p>");
-        }
-
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Cancelled doctor session {SessionId}, cascaded to {Count} appointments", sessionId, affectedAppointments.Count);
-
-        return new DoctorSessionDto
-        {
-            Id = session.Id,
-            DoctorId = session.DoctorId,
-            DoctorName = session.Doctor?.FullName ?? string.Empty,
-            SessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
-            SessionTime = session.SessionTime.ToString("HH:mm"),
-            TimeFormatted = FormatTimeSlot(session.SessionTime),
-            MaxCapacity = session.MaxCapacity,
-            CurrentBookings = session.CurrentBookings,
-            IsAvailable = false,
-            SlotsLeft = 0,
-            SessionStatus = session.SessionStatus.ToString(),
-            ActualStartTime = session.ActualStartTime,
-            ExpectedStartTime = session.ExpectedStartTime,
-            CurrentlyServingQueueNumber = session.CurrentlyServingQueueNumber,
-            DelayReason = session.DelayReason
-        };
-    }
-
     private static string FormatTimeSlot(TimeOnly time)
     {
         var dt = DateTime.Today.Add(time.ToTimeSpan());
@@ -978,10 +531,7 @@ public class AppointmentService : IAppointmentService
     {
         var branch = hospitalBranch ?? "Health Bridge Hospital - Colombo";
         var dateFormatted = apt.AppointmentDate.ToString("yyyy-MM-dd");
-
-        // QR payload contains ONLY the secure server-generated QrToken (NO PHI!)
-        var qrPayload = apt.QrToken.ToString();
-        var summary = $"Ref: {apt.AppointmentNumber} | Queue: #{apt.QueueNumber:D2} | Doctor: {apt.DoctorName} | Patient: {apt.PatientName} | Date: {dateFormatted} {apt.TimeSlot}";
+        var qrPayload = $"MEDIX APPOINTMENT\nRef: {apt.AppointmentNumber}\nQueue: #{apt.QueueNumber:D2}\nDoctor: {apt.DoctorName}\nSpecialty: {apt.Specialization}\nDate: {dateFormatted} {apt.TimeSlot}\nPatient: {apt.PatientName} (NIC: {apt.PatientNic})\nHospital: {branch}\nStatus: {apt.Status}\nAmount: LKR {apt.TotalAmount:N2}";
 
         return new AppointmentDto
         {
@@ -1006,58 +556,12 @@ public class AppointmentService : IAppointmentService
             ServiceCharge = apt.ServiceCharge,
             TotalAmount = apt.TotalAmount,
             Status = apt.Status.ToString(),
-            BookingType = apt.BookingType.ToString(),
-            QrToken = apt.QrToken,
-            CheckedInAt = apt.CheckedInAt,
-            ArrivalStatus = apt.ArrivalStatus.ToString(),
-            QueueStatus = apt.QueueStatus.ToString(),
-            CalledAt = apt.CalledAt,
             PaymentMethod = apt.PaymentMethod,
             PaymentStatus = apt.PaymentStatus,
             PaymentReference = apt.PaymentReference,
             Notes = apt.Notes,
             CreatedAt = apt.CreatedAt,
-            QrCodeText = qrPayload,
-            DisplaySummary = summary
+            QrCodeText = qrPayload
         };
-    }
-
-    private async Task SendChannelingEmailAsync(string toEmail, string toName, string subject, string htmlBody)
-    {
-        if (string.IsNullOrWhiteSpace(toEmail)) return;
-        try
-        {
-            var smtpServer = _configuration["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com";
-            var smtpPort = int.TryParse(_configuration["Brevo:SmtpPort"], out var p) ? p : 587;
-            var smtpUser = _configuration["Brevo:SmtpUser"];
-            var smtpPass = _configuration["Brevo:SmtpPass"];
-            var fromEmail = _configuration["Brevo:FromEmail"] ?? "noreply@healthbridge.com";
-            var fromName = _configuration["Brevo:FromName"] ?? "HealthBridge Channeling";
-
-            if (string.IsNullOrWhiteSpace(smtpUser) || string.IsNullOrWhiteSpace(smtpPass))
-            {
-                _logger.LogInformation("[Email Mock] TO={To} | SUBJECT={Subject}", toEmail, subject);
-                return;
-            }
-
-            var message = new MimeMessage();
-            message.From.Add(new MailboxAddress(fromName, fromEmail));
-            message.To.Add(new MailboxAddress(toName, toEmail));
-            message.Subject = subject;
-
-            var builder = new BodyBuilder { HtmlBody = htmlBody };
-            message.Body = builder.ToMessageBody();
-
-            using var client = new SmtpClient();
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(smtpUser, smtpPass);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
-            _logger.LogInformation("[Email] Channeling notification sent to {Email}", toEmail);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Email] Could not send channeling email to {Email}", toEmail);
-        }
     }
 }

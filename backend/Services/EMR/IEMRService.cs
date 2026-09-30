@@ -33,10 +33,6 @@ public interface IEMRService
     Task<IEnumerable<PrescriptionDto>> CreatePrescriptionsBatchAsync(BatchCreatePrescriptionsDto dto);
     Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto);
     Task<bool> DeletePrescriptionAsync(Guid id);
-    Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto);
-    Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string? adminNote = null);
-    Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string? adminNote = null);
-    Task<IEnumerable<PrescriptionDto>> GetPendingPrescriptionAuthorizationsAsync();
 
     // Channeling Appointments
     Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null);
@@ -45,13 +41,6 @@ public interface IEMRService
     // Business-Specific Operation
     Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId);
 
-    // Agentic AI Clinical Insights
-    Task<AIClinicalInsightResponse?> GetPatientClinicalAIInsightAsync(string patientCodeOrId);
-    Task<AskAIAgentResponse> AskPatientClinicalAIAgentAsync(string patientCodeOrId, string question);
-
     // Notifications (100% User-Specific and Role-Based)
     Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role);
-
-    // Staff Authentication & Role Enforcement
-    Task<StaffLoginResponseDto> StaffLoginAsync(EmrStaffLoginDto dto);
 }

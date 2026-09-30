@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -8,14 +9,23 @@ namespace HealthBridge.Api.Agents;
 
 /// <summary>
 /// AGENT 1 — Prescription Safety & Anti-Abuse Agent
+/// 
+/// Produces categorized flags for pharmacist UI:
+///   - AiVisionFlags   : AI vision findings (watermark, UI chrome, fake phone, etc.)
+///   - SafetyFlags     : Anti-abuse & pattern detection (duplicate, refill, history)
+///   - VerifiedSignals : Positive signals (handwriting verified, signature present)
+///   - SystemFlags     : AI processing issues (Stage 1 fail, timeouts)
+///   - Flags           : Legacy combined list (kept for backward compatibility)
 /// </summary>
 public class PrescriptionSafetyAgent
 {
     private readonly ILogger<PrescriptionSafetyAgent> _logger;
+    private readonly PrescriptionValidatorAgent? _validatorAgent;
 
-    public PrescriptionSafetyAgent(ILogger<PrescriptionSafetyAgent> logger)
+    public PrescriptionSafetyAgent(ILogger<PrescriptionSafetyAgent> logger, PrescriptionValidatorAgent? validatorAgent = null)
     {
         _logger = logger;
+        _validatorAgent = validatorAgent;
     }
 
     /// <summary>
@@ -54,7 +64,15 @@ public class PrescriptionSafetyAgent
     /// <summary>
     /// Validates an order for prescription safety & anti-abuse concerns.
     /// </summary>
-    public PrescriptionSafetyResponse EvaluateOrderSafety(PharmacyOrder currentOrder, IEnumerable<PharmacyOrder> patientHistory)
+    /// <summary>
+    /// Async version for background tasks. Wraps the sync method so it doesn't block the HTTP request thread.
+    /// </summary>
+    public Task<PrescriptionSafetyResponse> EvaluateOrderSafetyAsync(PharmacyOrder currentOrder, IEnumerable<PharmacyOrder> patientHistory)
+    {
+        return Task.Run(() => EvaluateOrderSafety(currentOrder, patientHistory));
+    }
+
+        public PrescriptionSafetyResponse EvaluateOrderSafety(PharmacyOrder currentOrder, IEnumerable<PharmacyOrder> patientHistory)
     {
         try
         {
@@ -64,12 +82,20 @@ public class PrescriptionSafetyAgent
                 {
                     RiskScore = 50,
                     Flags = new List<string> { "Missing or ambiguous prescription information" },
+                    SystemFlags = new List<string> { "Missing or ambiguous prescription information" },
                     RecommendedAction = "REQUIRE_MANUAL_REVIEW"
                 };
             }
 
             int riskScore = 0;
-            var flags = new List<string>();
+
+            // ═══════════════════════════════════════════════════════
+            // CATEGORIZED FLAG LISTS
+            // ═══════════════════════════════════════════════════════
+            var aiVisionFlags = new List<string>();      // 🤖 AI findings
+            var safetyFlags = new List<string>();         // 🚨 Anti-abuse
+            var verifiedSignals = new List<string>();     // ✅ Positive
+            var systemFlags = new List<string>();         // ⚙️ System issues
 
             // 1. Prescription Fingerprinting & Image Duplication Check (SHA-256 + Content URL)
             var currentRx = currentOrder.PrescriptionImageUrl;
@@ -90,37 +116,105 @@ public class PrescriptionSafetyAgent
 
                     if (isDuplicate)
                     {
-                        flags.Add("Duplicate prescription image detected (Image fingerprint match)");
-                        riskScore += 60;
+                        safetyFlags.Add("⚠️ PRESCRIPTION VIOLATION: Duplicate prescription image upload reuse attempt detected across order history");
+                        riskScore += 75;
                     }
                 }
 
-                // 2. Doctor Handwriting & Non-Medical Document OCR Analysis Check (Agentic AI Vision)
-                var rxLower = currentRx.ToLowerInvariant();
-                var orderNum = (currentOrder.OrderNumber ?? string.Empty).ToLowerInvariant();
-                var nonMedicalKeywords = new[] {
-                    "scores", "vector", "assignment", "worksheet", "school", "reading", "writing",
-                    "homework", "math", "exercise", "teacher", "library", "bus", "friends", "kid",
-                    "child", "sentence", "alphabet", "student", "class", "grade", "essay", "drawing",
-                    "sketch", "nonmedical", "fake", "invalid", "worksheetdigital"
-                };
+                // 2. Multimodal AI Vision Analysis
+                bool isNonMedicalDoc = false;
 
-                bool isNonMedicalDoc = nonMedicalKeywords.Any(kw => rxLower.Contains(kw)) ||
-                                        orderNum.Contains("2519") || orderNum.Contains("2226") || orderNum.Contains("7074");
+                if (_validatorAgent != null && !string.IsNullOrWhiteSpace(currentRx))
+                {
+                    try
+                    {
+                        var visionValidation = _validatorAgent.ValidatePrescriptionAsync(currentRx, "Order Safety Analysis").GetAwaiter().GetResult();
+                        if (visionValidation != null)
+                        {
+                            // ─────────────────────────────────────────────
+                            // SYSTEM FLAGS: Stage 1 failure detection
+                            // ─────────────────────────────────────────────
+                            if (visionValidation.Verdict == "unclear"
+                                && visionValidation.VerdictReasoning?.Contains("Stage 1 extraction failed") == true)
+                            {
+                                systemFlags.Add("⚠️ AI could not analyze the image — manual review required");
+                                riskScore += 30;
+                            }
+
+                            // ─────────────────────────────────────────────
+                            // AI VISION FLAGS: Document type issues
+                            // ─────────────────────────────────────────────
+                            if (visionValidation.DocumentClassification == "NON_MEDICAL_IMAGE")
+                            {
+                                isNonMedicalDoc = true;
+                                aiVisionFlags.Add($"⚠️ Non-Medical Image Detected ({visionValidation.DocumentTypeDescription ?? visionValidation.Notes})");
+                            }
+                            else if (visionValidation.DocumentClassification == "NON_PRESCRIPTION_DOCUMENT")
+                            {
+                                isNonMedicalDoc = true;
+                                aiVisionFlags.Add($"⚠️ Non-Prescription Document ({visionValidation.DocumentTypeDescription ?? visionValidation.Notes})");
+                            }
+                            else if (visionValidation.DocumentClassification == "SUSPICIOUS_FORGERY" || visionValidation.IsForgeryOrTrainingSample)
+                            {
+                                isNonMedicalDoc = true;
+                                aiVisionFlags.Add($"⚠️ Forgery / Tampered Document Detected");
+                            }
+
+                            // ─────────────────────────────────────────────
+                            // VERIFIED SIGNALS: Positive findings
+                            // ─────────────────────────────────────────────
+                            if (visionValidation.IsValidMedicalPrescription
+                                && visionValidation.DocumentClassification != "NON_MEDICAL_IMAGE"
+                                && visionValidation.DocumentClassification != "NON_PRESCRIPTION_DOCUMENT")
+                            {
+                                verifiedSignals.Add($"✅ Handwriting OCR Verified ({visionValidation.DocumentClassification})");
+                            }
+
+                            // ─────────────────────────────────────────────
+                            // AI VISION FLAGS: Security flags from validator
+                            // (watermark, UI chrome, fake phone/email, etc.)
+                            // ─────────────────────────────────────────────
+                            if (visionValidation.SecurityFlags != null && visionValidation.SecurityFlags.Any())
+                            {
+                                foreach (var flag in visionValidation.SecurityFlags)
+                                {
+                                    // Skip the generic "Stage 1 extraction failed" (already handled above)
+                                    if (flag.Contains("Stage 1 extraction failed")) continue;
+
+                                    // Skip "Verified" flags (they go to VerifiedSignals)
+                                    if (flag.Contains("Verified", StringComparison.OrdinalIgnoreCase)) continue;
+
+                                    // Categorize: positive signals to verified, others to AI vision
+                                    if (flag.StartsWith("✅") || flag.Contains("Handwriting OCR"))
+                                    {
+                                        if (!verifiedSignals.Contains(flag))
+                                            verifiedSignals.Add(flag);
+                                    }
+                                    else
+                                    {
+                                        if (!aiVisionFlags.Contains(flag))
+                                            aiVisionFlags.Add(flag);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[PrescriptionSafetyAgent] Multimodal AI vision analysis call failed.");
+                        systemFlags.Add("⚠️ AI vision service unavailable — manual review required");
+                        riskScore += 25;
+                    }
+                }
 
                 if (isNonMedicalDoc)
                 {
-                    flags.Add("⚠️ PRESCRIPTION VIOLATION: Uploaded file is a non-medical document (Child Reading & Writing School Worksheet / Non-Medical File), NOT a valid doctor prescription!");
                     riskScore += 95;
-                }
-                else
-                {
-                    flags.Add("Doctor Handwriting & Cursive OCR Analysis Completed (Google Gemini 1.5 Vision)");
                 }
             }
             else if (currentOrder.Items != null && currentOrder.Items.Any(i => i.Medicine != null && i.Medicine.RequiresPrescription))
             {
-                flags.Add("Missing prescription receipt image for prescription-required medication");
+                safetyFlags.Add("Missing prescription receipt image for prescription-required medication");
                 riskScore += 40;
             }
 
@@ -135,8 +229,40 @@ public class PrescriptionSafetyAgent
 
                 if (duplicateMeds.Any())
                 {
-                    flags.Add($"Duplicate medicine entries detected in single order: {string.Join(", ", duplicateMeds)}");
+                    safetyFlags.Add($"Duplicate medicine entries detected in single order: {string.Join(", ", duplicateMeds)}");
                     riskScore += 20;
+                }
+            }
+
+            // 4. Order Frequency & Weekly Repeat Purchase Check (Anti-Abuse Scan for ALL Orders)
+            var nowUtc = currentOrder.CreatedAt != default ? currentOrder.CreatedAt : DateTime.UtcNow;
+            var past7DaysOrders = patientHistory.Where(o =>
+                (nowUtc - o.CreatedAt).TotalDays <= 7 && o.Status != "Cancelled"
+            ).ToList();
+
+            if (past7DaysOrders.Count >= 2)
+            {
+                safetyFlags.Add($"⚠️ High Velocity Order History: Patient placed {past7DaysOrders.Count + 1} orders within 7 days");
+                riskScore += 35;
+            }
+
+            if (currentOrder.Items != null && currentOrder.Items.Any())
+            {
+                foreach (var item in currentOrder.Items)
+                {
+                    var medName = item.MedicineName?.Trim().ToLowerInvariant();
+                    if (string.IsNullOrWhiteSpace(medName)) continue;
+
+                    var repeatOrdersThisWeek = past7DaysOrders.Where(o =>
+                        o.Items != null && o.Items.Any(pi => pi.MedicineName?.Trim().ToLowerInvariant() == medName)
+                    ).ToList();
+
+                    if (repeatOrdersThisWeek.Count >= 1)
+                    {
+                        safetyFlags.Add($"⚠️ Repeat Medication Purchase: Patient ordered \"{item.MedicineName}\" {repeatOrdersThisWeek.Count + 1} times within 7 days");
+                        riskScore += 30;
+                        break;
+                    }
                 }
             }
 
@@ -154,7 +280,6 @@ public class PrescriptionSafetyAgent
                     var medName = item.MedicineName?.Trim().ToLowerInvariant();
                     if (string.IsNullOrWhiteSpace(medName)) continue;
 
-                    // Find latest fulfilled order with same medicine
                     var latestPastOrder = pastFulfilledOrders
                         .Where(o => o.Items.Any(pi => pi.MedicineName.Trim().ToLowerInvariant() == medName))
                         .OrderByDescending(o => o.CreatedAt)
@@ -172,32 +297,42 @@ public class PrescriptionSafetyAgent
 
                         if (daysSinceLastFulfillment < requiredInterval)
                         {
-                            flags.Add("Early refill attempt detected for medication");
+                            safetyFlags.Add($"⚠️ Early refill attempt detected ({daysSinceLastFulfillment} days since last, {requiredInterval} required)");
                             riskScore += 50;
-                            break; // Avoid duplicate early refill flags for same order
+                            break;
                         }
                     }
                 }
             }
 
-            // Check for multiple suspicious attempts in history
             int previousFlaggedCount = patientHistory.Count(o => o.SafetyRiskScore.HasValue && o.SafetyRiskScore.Value >= 70);
             if (previousFlaggedCount > 0)
             {
-                flags.Add("Multiple suspicious attempts detected in patient history");
+                safetyFlags.Add($"⚠️ {previousFlaggedCount} previous suspicious attempt(s) detected in patient history");
                 riskScore += 25;
             }
 
-            // Clamp riskScore 0-100
             riskScore = Math.Clamp(riskScore, 0, 100);
 
-            // Determine recommendedAction ONLY: APPROVE | REQUIRE_MANUAL_REVIEW | BLOCK_AND_FLAG_FOR_REVIEW
+            // ═══════════════════════════════════════════════════════
+            // COMBINED FLAGS (backward compatibility)
+            // ═══════════════════════════════════════════════════════
+            var allFlags = aiVisionFlags
+                .Concat(safetyFlags)
+                .Concat(verifiedSignals)
+                .Concat(systemFlags)
+                .Distinct()
+                .ToList();
+
+            // ═══════════════════════════════════════════════════════
+            // RECOMMENDED ACTION
+            // ═══════════════════════════════════════════════════════
             string recommendedAction = "APPROVE";
-            if (riskScore >= 70 || flags.Any(f => f.Contains("Duplicate prescription image")))
+            if (riskScore >= 70 || safetyFlags.Any(f => f.Contains("VIOLATION") || f.Contains("Duplicate prescription image")))
             {
                 recommendedAction = "BLOCK_AND_FLAG_FOR_REVIEW";
             }
-            else if (riskScore >= 30 || flags.Any(f => !f.Contains("Completed")))
+            else if (riskScore >= 30 || aiVisionFlags.Any() || systemFlags.Any())
             {
                 recommendedAction = "REQUIRE_MANUAL_REVIEW";
             }
@@ -205,8 +340,16 @@ public class PrescriptionSafetyAgent
             return new PrescriptionSafetyResponse
             {
                 RiskScore = riskScore,
-                Flags = flags.Distinct().ToList(),
-                RecommendedAction = recommendedAction
+                RecommendedAction = recommendedAction,
+
+                // Legacy combined
+                Flags = allFlags,
+
+                // Categorized
+                AiVisionFlags = aiVisionFlags.Distinct().ToList(),
+                SafetyFlags = safetyFlags.Distinct().ToList(),
+                VerifiedSignals = verifiedSignals.Distinct().ToList(),
+                SystemFlags = systemFlags.Distinct().ToList()
             };
         }
         catch (Exception ex)
@@ -216,6 +359,7 @@ public class PrescriptionSafetyAgent
             {
                 RiskScore = 50,
                 Flags = new List<string> { "Missing or ambiguous prescription information" },
+                SystemFlags = new List<string> { "⚠️ Error during safety evaluation — manual review required" },
                 RecommendedAction = "REQUIRE_MANUAL_REVIEW"
             };
         }

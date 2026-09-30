@@ -40,6 +40,37 @@ public class Medicine
 
     [Column(TypeName = "text")]
     public string? AdditionalImagesJson { get; set; }
+    public string? SellingUnit { get; set; } = "PILLS";
+    public int? BottleSize { get; set; }
+    public int? VolumeMl { get; set; }
+    public int? TubeWeight { get; set; }
+    public int? SachetsPerBox { get; set; }
+    public int? VialsPerBox { get; set; }
+    public int? PuffsPerInhaler { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? PricePerBottle { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? PricePerTube { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? PricePerSachet { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? PricePerVial { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? BoxPrice { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? PricePerInhaler { get; set; }
+
+    public string? UnitName { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal? PricePerUnit { get; set; }
+
 
     [Column(TypeName = "text")]
     public string? ImageUrl { get; set; }

@@ -110,6 +110,38 @@ public class MedicinesController : ControllerBase
     }
 
     /// <summary>
+    /// Restocks medicine quantity.
+    /// </summary>
+    [HttpPost("{id:int}/restock")]
+    [ProducesResponseType(typeof(MedicineResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MedicineResponse>> Restock(int id, [FromBody] RestockRequest request)
+    {
+        var updated = await _medicineService.RestockMedicineAsync(id, request.AdditionalQuantity);
+        if (updated == null)
+        {
+            return NotFound(new { message = $"Medicine with ID {id} was not found." });
+        }
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// Sets exact warehouse stock quantity (for correcting/adjusting stock mistakes).
+    /// </summary>
+    [HttpPost("{id:int}/adjust-stock")]
+    [ProducesResponseType(typeof(MedicineResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MedicineResponse>> AdjustStock(int id, [FromBody] AdjustStockRequest request)
+    {
+        var updated = await _medicineService.SetStockQuantityAsync(id, request.NewQuantity);
+        if (updated == null)
+        {
+            return NotFound(new { message = $"Medicine with ID {id} was not found." });
+        }
+        return Ok(updated);
+    }
+
+    /// <summary>
     /// Deletes a medicine.
     /// </summary>
     [HttpDelete("{id:int}")]
@@ -125,4 +157,14 @@ public class MedicinesController : ControllerBase
 
         return NoContent();
     }
+}
+
+public class RestockRequest
+{
+    public int AdditionalQuantity { get; set; } = 10;
+}
+
+public class AdjustStockRequest
+{
+    public int NewQuantity { get; set; }
 }
