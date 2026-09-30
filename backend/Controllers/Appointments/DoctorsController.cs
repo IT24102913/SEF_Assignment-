@@ -3,7 +3,6 @@ using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.Appointments;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Services;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,7 +34,6 @@ public class DoctorsController : ControllerBase
     /// Search and filter doctors by name, specialization, hospital branch, date, and sorting.
     /// </summary>
     [HttpGet]
-    [AllowAnonymous]
     public async Task<IActionResult> GetDoctors(
         [FromQuery] string? search,
         [FromQuery] string? specialization,
@@ -52,7 +50,6 @@ public class DoctorsController : ControllerBase
     /// Powers the "Browse by Specialty" cards on Screen 1.
     /// </summary>
     [HttpGet("specialties")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetSpecialties()
     {
         var specialties = await _appointmentService.GetSpecialtiesAsync();
@@ -63,7 +60,6 @@ public class DoctorsController : ControllerBase
     /// Gets full profile details for a doctor.
     /// </summary>
     [HttpGet("{id}")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetDoctorById(int id)
     {
         var doctor = await _appointmentService.GetDoctorByIdAsync(id);
@@ -76,7 +72,6 @@ public class DoctorsController : ControllerBase
     /// Returns 5-day session availability and time slots for the interactive session picker.
     /// </summary>
     [HttpGet("{id}/sessions")]
-    [AllowAnonymous]
     public async Task<IActionResult> GetDoctorSessions(int id, [FromQuery] string? date)
     {
         DateOnly? parsedDate = null;
@@ -94,7 +89,6 @@ public class DoctorsController : ControllerBase
     /// Pre-fills the specialty filter chip without automated transaction booking (Human-in-the-loop).
     /// </summary>
     [HttpPost("recommend-specialty")]
-    [AllowAnonymous]
     public async Task<IActionResult> RecommendSpecialty([FromBody] AIRecommendationRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.Symptoms))
@@ -122,7 +116,6 @@ public class DoctorsController : ControllerBase
     /// Administrative creation of a doctor.
     /// </summary>
     [HttpPost]
-    [Authorize(Roles = UserRole.Admin)]
     public async Task<IActionResult> CreateDoctor([FromBody] Doctor doctor)
     {
         doctor.CreatedAt = DateTime.UtcNow;
@@ -135,7 +128,6 @@ public class DoctorsController : ControllerBase
     /// Administrative update of a doctor.
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(Roles = UserRole.Admin)]
     public async Task<IActionResult> UpdateDoctor(int id, [FromBody] Doctor doctor)
     {
         if (id != doctor.Id) return BadRequest(new { message = "ID mismatch" });
@@ -170,7 +162,6 @@ public class DoctorsController : ControllerBase
     /// Administrative deletion of a doctor.
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(Roles = UserRole.Admin)]
     public async Task<IActionResult> DeleteDoctor(int id)
     {
         var doc = await _context.Doctors.FindAsync(id);

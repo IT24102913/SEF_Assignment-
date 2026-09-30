@@ -13,12 +13,6 @@ public class Prescription
     public decimal UnitPrice { get; set; } = 0.0m;
     public string PrescribedDoctor { get; set; } = string.Empty;
     public string Status { get; set; } = "Active"; // Active, Completed, Cancelled
-    public bool HasAuthorizationRequest { get; set; } = false;
-    public string? AuthorizationType { get; set; } // "Delete", "Edit"
-    public string? AuthorizationReason { get; set; }
-    public string? AuthorizationRequestedBy { get; set; }
-    public DateTime? AuthorizationRequestedAt { get; set; }
-    public string? AuthorizationStatus { get; set; } // "Pending", "Approved", "Rejected"
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

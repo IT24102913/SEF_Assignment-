@@ -13,12 +13,6 @@ public class PrescriptionDto
     public decimal UnitPrice { get; set; }
     public string PrescribedDoctor { get; set; } = string.Empty;
     public string Status { get; set; } = "Active";
-    public bool HasAuthorizationRequest { get; set; } = false;
-    public string? AuthorizationType { get; set; }
-    public string? AuthorizationReason { get; set; }
-    public string? AuthorizationRequestedBy { get; set; }
-    public DateTime? AuthorizationRequestedAt { get; set; }
-    public string? AuthorizationStatus { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
@@ -55,18 +49,5 @@ public class CreatePrescriptionItemDto
     public string Duration { get; set; } = "7 Days";
     public decimal UnitPrice { get; set; } = 0.0m;
     public string Status { get; set; } = "Active";
-}
-
-public class RequestPrescriptionAuthorizationDto
-{
-    public string RequestType { get; set; } = "Delete"; // "Delete" or "Edit"
-    public string Reason { get; set; } = string.Empty;
-    public string? RequestedBy { get; set; }
-}
-
-public class ResolvePrescriptionAuthorizationDto
-{
-    public string Action { get; set; } = "ApproveDelete"; // "ApproveDelete" or "Reject"
-    public string? AdminNote { get; set; }
 }
 

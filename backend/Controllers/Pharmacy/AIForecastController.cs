@@ -37,8 +37,6 @@ public class AIForecastController : ControllerBase
 
             var orders = await _context.PharmacyOrders
                 .Include(o => o.Items)
-                    .ThenInclude(i => i.Medicine)
-                        .ThenInclude(m => m.Category)
                 .Where(o => o.CreatedAt >= DateTime.UtcNow.AddDays(-90))
                 .AsNoTracking()
                 .ToListAsync();

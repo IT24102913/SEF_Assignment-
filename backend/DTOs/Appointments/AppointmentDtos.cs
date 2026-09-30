@@ -44,13 +44,7 @@ public class DoctorSessionDto
     public int MaxCapacity { get; set; }
     public int CurrentBookings { get; set; }
     public bool IsAvailable { get; set; }
-    public bool IsExpired { get; set; }
     public int SlotsLeft { get; set; }
-    public string SessionStatus { get; set; } = "Scheduled";
-    public DateTime? ActualStartTime { get; set; }
-    public DateTime? ExpectedStartTime { get; set; }
-    public int? CurrentlyServingQueueNumber { get; set; }
-    public string? DelayReason { get; set; }
 }
 
 public class BookAppointmentRequest
@@ -63,7 +57,6 @@ public class BookAppointmentRequest
     public string PatientNic { get; set; } = string.Empty;
     public string? PatientAddress { get; set; }
     public string? Notes { get; set; }
-    public string BookingType { get; set; } = "OnlinePayment"; // Reservation, OnlinePayment
 }
 
 public class PaymentRequest
@@ -82,33 +75,6 @@ public class StatusUpdateDto
 {
     public string Status { get; set; } = string.Empty;
     public string? Notes { get; set; }
-}
-
-public class CheckInRequest
-{
-    public string QrToken { get; set; } = string.Empty;
-}
-
-public class DelaySessionRequest
-{
-    public DateTime ExpectedStartTime { get; set; }
-    public string? Reason { get; set; }
-}
-
-public class DoctorSessionQueueDto
-{
-    public int SessionId { get; set; }
-    public int DoctorId { get; set; }
-    public string DoctorName { get; set; } = string.Empty;
-    public string Specialization { get; set; } = string.Empty;
-    public string SessionStatus { get; set; } = "Scheduled";
-    public string SessionDate { get; set; } = string.Empty;
-    public string SessionTime { get; set; } = string.Empty;
-    public DateTime? ExpectedStartTime { get; set; }
-    public DateTime? ActualStartTime { get; set; }
-    public int? CurrentlyServingQueueNumber { get; set; }
-    public string? DelayReason { get; set; }
-    public List<AppointmentDto> Queue { get; set; } = new();
 }
 
 public class AppointmentDto
@@ -134,19 +100,12 @@ public class AppointmentDto
     public decimal ServiceCharge { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = string.Empty;
-    public string BookingType { get; set; } = "OnlinePayment";
-    public Guid QrToken { get; set; }
-    public DateTime? CheckedInAt { get; set; }
-    public string ArrivalStatus { get; set; } = "NotArrived";
-    public string QueueStatus { get; set; } = "NotCheckedIn";
-    public DateTime? CalledAt { get; set; }
     public string PaymentMethod { get; set; } = string.Empty;
     public string PaymentStatus { get; set; } = string.Empty;
     public string? PaymentReference { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public string QrCodeText { get; set; } = string.Empty;
-    public string? DisplaySummary { get; set; }
 }
 
 public class DoctorStatsDto

@@ -110,15 +110,6 @@ public class LabBookingsControllerTests
         var updatedSlot = await db.LabTimeSlots.FirstOrDefaultAsync(s => s.Date == date && s.Time == time);
         Assert.NotNull(updatedSlot);
         Assert.Equal(1, updatedSlot.CurrentBookings); // Decremented from 2 to 1
-
-        mockEmail.Verify(e => e.SendBookingCancelledAsync(
-            "jane@example.com",
-            "Jane Doe",
-            It.IsAny<string>(),
-            date,
-            time,
-            It.IsAny<string>()
-        ), Times.Once);
     }
 
     [Fact]

@@ -131,7 +131,7 @@ public class PharmacyOrderService : IPharmacyOrderService
 
                 string medicineName = !string.IsNullOrWhiteSpace(itemReq.MedicineName)
                     ? itemReq.MedicineName.Trim()
-                    : medicine.Name;
+                    : (medicine != null ? medicine.Name : "Medicine");
 
                 if (isCard && !medicineName.EndsWith("(Card)", StringComparison.OrdinalIgnoreCase))
                 {
@@ -140,7 +140,7 @@ public class PharmacyOrderService : IPharmacyOrderService
 
                 orderItems.Add(new PharmacyOrderItem
                 {
-                    MedicineId = medicine.Id,
+                    MedicineId = medicine?.Id ?? 0,
                     MedicineName = medicineName,
                     UnitPrice = unitPrice,
                     Quantity = itemReq.Quantity,

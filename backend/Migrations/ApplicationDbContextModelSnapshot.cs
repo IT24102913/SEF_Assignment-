@@ -166,18 +166,6 @@ namespace HealthBridge.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<int>("ArrivalStatus")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("BookingType")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime?>("CalledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("CheckedInAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<decimal>("ConsultationFee")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -240,13 +228,7 @@ namespace HealthBridge.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<Guid>("QrToken")
-                        .HasColumnType("uuid");
-
                     b.Property<int>("QueueNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("QueueStatus")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("ServiceCharge")
@@ -282,9 +264,6 @@ namespace HealthBridge.Api.Migrations
 
                     b.HasIndex("PatientId");
 
-                    b.HasIndex("QrToken")
-                        .IsUnique();
-
                     b.HasIndex("Status");
 
                     b.ToTable("DoctorAppointments");
@@ -298,23 +277,11 @@ namespace HealthBridge.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<DateTime?>("ActualStartTime")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<int>("CurrentBookings")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("CurrentlyServingQueueNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("DelayReason")
-                        .HasColumnType("text");
-
                     b.Property<int>("DoctorId")
                         .HasColumnType("integer");
-
-                    b.Property<DateTime?>("ExpectedStartTime")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -324,9 +291,6 @@ namespace HealthBridge.Api.Migrations
 
                     b.Property<DateOnly>("SessionDate")
                         .HasColumnType("date");
-
-                    b.Property<int>("SessionStatus")
-                        .HasColumnType("integer");
 
                     b.Property<TimeOnly>("SessionTime")
                         .HasColumnType("time without time zone");
@@ -588,7 +552,7 @@ namespace HealthBridge.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("DateOfBirth")
+                    b.Property<DateTime>("DateOfBirth")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Email")
@@ -855,7 +819,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("11111111-1111-1111-1111-111111111111"),
                             Category = "Haematology",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6131),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9327),
                             Description = "Measures different components of blood including red/white cells and platelets.",
                             IsActive = true,
                             IsRestricted = false,
@@ -867,7 +831,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("22222222-2222-2222-2222-222222222222"),
                             Category = "Biochemistry",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6146),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9356),
                             Description = "Measures cholesterol and triglyceride levels in the blood.",
                             IsActive = true,
                             IsRestricted = true,
@@ -879,7 +843,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333333"),
                             Category = "Biochemistry",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6148),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9375),
                             Description = "Measures blood sugar levels after an 8-hour fast.",
                             IsActive = true,
                             IsRestricted = false,
@@ -891,7 +855,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("44444444-4444-4444-4444-444444444444"),
                             Category = "Endocrinology",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6150),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9379),
                             Description = "Evaluates thyroid gland function (TSH, T3, T4).",
                             IsActive = true,
                             IsRestricted = true,
@@ -903,7 +867,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("55555555-5555-5555-5555-555555555555"),
                             Category = "Microbiology",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6191),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9383),
                             Description = "Analyses physical, chemical and microscopic properties of urine.",
                             IsActive = true,
                             IsRestricted = false,
@@ -915,7 +879,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("66666666-6666-6666-6666-666666666666"),
                             Category = "Radiology",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6193),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9388),
                             Description = "Imaging of lungs, heart and chest wall.",
                             IsActive = true,
                             IsRestricted = true,
@@ -927,7 +891,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("77777777-7777-7777-7777-777777777777"),
                             Category = "Biochemistry",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6195),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9392),
                             Description = "Assesses liver health via enzyme and protein levels.",
                             IsActive = true,
                             IsRestricted = true,
@@ -939,7 +903,7 @@ namespace HealthBridge.Api.Migrations
                         {
                             Id = new Guid("88888888-8888-8888-8888-888888888888"),
                             Category = "Haematology",
-                            CreatedAt = new DateTime(2026, 9, 25, 12, 5, 0, 528, DateTimeKind.Utc).AddTicks(6206),
+                            CreatedAt = new DateTime(2026, 9, 24, 18, 36, 48, 456, DateTimeKind.Utc).AddTicks(9394),
                             Description = "Detects inflammation in the body.",
                             IsActive = true,
                             IsRestricted = false,

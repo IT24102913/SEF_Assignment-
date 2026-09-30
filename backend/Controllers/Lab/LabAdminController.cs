@@ -71,11 +71,12 @@ public class LabAdminController : ControllerBase
         booking.TechnicianId = technicianId;
         booking.TechnicianNotes = dto.Notes;
         booking.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
 
         // Find all active bookings for this patient, date & slot created together in the same booking batch (within 90s)
         var candidateBookings = await _db.LabBookings
             .Include(b => b.LabTest)
-            .Where(b => (b.PatientId == booking.PatientId || b.PatientEmail.ToLower() == booking.PatientEmail.ToLower())
+            .Where(b => (b.PatientId == booking.PatientId || b.PatientEmail == booking.PatientEmail)
                      && b.BookingDate == booking.BookingDate
                      && b.TimeSlot == booking.TimeSlot
                      && b.Status != BookingStatus.Cancelled
@@ -91,24 +92,6 @@ public class LabAdminController : ControllerBase
             appointmentBookings.Add(booking);
         }
 
-        // Auto-approve ALL co-booked sibling tests in the same appointment batch and sync Chair & Token
-        var siblingPending = appointmentBookings
-            .Where(b => b.Id != booking.Id && approvableStatuses.Contains(b.Status))
-            .ToList();
-
-        foreach (var sib in siblingPending)
-        {
-            sib.Status = BookingStatus.Confirmed;
-            sib.TechnicianId = technicianId;
-            sib.TechnicianNotes = dto.Notes;
-            sib.UpdatedAt = DateTime.UtcNow;
-            sib.AssignedChairNo = booking.AssignedChairNo;
-            sib.QueueToken = booking.QueueToken;
-            sib.PriorityTier = booking.PriorityTier;
-        }
-
-        await _db.SaveChangesAsync();
-
         var totalAppointmentPrice = appointmentBookings.Sum(b => b.LabTest?.Price ?? 0);
         var testNamesList = appointmentBookings
             .Select(b => b.LabTest?.Name)
@@ -120,8 +103,8 @@ public class LabAdminController : ControllerBase
             ? $"{string.Join(" + ", testNamesList)} ({testNamesList.Count} Tests)"
             : (booking.LabTest?.Name ?? "Laboratory Test");
 
-        // Send a single confirmation email for the entire appointment visit
-        if (appointmentBookings.Any(b => b.LabTest != null && b.LabTest.IsRestricted))
+        // Send confirmation email tailored for prescription approval vs standard booking
+        if (booking.LabTest != null && booking.LabTest.IsRestricted)
         {
             await _emailService.SendPrescriptionApprovedAsync(
                 booking.PatientEmail,
@@ -129,9 +112,7 @@ public class LabAdminController : ControllerBase
                 combinedTestNames,
                 booking.BookingDate,
                 booking.TimeSlot,
-                totalAppointmentPrice > 0 ? totalAppointmentPrice : (booking.LabTest?.Price ?? 0),
-                booking.AssignedChairNo,
-                booking.QueueToken);
+                totalAppointmentPrice > 0 ? totalAppointmentPrice : booking.LabTest.Price);
         }
         else
         {
@@ -140,9 +121,7 @@ public class LabAdminController : ControllerBase
                 booking.PatientName,
                 combinedTestNames,
                 booking.BookingDate,
-                booking.TimeSlot,
-                booking.AssignedChairNo,
-                booking.QueueToken);
+                booking.TimeSlot);
         }
 
         return Ok(MapToDto(booking));
@@ -158,39 +137,13 @@ public class LabAdminController : ControllerBase
         if (booking.Status != BookingStatus.PendingLabApproval)
             return BadRequest(new { message = "This booking cannot be rejected at this stage." });
 
+        // If prescription rejected, mark status as Cancelled so no further steps are shown
         booking.Status = BookingStatus.Cancelled;
         booking.TechnicianId = technicianId;
         booking.TechnicianNotes = dto.Reason;
         booking.UpdatedAt = DateTime.UtcNow;
 
-        // Find co-booked siblings that shared this prescription / appointment batch
-        var candidateBookings = await _db.LabBookings
-            .Include(b => b.LabTest)
-            .Where(b => (b.PatientId == booking.PatientId || b.PatientEmail.ToLower() == booking.PatientEmail.ToLower())
-                     && b.BookingDate == booking.BookingDate
-                     && b.TimeSlot == booking.TimeSlot
-                     && b.Status == BookingStatus.PendingLabApproval)
-            .ToListAsync();
-
-        var siblingPending = candidateBookings
-            .Where(b => b.Id != booking.Id && Math.Abs((b.CreatedAt - booking.CreatedAt).TotalSeconds) <= 90)
-            .ToList();
-
-        foreach (var sib in siblingPending)
-        {
-            sib.Status = BookingStatus.Cancelled;
-            sib.TechnicianId = technicianId;
-            sib.TechnicianNotes = dto.Reason;
-            sib.UpdatedAt = DateTime.UtcNow;
-
-            var sibSlot = await _db.LabTimeSlots.FirstOrDefaultAsync(s => s.Date == sib.BookingDate && s.Time == sib.TimeSlot);
-            if (sibSlot != null && sibSlot.CurrentBookings > 0)
-            {
-                sibSlot.CurrentBookings--;
-            }
-        }
-
-        // Free up slot capacity for primary booking
+        // Free up slot capacity
         var slot = await _db.LabTimeSlots.FirstOrDefaultAsync(s => s.Date == booking.BookingDate && s.Time == booking.TimeSlot);
         if (slot != null && slot.CurrentBookings > 0)
         {
@@ -199,26 +152,13 @@ public class LabAdminController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        var allRejected = new List<LabBooking> { booking };
-        allRejected.AddRange(siblingPending);
-
-        var testNamesList = allRejected
-            .Select(b => b.LabTest?.Name)
-            .Where(n => !string.IsNullOrWhiteSpace(n))
-            .Distinct()
-            .ToList();
-
-        var combinedTestNames = testNamesList.Count > 1
-            ? $"{string.Join(" + ", testNamesList)} ({testNamesList.Count} Tests)"
-            : (booking.LabTest?.Name ?? "Laboratory Test");
-
-        // Send a single rejection email informing patient the booking is cancelled
-        if (allRejected.Any(b => b.LabTest != null && b.LabTest.IsRestricted))
+        // Send rejection email informing patient the booking is cancelled
+        if (booking.LabTest != null && booking.LabTest.IsRestricted)
         {
             await _emailService.SendPrescriptionRejectedAsync(
                 booking.PatientEmail,
                 booking.PatientName,
-                combinedTestNames,
+                booking.LabTest.Name,
                 dto.Reason);
         }
         else
@@ -226,7 +166,7 @@ public class LabAdminController : ControllerBase
             await _emailService.SendBookingRejectionAsync(
                 booking.PatientEmail,
                 booking.PatientName,
-                combinedTestNames,
+                booking.LabTest?.Name ?? "Lab Test",
                 dto.Reason);
         }
 
