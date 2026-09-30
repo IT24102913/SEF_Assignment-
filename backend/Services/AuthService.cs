@@ -45,80 +45,59 @@ public class AuthService : IAuthService
         if (existingPhone)
             throw new InvalidOperationException("This telephone number is already registered.");
 
-        var strategy = _context.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync(async () =>
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
+
+        var user = new User
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
+            FullName = request.FullName.Trim(),
+            Email = normalizedEmail,
+            PasswordHash = passwordHash,
+            Role = UserRole.Patient,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        };
 
-            try
-            {
-                var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
 
-                var user = new User
-                {
-                    FullName = request.FullName.Trim(),
-                    Email = normalizedEmail,
-                    PasswordHash = passwordHash,
-                    Role = UserRole.Patient,
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow
-                };
+        // Create PatientProfile with the registration details
+        var profile = new PatientProfile
+        {
+            UserId = user.Id,
+            PhoneNumber = request.PhoneNumber.Trim(),
+            NicNumber = normalizedNic,
+            Gender = request.Gender,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.PatientProfiles.Add(profile);
+        await _context.SaveChangesAsync();
 
-                _context.Users.Add(user);
-                await _context.SaveChangesAsync();
+        // Auto-create EMR Patient record linked to this user safely
+        int codeNum = 1001;
+        var existingPatientCodes = await _context.Patients.Select(p => p.PatientCode).ToListAsync();
+        while (existingPatientCodes.Contains($"PAT-{codeNum}"))
+        {
+            codeNum++;
+        }
+        var nextCode = $"PAT-{codeNum}";
 
-                // Derive valid non-null DateOfBirth from NIC or safe default
-                var dob = ParseDateOfBirthFromNic(normalizedNic) ?? new DateTime(1995, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var emrPatient = new Patient
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            PatientCode = nextCode,
+            FullName = user.FullName,
+            Email = normalizedEmail,
+            ContactPhone = request.PhoneNumber.Trim(),
+            Gender = request.Gender ?? "Other",
+            DateOfBirth = DateTime.UtcNow, // Set default until updated by patient profile
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        _context.Patients.Add(emrPatient);
+        await _context.SaveChangesAsync();
 
-                // Create PatientProfile with the registration details
-                var safeGender = string.IsNullOrWhiteSpace(request.Gender) ? "Other" : (request.Gender.Length > 10 ? "Other" : request.Gender);
-                var profile = new PatientProfile
-                {
-                    UserId = user.Id,
-                    PhoneNumber = request.PhoneNumber.Trim(),
-                    NicNumber = normalizedNic,
-                    Gender = safeGender,
-                    DateOfBirth = dob,
-                    CreatedAt = DateTime.UtcNow
-                };
-                _context.PatientProfiles.Add(profile);
-                await _context.SaveChangesAsync();
-
-                // Generate unique PatientCode for EMR Patient record
-                var patientCount = await _context.Patients.CountAsync();
-                var patientCode = $"PAT-{1000 + patientCount + 1}";
-                while (await _context.Patients.AnyAsync(p => p.PatientCode == patientCode))
-                {
-                    patientCount++;
-                    patientCode = $"PAT-{1000 + patientCount + 1}";
-                }
-
-                var emrPatient = new Patient
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = user.Id,
-                    PatientCode = patientCode,
-                    FullName = user.FullName,
-                    Email = normalizedEmail,
-                    ContactPhone = request.PhoneNumber.Trim(),
-                    Gender = safeGender,
-                    DateOfBirth = dob,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _context.Patients.Add(emrPatient);
-                await _context.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-
-                return await MapToUserResponseAsync(user);
-            }
-            catch
-            {
-                await transaction.RollbackAsync();
-                throw;
-            }
-        });
+        return await MapToUserResponseAsync(user);
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
@@ -127,20 +106,6 @@ public class AuthService : IAuthService
 
         var user = await _context.Users
             .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
-
-        if (user == null)
-        {
-            if (normalizedEmail == "doc-01" || normalizedEmail == "doc-101" || normalizedEmail == "doctor" || normalizedEmail.StartsWith("doc"))
-                user = await _context.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Doctor);
-            else if (normalizedEmail == "lab-01" || normalizedEmail == "lab-101" || normalizedEmail == "lab" || normalizedEmail.StartsWith("lab"))
-                user = await _context.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Laboratory);
-            else if (normalizedEmail == "pharm-01" || normalizedEmail == "pharm-101" || normalizedEmail == "pharm" || normalizedEmail == "pharmacist" || normalizedEmail.StartsWith("pharm"))
-                user = await _context.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Pharmacist);
-            else if (normalizedEmail == "admin-01" || normalizedEmail == "admin" || normalizedEmail.StartsWith("admin"))
-                user = await _context.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Admin);
-            else
-                user = await _context.Users.FirstOrDefaultAsync(u => u.FullName.ToLower() == normalizedEmail);
-        }
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
@@ -197,12 +162,9 @@ public class AuthService : IAuthService
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
-            var defaultDob = new DateTime(1995, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             var profile = new PatientProfile
             {
                 UserId = user.Id,
-                DateOfBirth = defaultDob,
-                Gender = "Other",
                 CreatedAt = DateTime.UtcNow
             };
             _context.PatientProfiles.Add(profile);
@@ -210,22 +172,14 @@ public class AuthService : IAuthService
 
             // Auto-create EMR Patient record for Google-registered users
             var patientCount = await _context.Patients.CountAsync();
-            var patientCode = $"PAT-{1000 + patientCount + 1}";
-            while (await _context.Patients.AnyAsync(p => p.PatientCode == patientCode))
-            {
-                patientCount++;
-                patientCode = $"PAT-{1000 + patientCount + 1}";
-            }
-
             var emrPatient = new Patient
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
-                PatientCode = patientCode,
+                PatientCode = $"PAT-{1000 + patientCount + 1}",
                 FullName = user.FullName,
                 Email = normalizedEmail,
-                DateOfBirth = defaultDob,
-                Gender = "Other",
+                DateOfBirth = null, // Empty until chosen by customer
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             };
@@ -264,41 +218,5 @@ public class AuthService : IAuthService
             Role = user.Role,
             PatientCode = patientCode
         };
-    }
-
-    private static DateTime? ParseDateOfBirthFromNic(string nic)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(nic)) return null;
-            nic = nic.Trim();
-
-            int year = 0;
-            int dayOfYear = 0;
-
-            if (nic.Length == 10 && (nic.EndsWith("V", StringComparison.OrdinalIgnoreCase) || nic.EndsWith("X", StringComparison.OrdinalIgnoreCase)))
-            {
-                if (int.TryParse(nic.Substring(0, 2), out var y) && int.TryParse(nic.Substring(2, 3), out var d))
-                {
-                    year = 1900 + y;
-                    dayOfYear = d > 500 ? d - 500 : d;
-                }
-            }
-            else if (nic.Length == 12 && long.TryParse(nic, out _))
-            {
-                if (int.TryParse(nic.Substring(0, 4), out var y) && int.TryParse(nic.Substring(4, 3), out var d))
-                {
-                    year = y;
-                    dayOfYear = d > 500 ? d - 500 : d;
-                }
-            }
-
-            if (year > 1900 && dayOfYear >= 1 && dayOfYear <= 366)
-            {
-                return new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddDays(dayOfYear - 1);
-            }
-        }
-        catch { }
-        return null;
     }
 }

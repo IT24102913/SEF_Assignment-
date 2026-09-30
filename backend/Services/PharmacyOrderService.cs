@@ -10,11 +10,22 @@ public class PharmacyOrderService : IPharmacyOrderService
 {
     private readonly ApplicationDbContext _context;
     private readonly PrescriptionSafetyAgent _safetyAgent;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<PharmacyOrderService> _logger;
+    private readonly IEmailService _emailService;
 
-    public PharmacyOrderService(ApplicationDbContext context, PrescriptionSafetyAgent safetyAgent)
+    public PharmacyOrderService(
+        ApplicationDbContext context,
+        PrescriptionSafetyAgent safetyAgent,
+        IServiceScopeFactory scopeFactory,
+        ILogger<PharmacyOrderService> logger,
+        IEmailService emailService)
     {
         _context = context;
         _safetyAgent = safetyAgent;
+        _scopeFactory = scopeFactory;
+        _logger = logger;
+        _emailService = emailService;
     }
 
     public async Task<IEnumerable<PharmacyOrderResponse>> GetAllOrdersAsync()
@@ -70,20 +81,16 @@ public class PharmacyOrderService : IPharmacyOrderService
         {
             foreach (var itemReq in request.Items!)
             {
-                var medicine = await _context.Medicines.FindAsync(itemReq.MedicineId);
-                bool medicineFoundInDb = medicine != null;
-                if (medicine == null)
+                Medicine? medicine = null;
+                if (itemReq.MedicineId > 0)
                 {
-                    medicine = await _context.Medicines.FirstOrDefaultAsync();
-                    if (medicine == null)
-                    {
-                        throw new KeyNotFoundException($"Medicine with ID {itemReq.MedicineId} was not found.");
-                    }
+                    medicine = await _context.Medicines.FindAsync(itemReq.MedicineId);
                 }
 
-                if (medicineFoundInDb && medicine.RequiresPrescription)
+                if (medicine == null && !string.IsNullOrWhiteSpace(itemReq.MedicineName))
                 {
-                    hasRxItem = true;
+                    string cleanName = itemReq.MedicineName.Replace("(Card)", "", StringComparison.OrdinalIgnoreCase).Trim();
+                    medicine = await _context.Medicines.FirstOrDefaultAsync(m => EF.Functions.ILike(m.Name, cleanName) || EF.Functions.ILike(m.Name, itemReq.MedicineName.Trim()));
                 }
 
                 string unitType = !string.IsNullOrWhiteSpace(itemReq.UnitType) ? itemReq.UnitType.Trim() : "Pill";
@@ -95,22 +102,28 @@ public class PharmacyOrderService : IPharmacyOrderService
                     unitType = "Card";
                 }
 
+                decimal basePrice = medicine != null ? medicine.Price : 0;
                 decimal unitPrice = (itemReq.Price.HasValue && itemReq.Price.Value > 0)
                     ? itemReq.Price.Value
                     : (itemReq.UnitPrice.HasValue && itemReq.UnitPrice.Value > 0)
                         ? itemReq.UnitPrice.Value
                         : isCard
-                            ? (medicine.Price * 10)
-                            : medicine.Price;
+                            ? (basePrice * (medicine?.PillsPerCard > 0 ? medicine.PillsPerCard : 10))
+                            : basePrice;
 
-                int pillsToDeduct = isCard ? itemReq.Quantity * 10 : itemReq.Quantity;
-                if (medicine.StockQuantity >= pillsToDeduct)
+                if (medicine != null)
                 {
-                    medicine.StockQuantity -= pillsToDeduct;
-                }
-                else
-                {
-                    medicine.StockQuantity = Math.Max(0, medicine.StockQuantity - itemReq.Quantity);
+                    if (medicine.RequiresPrescription)
+                    {
+                        hasRxItem = true;
+                    }
+
+                    int pillsPerCard = medicine.PillsPerCard > 0 ? medicine.PillsPerCard : 10;
+                    int unitsToDeduct = isCard ? itemReq.Quantity * pillsPerCard : itemReq.Quantity;
+
+                    medicine.StockQuantity = Math.Max(0, medicine.StockQuantity - unitsToDeduct);
+                    medicine.UpdatedAt = DateTime.UtcNow;
+                    _context.Entry(medicine).State = EntityState.Modified;
                 }
 
                 var subtotal = unitPrice * itemReq.Quantity;
@@ -179,19 +192,6 @@ public class PharmacyOrderService : IPharmacyOrderService
 
         _context.PharmacyOrders.Add(order);
 
-        // Run Prescription Safety Agent validation
-        var patientHistory = await _context.PharmacyOrders
-            .Include(o => o.Items)
-            .Where(o => (order.PatientId.HasValue && o.PatientId == order.PatientId) || o.CustomerEmail == order.CustomerEmail)
-            .ToListAsync();
-
-        var safetyResult = _safetyAgent.EvaluateOrderSafety(order, patientHistory);
-        order.PrescriptionHash = _safetyAgent.GeneratePrescriptionHash(order.PrescriptionImageUrl);
-        order.SafetyRiskScore = safetyResult.RiskScore;
-        order.SafetyFlags = System.Text.Json.JsonSerializer.Serialize(safetyResult.Flags);
-        order.SafetyRecommendedAction = safetyResult.RecommendedAction;
-        order.SafetyValidatedAt = DateTime.UtcNow;
-
         if (hasPrescription)
         {
             var rxSubmission = new PrescriptionSubmission
@@ -208,9 +208,75 @@ public class PharmacyOrderService : IPharmacyOrderService
             _context.PrescriptionSubmissions.Add(rxSubmission);
         }
 
+        // ── Save order immediately so patient gets instant response ──────────
         await _context.SaveChangesAsync();
+        var savedOrderId = order.Id;
+        var savedOrderResponse = MapToPharmacyOrderResponse(order);
 
-        return MapToPharmacyOrderResponse(order);
+        // ── Run AI safety scan in the background (non-blocking) ──────────────
+        // The order is already saved; the AI will update the safety fields once done.
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var ctx = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var agent = scope.ServiceProvider.GetRequiredService<PrescriptionSafetyAgent>();
+
+                var bgOrder = await ctx.PharmacyOrders
+                    .Include(o => o.Items)
+                    .FirstOrDefaultAsync(o => o.Id == savedOrderId);
+
+                if (bgOrder == null) return;
+
+                var patientHistory = await ctx.PharmacyOrders
+                    .Include(o => o.Items)
+                    .Where(o => o.Id != savedOrderId &&
+                        ((bgOrder.PatientId.HasValue && o.PatientId == bgOrder.PatientId) ||
+                          o.CustomerEmail == bgOrder.CustomerEmail))
+                    .ToListAsync();
+
+                var safetyResult = await agent.EvaluateOrderSafetyAsync(bgOrder, patientHistory);
+                bgOrder.PrescriptionHash = agent.GeneratePrescriptionHash(bgOrder.PrescriptionImageUrl);
+                bgOrder.SafetyRiskScore = safetyResult.RiskScore;
+                bgOrder.SafetyFlags = System.Text.Json.JsonSerializer.Serialize(safetyResult.Flags);
+                bgOrder.SafetyRecommendedAction = safetyResult.RecommendedAction;
+                bgOrder.SafetyValidatedAt = DateTime.UtcNow;
+
+                await ctx.SaveChangesAsync();
+                _logger.LogInformation("[PharmacyOrderService] Background AI safety scan complete for Order #{OrderId}", savedOrderId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[PharmacyOrderService] Background AI safety scan failed for Order #{OrderId}", savedOrderId);
+            }
+        });
+
+        // ── Send instant order confirmation email notification to patient ─────
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                await emailSvc.SendPharmacyOrderNotificationAsync(
+                    savedOrderResponse.CustomerEmail,
+                    savedOrderResponse.CustomerName,
+                    savedOrderResponse.OrderNumber,
+                    savedOrderResponse.Status,
+                    savedOrderResponse.TotalAmount,
+                    savedOrderResponse.PaymentMethod,
+                    savedOrderResponse.DeliveryAddress,
+                    savedOrderResponse.Items
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[PharmacyOrderService] Failed to send order placed email to {Email}", savedOrderResponse.CustomerEmail);
+            }
+        });
+
+        return savedOrderResponse;
     }
 
     public async Task<PrescriptionSafetyResponse?> ValidateOrderSafetyAsync(int id)
@@ -269,8 +335,34 @@ public class PharmacyOrderService : IPharmacyOrderService
         order.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        var response = MapToPharmacyOrderResponse(order);
 
-        return MapToPharmacyOrderResponse(order);
+        // ── Send order status update email notification to patient ───────────
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                await emailSvc.SendPharmacyOrderNotificationAsync(
+                    response.CustomerEmail,
+                    response.CustomerName,
+                    response.OrderNumber,
+                    response.Status,
+                    response.TotalAmount,
+                    response.PaymentMethod,
+                    response.DeliveryAddress,
+                    response.Items,
+                    response.AdminNote
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[PharmacyOrderService] Failed to send status update email to {Email}", response.CustomerEmail);
+            }
+        });
+
+        return response;
     }
 
     public async Task<bool> DeleteOrderAsync(int id)

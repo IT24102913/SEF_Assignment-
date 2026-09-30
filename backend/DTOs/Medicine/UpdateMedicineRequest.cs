@@ -39,4 +39,20 @@ public class UpdateMedicineRequest
     public decimal CardPrice { get; set; }
 
     public string? AdditionalImagesJson { get; set; }
+    public string? SellingUnit { get; set; } = "PILLS";
+    public int? BottleSize { get; set; }
+    public int? VolumeMl { get; set; }
+    public int? TubeWeight { get; set; }
+    public int? SachetsPerBox { get; set; }
+    public int? VialsPerBox { get; set; }
+    public int? PuffsPerInhaler { get; set; }
+    public decimal? PricePerBottle { get; set; }
+    public decimal? PricePerTube { get; set; }
+    public decimal? PricePerSachet { get; set; }
+    public decimal? PricePerVial { get; set; }
+    public decimal? BoxPrice { get; set; }
+    public decimal? PricePerInhaler { get; set; }
+    public string? UnitName { get; set; }
+    public decimal? PricePerUnit { get; set; }
+
 }

@@ -17,35 +17,9 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"CardPrice\" numeric(18,2) DEFAULT 0;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"AdditionalImagesJson\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Patients\" ADD COLUMN IF NOT EXISTS \"UserId\" integer;");
-            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"HasAuthorizationRequest\" boolean DEFAULT false;");
-            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationType\" text;");
-            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationReason\" text;");
-            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedBy\" text;");
-            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedAt\" timestamp with time zone;");
-            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationStatus\" text;");
-
-            // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
-            await context.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS ""__EFMigrationsHistory"" (
-                    ""MigrationId"" character varying(150) NOT NULL,
-                    ""ProductVersion"" character varying(32) NOT NULL,
-                    CONSTRAINT ""PK___EFMigrationsHistory"" PRIMARY KEY (""MigrationId"")
-                );
-                INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
-                VALUES ('20260924175311_InitialCreate', '8.0.4')
-                ON CONFLICT (""MigrationId"") DO NOTHING;
-                INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
-                VALUES ('20260924183649_AddUserIdToEMRPatient', '8.0.4')
-                ON CONFLICT (""MigrationId"") DO NOTHING;
-            ");
         }
         catch { }
-
-        try
-        {
-            await context.Database.MigrateAsync();
-        }
-        catch { }
+        await context.Database.MigrateAsync();
 
         // 1. Seed Initial Admin Accounts if none exist
         if (!await context.Users.AnyAsync(u => u.Email == "nirwan@gmail.com"))
