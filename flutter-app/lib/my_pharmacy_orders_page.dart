@@ -20,13 +20,16 @@ class _MyPharmacyOrdersPageState extends State<MyPharmacyOrdersPage> {
   @override
   void initState() {
     super.initState();
-    _fetchOrders(showLoading: true);
-    // Update countdown timer every second
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+    // Defer fetch to after the first frame so navigation animation completes first
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchOrders(showLoading: true);
     });
-    // Auto-poll backend every 3 seconds for live admin status updates
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Update countdown timer every 10 seconds
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted && _orders.isNotEmpty) setState(() {});
+    });
+    // Auto-poll backend every 10 seconds for live status updates
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) _fetchOrders(showLoading: false);
     });
   }
