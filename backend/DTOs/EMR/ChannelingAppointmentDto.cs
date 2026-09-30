@@ -12,12 +12,6 @@ public class ChannelingAppointmentDto
     public string FormattedTime => AppointmentDate.ToString("hh:mm tt");
     public string Room { get; set; } = string.Empty;
     public string Status { get; set; } = "Upcoming";
-    public string Category { get; set; } = "Upcoming"; // "Upcoming", "Ongoing", "Past"
-    public int? QueueNumber { get; set; }
-    public decimal? TotalAmount { get; set; }
-    public string? PaymentStatus { get; set; }
-    public string? HospitalBranch { get; set; }
-    public string? TimeSlot { get; set; }
 }
 
 public class CreateChannelingAppointmentDto

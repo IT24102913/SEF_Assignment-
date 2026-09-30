@@ -12,21 +12,9 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Railway dynamic PORT binding (defaults to standard ports locally)
-var port = Environment.GetEnvironmentVariable("PORT");
-if (!string.IsNullOrEmpty(port))
-{
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
-}
-
 // 1. Configure Database (PostgreSQL EF Core)
-// Supports local DefaultConnection as well as Railway DATABASE_URL / DATABASE_PUBLIC_URL
-var rawConnectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? Environment.GetEnvironmentVariable("DATABASE_PUBLIC_URL")
-    ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' or 'DATABASE_URL' not found.");
-
-var connectionString = ProgramHelper.ParsePostgreSqlConnectionString(rawConnectionString);
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -99,13 +87,20 @@ builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
+// ✅ Register Vision AI Agents — PrescriptionValidatorAgent MUST be registered BEFORE PrescriptionSafetyAgent
+// so it is correctly injected into PrescriptionSafetyAgent's constructor (not resolved as null)
+builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionValidatorAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.QwenVisionAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.InventoryForecastingAgent>();
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("GeminiClient");
 
-// ✅ Register EMR Service & Clinical AI Agent
-builder.Services.AddScoped<HealthBridge.Api.Agents.EMR.EMRClinicalInsightAgent>();
+// ✅ Register EMR Service
 builder.Services.AddScoped<HealthBridge.Api.Services.EMR.IEMRService, HealthBridge.Api.Services.EMR.EMRService>();
+
+// ✅ Register Patient Analytics Service
+builder.Services.AddScoped<IPatientAnalyticsService, PatientAnalyticsService>();
 
 // ✅ Register Lab Management Multi-Agent System (2 Distinct Agents + Orchestrator)
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.PrescriptionVerificationAgent>();
@@ -163,18 +158,21 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Seed and Migrate Database (Runs automatically in Dev and on Cloud/Railway)
-using (var scope = app.Services.CreateScope())
+// Seed Database (Development Only)
+if (app.Environment.IsDevelopment())
 {
-    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    try
+    using (var scope = app.Services.CreateScope())
     {
-        await DbInitializer.SeedAsync(context);
-    }
-    catch (Exception ex)
-    {
-        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while seeding / migrating the database.");
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        try
+        {
+            await DbInitializer.SeedAsync(context);
+        }
+        catch (Exception ex)
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+            logger.LogError(ex, "An error occurred while seeding the database.");
+        }
     }
 }
 
@@ -182,10 +180,7 @@ using (var scope = app.Services.CreateScope())
 app.UseCors("DefaultCorsPolicy");
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// Enable Swagger in Development or if ENABLE_SWAGGER is set / enabled in config
-if (app.Environment.IsDevelopment() ||
-    string.Equals(Environment.GetEnvironmentVariable("ENABLE_SWAGGER"), "true", StringComparison.OrdinalIgnoreCase) ||
-    app.Configuration.GetValue<bool>("EnableSwagger", true))
+if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
@@ -230,38 +225,4 @@ public class SuppressAntiforgeryFeature : Microsoft.AspNetCore.Antiforgery.IAnti
 {
     public bool IsValid => true;
     public Exception? Error => null;
-}
-
-public static partial class ProgramHelper
-{
-    /// <summary>
-    /// Converts a Railway/Heroku PostgreSQL URI (postgres:// or postgresql://) to a standard Npgsql connection string.
-    /// Returns the raw string unchanged if already in standard Npgsql key=value format.
-    /// </summary>
-    public static string ParsePostgreSqlConnectionString(string raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return raw;
-
-        if (raw.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
-            raw.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                var uri = new Uri(raw);
-                var userInfo = uri.UserInfo.Split(':');
-                var username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "";
-                var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
-                var database = uri.AbsolutePath.TrimStart('/');
-                var port = uri.Port > 0 ? uri.Port : 5432;
-
-                return $"Host={uri.Host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Prefer;Trust Server Certificate=true;Timeout=30;Command Timeout=30;Keepalive=30;";
-            }
-            catch
-            {
-                return raw;
-            }
-        }
-
-        return raw;
-    }
 }

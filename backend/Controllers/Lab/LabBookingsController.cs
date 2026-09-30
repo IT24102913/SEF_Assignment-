@@ -111,10 +111,7 @@ public class LabBookingsController : ControllerBase
         {
             try
             {
-                if (_agentOrchestrator != null)
-                {
-                    await _agentOrchestrator.ProcessBookingWorkflowAsync(_db, booking.Id);
-                }
+                await _agentOrchestrator.ProcessBookingWorkflowAsync(_db, booking.Id);
             }
             catch (Exception ex)
             {
@@ -122,7 +119,7 @@ public class LabBookingsController : ControllerBase
             }
         }
 
-        // Send immediate "booking received" acknowledgement email (resilient)
+        // Send immediate "booking received" acknowledgement email (background / resilient)
         try
         {
             await _emailService.SendBookingReceivedAsync(
@@ -182,27 +179,21 @@ public class LabBookingsController : ControllerBase
 
     // DELETE /api/lab/bookings/{id} — Cancel booking (patient)
     [HttpDelete("{id:guid}")]
-    [HttpPost("{id:guid}/cancel")]
-    public async Task<IActionResult> Cancel(Guid id, [FromQuery] int? patientId)
+    public async Task<IActionResult> Cancel(Guid id, [FromQuery] int patientId)
     {
-        var booking = await _db.LabBookings
-            .Include(b => b.LabTest)
-            .FirstOrDefaultAsync(b => b.Id == id);
-        if (booking == null) return NotFound(new { message = "Booking not found." });
-        
-        if (patientId.HasValue && patientId.Value > 0 && booking.PatientId > 0 && booking.PatientId != patientId.Value)
-            return Forbid();
+        var booking = await _db.LabBookings.FindAsync(id);
+        if (booking == null) return NotFound();
+        if (booking.PatientId != patientId) return Forbid();
 
         var cancellableStatuses = new[]
         {
             BookingStatus.PendingPrescriptionUpload,
             BookingStatus.PendingAIVerification,
-            BookingStatus.PendingLabApproval,
-            BookingStatus.Confirmed
+            BookingStatus.PendingLabApproval
         };
 
         if (!cancellableStatuses.Contains(booking.Status))
-            return BadRequest(new { message = "This booking cannot be cancelled because sample collection or laboratory testing is already underway." });
+            return BadRequest(new { message = "This booking can no longer be cancelled." });
 
         booking.Status = BookingStatus.Cancelled;
         booking.UpdatedAt = DateTime.UtcNow;
@@ -214,37 +205,13 @@ public class LabBookingsController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
-
-        // Send cancellation confirmation email to patient
-        if (!string.IsNullOrWhiteSpace(booking.PatientEmail))
-        {
-            try
-            {
-                var testName = booking.LabTest?.Name ?? "Laboratory Test";
-                await _emailService.SendBookingCancelledAsync(
-                    booking.PatientEmail,
-                    booking.PatientName,
-                    testName,
-                    booking.BookingDate,
-                    booking.TimeSlot,
-                    booking.QueueToken
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[Email] Could not send cancellation email for booking {BookingId}", booking.Id);
-            }
-        }
-
         return NoContent();
     }
 
     [HttpPut("/api/lab/admin/bookings/{id}/status")]
     public async Task<IActionResult> UpdateBookingStatus(Guid id, [FromQuery] BookingStatus newStatus)
     {
-        var booking = await _db.LabBookings
-            .Include(b => b.LabTest)
-            .FirstOrDefaultAsync(b => b.Id == id);
+        var booking = await _db.LabBookings.FindAsync(id);
         if (booking == null) return NotFound();
 
         // If transitioning to Rejected or Cancelled from an active status, free up the slot
@@ -262,22 +229,12 @@ public class LabBookingsController : ControllerBase
         booking.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Send status update email (safe)
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(booking.PatientEmail))
-            {
-                await _emailService.SendStatusUpdateAsync(
-                    booking.PatientEmail, 
-                    booking.PatientName, 
-                    booking.LabTest?.Name ?? "Laboratory Test", 
-                    newStatus.ToString());
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Email] Could not send status update email to {Email}", booking.PatientEmail);
-        }
+        // Send generic status update email
+        await _emailService.SendStatusUpdateAsync(
+            booking.PatientEmail, 
+            booking.PatientName, 
+            booking.LabTest?.Name ?? "Lab Test", 
+            newStatus.ToString());
 
         return Ok(MapToDto(booking));
     }
@@ -302,96 +259,48 @@ public class LabBookingsController : ControllerBase
         }));
     }
 
-    private static LabBookingResponse MapToDto(LabBooking b)
+    private static LabBookingResponse MapToDto(LabBooking b) => new()
     {
-        string? extPatientName = null;
-        bool? nameMismatch = null;
-        string? mismatchReason = null;
-        bool? prescriptionExpired = null;
-        bool? prescriptionDateValid = null;
-        string? dateReason = null;
-        bool? testMismatch = null;
-        List<string>? extractedInvestigations = null;
-        string? testMismatchReason = null;
-
-        if (!string.IsNullOrEmpty(b.AgentWorkflowStateJson))
+        Id = b.Id,
+        PatientId = b.PatientId,
+        PatientName = b.PatientName,
+        PatientEmail = b.PatientEmail,
+        LabTest = b.LabTest == null ? null : new LabTestResponse
         {
-            try
-            {
-                using var doc = System.Text.Json.JsonDocument.Parse(b.AgentWorkflowStateJson);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("extractedPatientName", out var epn)) extPatientName = epn.GetString();
-                if (root.TryGetProperty("patientNameMismatch", out var pnm)) nameMismatch = pnm.GetBoolean();
-                if (root.TryGetProperty("patientNameMismatchReason", out var pnmr)) mismatchReason = pnmr.GetString();
-                if (root.TryGetProperty("prescriptionExpired", out var pe)) prescriptionExpired = pe.GetBoolean();
-                if (root.TryGetProperty("prescriptionDateValid", out var pdv)) prescriptionDateValid = pdv.GetBoolean();
-                if (root.TryGetProperty("prescriptionDateReason", out var pdr)) dateReason = pdr.GetString();
-                if (root.TryGetProperty("testMismatch", out var tm)) testMismatch = tm.GetBoolean();
-                if (root.TryGetProperty("testMismatchReason", out var tmr)) testMismatchReason = tmr.GetString();
-                if (root.TryGetProperty("extractedInvestigations", out var ei) && ei.ValueKind == System.Text.Json.JsonValueKind.Array)
-                {
-                    extractedInvestigations = ei.EnumerateArray()
-                        .Select(x => x.GetString())
-                        .Where(s => !string.IsNullOrWhiteSpace(s))
-                        .Select(s => s!)
-                        .ToList();
-                }
-            }
-            catch { }
-        }
-
-        return new()
-        {
-            Id = b.Id,
-            PatientId = b.PatientId,
-            PatientName = b.PatientName,
-            PatientEmail = b.PatientEmail,
-            LabTest = b.LabTest == null ? null : new LabTestResponse
-            {
-                Id = b.LabTest.Id,
-                Name = b.LabTest.Name,
-                Description = b.LabTest.Description,
-                Price = b.LabTest.Price,
-                IsRestricted = b.LabTest.IsRestricted,
-                TurnaroundDays = b.LabTest.TurnaroundDays,
-                Category = b.LabTest.Category,
-                IsActive = b.LabTest.IsActive
-            },
-            BookingDate = b.BookingDate,
-            TimeSlot = b.TimeSlot,
-            Status = b.Status.ToString(),
-            PrescriptionImageUrl = b.PrescriptionImageUrl,
-            AIVerification = b.AIVerification.ToString(),
-            AIVerificationNotes = b.AIVerificationNotes,
-            AIConfidenceScore = b.AIConfidenceScore,
-            AIExtractedDoctorName = b.AIExtractedDoctorName,
-            AIPrescriptionDate = b.AIPrescriptionDate,
-            AIPrescriptionExpired = prescriptionExpired,
-            AIPrescriptionDateValid = prescriptionDateValid,
-            AIPrescriptionDateReason = dateReason,
-            AIExtractedPatientName = extPatientName,
-            AIPatientNameMismatch = nameMismatch,
-            AIPatientNameMismatchReason = mismatchReason,
-            AITestMismatch = testMismatch,
-            AIExtractedInvestigations = extractedInvestigations,
-            AITestMismatchReason = testMismatchReason,
-            TechnicianNotes = b.TechnicianNotes,
-            ResultFileUrl = b.ResultFileUrl,
-            ResultsUploadedAt = b.ResultsUploadedAt,
-            QueueToken = b.QueueToken,
-            PriorityTier = b.PriorityTier,
-            EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
-            EstimatedWaitMinutes = b.EstimatedWaitMinutes,
-            AssignedChairNo = b.AssignedChairNo,
-            AgentWorkflowStateJson = b.AgentWorkflowStateJson,
-            PaymentStatus = b.PaymentStatus.ToString(),
-            PaymentMethod = b.PaymentMethod,
-            ReceiptNumber = b.ReceiptNumber,
-            AmountPaid = b.AmountPaid,
-            PaidAt = b.PaidAt,
-            CreatedAt = b.CreatedAt,
-            UpdatedAt = b.UpdatedAt
-        };
-    }
+            Id = b.LabTest.Id,
+            Name = b.LabTest.Name,
+            Description = b.LabTest.Description,
+            Price = b.LabTest.Price,
+            IsRestricted = b.LabTest.IsRestricted,
+            TurnaroundDays = b.LabTest.TurnaroundDays,
+            Category = b.LabTest.Category,
+            IsActive = b.LabTest.IsActive
+        },
+        BookingDate = b.BookingDate,
+        TimeSlot = b.TimeSlot,
+        Status = b.Status.ToString(),
+        PrescriptionImageUrl = b.PrescriptionImageUrl,
+        AIVerification = b.AIVerification.ToString(),
+        AIVerificationNotes = b.AIVerificationNotes,
+        AIConfidenceScore = b.AIConfidenceScore,
+        AIExtractedDoctorName = b.AIExtractedDoctorName,
+        AIPrescriptionDate = b.AIPrescriptionDate,
+        TechnicianNotes = b.TechnicianNotes,
+        ResultFileUrl = b.ResultFileUrl,
+        ResultsUploadedAt = b.ResultsUploadedAt,
+        QueueToken = b.QueueToken,
+        PriorityTier = b.PriorityTier,
+        EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
+        EstimatedWaitMinutes = b.EstimatedWaitMinutes,
+        AssignedChairNo = b.AssignedChairNo,
+        AgentWorkflowStateJson = b.AgentWorkflowStateJson,
+        PaymentStatus = b.PaymentStatus.ToString(),
+        PaymentMethod = b.PaymentMethod,
+        ReceiptNumber = b.ReceiptNumber,
+        AmountPaid = b.AmountPaid,
+        PaidAt = b.PaidAt,
+        CreatedAt = b.CreatedAt,
+        UpdatedAt = b.UpdatedAt
+    };
 }
 

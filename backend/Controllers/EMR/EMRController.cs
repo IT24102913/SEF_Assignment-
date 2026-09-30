@@ -35,51 +35,20 @@ public class EMRController : ControllerBase
     }
 
     /// <summary>
-    /// Get the current logged-in patient's own EMR record (from JWT token or fallback identifiers)
+    /// Get the current logged-in patient's own EMR record (from JWT token)
     /// </summary>
     [HttpGet("patients/me")]
-    public async Task<ActionResult<PatientDto>> GetMyPatient(
-        [FromQuery] string? patientCode, 
-        [FromQuery] string? email)
+    [Authorize]
+    public async Task<ActionResult<PatientDto>> GetMyPatient()
     {
-        int? userId = null;
-        string? userEmail = email;
+        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                       ?? User.FindFirstValue("sub")
+                       ?? User.FindFirstValue("nameid");
 
-        if (User.Identity?.IsAuthenticated == true)
-        {
-            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                           ?? User.FindFirstValue("sub")
-                           ?? User.FindFirstValue("nameid");
+        if (!int.TryParse(userIdClaim, out var userId))
+            return Unauthorized(new { message = "Invalid token: cannot identify user." });
 
-            if (int.TryParse(userIdClaim, out var parsedId))
-            {
-                userId = parsedId;
-            }
-
-            userEmail ??= User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
-        }
-
-        PatientDto? patient = null;
-
-        // 1. Try finding by userId
-        if (userId.HasValue)
-        {
-            patient = await _emrService.GetPatientByUserIdAsync(userId.Value);
-        }
-
-        // 2. Try finding by patientCode
-        if (patient == null && !string.IsNullOrWhiteSpace(patientCode))
-        {
-            patient = await _emrService.GetPatientByCodeAsync(patientCode.Trim());
-        }
-
-        // 3. Try finding by email
-        if (patient == null && !string.IsNullOrWhiteSpace(userEmail))
-        {
-            var list = await _emrService.GetAllPatientsAsync(userEmail.Trim());
-            patient = list.FirstOrDefault(p => string.Equals(p.Email, userEmail.Trim(), StringComparison.OrdinalIgnoreCase));
-        }
-
+        var patient = await _emrService.GetPatientByUserIdAsync(userId);
         if (patient == null)
             return NotFound(new { message = "No EMR patient record found for your account." });
 
@@ -306,67 +275,6 @@ public class EMRController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>
-    /// Open or view the exact lab report file inline (PDF or image) in the browser
-    /// </summary>
-    [HttpGet("lab-reports/{id:guid}/view")]
-    public async Task<IActionResult> ViewLabReportFile(Guid id)
-    {
-        var report = await _emrService.GetLabReportByIdAsync(id);
-        if (report == null)
-            return NotFound(new { message = $"Lab report {id} not found." });
-
-        if (!string.IsNullOrEmpty(report.FileUrl) && report.FileUrl.StartsWith("data:"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(report.FileUrl, @"^data:(?<type>.*?);base64,(?<data>.*)$");
-            if (match.Success)
-            {
-                var contentType = match.Groups["type"].Value;
-                var base64Data = match.Groups["data"].Value;
-                var bytes = Convert.FromBase64String(base64Data);
-                return File(bytes, contentType);
-            }
-        }
-
-        if (!string.IsNullOrEmpty(report.FileUrl))
-        {
-            return Redirect(report.FileUrl);
-        }
-
-        return NotFound(new { message = "No file attached to this lab report." });
-    }
-
-    /// <summary>
-    /// Download or export lab report file
-    /// </summary>
-    [HttpGet("lab-reports/{id:guid}/download")]
-    public async Task<IActionResult> DownloadLabReport(Guid id)
-    {
-        var report = await _emrService.GetLabReportByIdAsync(id);
-        if (report == null)
-            return NotFound(new { message = $"Lab report {id} not found." });
-
-        if (!string.IsNullOrEmpty(report.FileUrl) && report.FileUrl.StartsWith("data:"))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(report.FileUrl, @"^data:(?<type>.*?);base64,(?<data>.*)$");
-            if (match.Success)
-            {
-                var contentType = match.Groups["type"].Value;
-                var base64Data = match.Groups["data"].Value;
-                var bytes = Convert.FromBase64String(base64Data);
-                var fileName = string.IsNullOrWhiteSpace(report.FileName) ? "LabReport.pdf" : report.FileName;
-                return File(bytes, contentType, fileName);
-            }
-        }
-
-        if (!string.IsNullOrEmpty(report.FileUrl))
-        {
-            return Redirect(report.FileUrl);
-        }
-
-        return NotFound(new { message = "No file attached to this lab report." });
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // PRESCRIPTIONS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -464,58 +372,6 @@ public class EMRController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>
-    /// Request authorization to Edit or Delete a dispensed medication (Pharmacist / Staff)
-    /// </summary>
-    [HttpPost("prescriptions/{id:guid}/request-authorization")]
-    public async Task<ActionResult<PrescriptionDto>> RequestPrescriptionAuthorization(Guid id, [FromBody] RequestPrescriptionAuthorizationDto dto)
-    {
-        if (string.IsNullOrWhiteSpace(dto.Reason))
-            return BadRequest(new { message = "A reason must be provided for the authorization request." });
-
-        var updated = await _emrService.RequestPrescriptionAuthorizationAsync(id, dto);
-        if (updated == null)
-            return NotFound(new { message = $"Prescription {id} not found." });
-
-        return Ok(updated);
-    }
-
-    /// <summary>
-    /// Get all pending pharmacist prescription authorization requests (Admin only)
-    /// </summary>
-    [HttpGet("prescriptions/authorizations/pending")]
-    public async Task<ActionResult<IEnumerable<PrescriptionDto>>> GetPendingPrescriptionAuthorizations()
-    {
-        var list = await _emrService.GetPendingPrescriptionAuthorizationsAsync();
-        return Ok(list);
-    }
-
-    /// <summary>
-    /// Admin approves deletion request and permanently removes the prescription based on pharmacist request
-    /// </summary>
-    [HttpPost("prescriptions/{id:guid}/approve-delete")]
-    public async Task<IActionResult> ApproveAndDeletePrescription(Guid id, [FromBody] ResolvePrescriptionAuthorizationDto? dto)
-    {
-        var deleted = await _emrService.ApproveAndDeletePrescriptionAsync(id, dto?.AdminNote);
-        if (!deleted)
-            return NotFound(new { message = $"Prescription {id} not found." });
-
-        return Ok(new { message = "Prescription deleted based on pharmacist authorization request.", id });
-    }
-
-    /// <summary>
-    /// Admin rejects or dismisses the authorization request
-    /// </summary>
-    [HttpPost("prescriptions/{id:guid}/reject-authorization")]
-    public async Task<ActionResult<PrescriptionDto>> RejectPrescriptionAuthorization(Guid id, [FromBody] ResolvePrescriptionAuthorizationDto? dto)
-    {
-        var updated = await _emrService.RejectPrescriptionAuthorizationAsync(id, dto?.AdminNote);
-        if (updated == null)
-            return NotFound(new { message = $"Prescription {id} not found." });
-
-        return Ok(updated);
-    }
-
     // ═══════════════════════════════════════════════════════════════════════════
     // BUSINESS-SPECIFIC OPERATION: CLINICAL SUMMARY & HEALTH PASSPORT
     // ═══════════════════════════════════════════════════════════════════════════
@@ -544,31 +400,6 @@ public class EMRController : ControllerBase
     [HttpGet("channeling-appointments")]
     public async Task<ActionResult<IEnumerable<ChannelingAppointmentDto>>> GetChannelingAppointments([FromQuery] string? patientCode)
     {
-        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
-        {
-            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                           ?? User.FindFirstValue("sub")
-                           ?? User.FindFirstValue("nameid");
-            if (int.TryParse(userIdClaim, out var parsedId))
-            {
-                var p = await _emrService.GetPatientByUserIdAsync(parsedId);
-                if (p != null) patientCode = p.PatientCode;
-                else patientCode = userIdClaim;
-            }
-
-            if (string.IsNullOrWhiteSpace(patientCode))
-            {
-                var emailClaim = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
-                if (!string.IsNullOrWhiteSpace(emailClaim))
-                {
-                    var allPatients = await _emrService.GetAllPatientsAsync(emailClaim.Trim());
-                    var p = allPatients.FirstOrDefault(x => string.Equals(x.Email, emailClaim.Trim(), StringComparison.OrdinalIgnoreCase));
-                    if (p != null) patientCode = p.PatientCode;
-                    else patientCode = emailClaim;
-                }
-            }
-        }
-
         var list = await _emrService.GetChannelingAppointmentsAsync(patientCode);
         return Ok(list);
     }
@@ -584,142 +415,5 @@ public class EMRController : ControllerBase
 
         var created = await _emrService.CreateChannelingAppointmentAsync(dto);
         return Ok(created);
-    }
-
-    /// <summary>
-    /// Authenticate a staff member for the EMR Staff Portal with strict role verification
-    /// </summary>
-    [HttpPost("staff/login")]
-    [AllowAnonymous]
-    public async Task<ActionResult<StaffLoginResponseDto>> StaffLogin([FromBody] EmrStaffLoginDto dto)
-    {
-        try
-        {
-            var res = await _emrService.StaffLoginAsync(dto);
-            return Ok(res);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(new { message = ex.Message });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // AGENTIC AI CLINICAL HEALTH ADVISOR
-    // ═══════════════════════════════════════════════════════════════════════════
-
-    /// <summary>
-    /// Agentic AI: Evaluates patient lab reports, prescriptions, medications, and doctor consultation notes
-    /// to explain what the doctor said, explain diagnostics, and summarize patient health condition.
-    /// </summary>
-    [HttpGet("ai/insight")]
-    public async Task<ActionResult<AIClinicalInsightResponse>> GetAIClinicalInsight([FromQuery] string? patientCode)
-    {
-        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
-        {
-            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                           ?? User.FindFirstValue("sub")
-                           ?? User.FindFirstValue("nameid");
-            if (int.TryParse(userIdClaim, out var parsedId))
-            {
-                var p = await _emrService.GetPatientByUserIdAsync(parsedId);
-                if (p != null) patientCode = p.PatientCode;
-                else patientCode = userIdClaim;
-            }
-
-            if (string.IsNullOrWhiteSpace(patientCode))
-            {
-                var emailClaim = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
-                if (!string.IsNullOrWhiteSpace(emailClaim))
-                {
-                    var allPatients = await _emrService.GetAllPatientsAsync(emailClaim.Trim());
-                    var p = allPatients.FirstOrDefault(x => string.Equals(x.Email, emailClaim.Trim(), StringComparison.OrdinalIgnoreCase));
-                    if (p != null) patientCode = p.PatientCode;
-                    else patientCode = emailClaim;
-                }
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(patientCode))
-        {
-            var all = await _emrService.GetAllPatientsAsync();
-            var first = all.FirstOrDefault();
-            if (first != null) patientCode = first.PatientCode;
-        }
-
-        if (string.IsNullOrWhiteSpace(patientCode))
-        {
-            return BadRequest(new { message = "Patient code could not be resolved. Please specify patientCode." });
-        }
-
-        var insight = await _emrService.GetPatientClinicalAIInsightAsync(patientCode);
-        if (insight == null)
-        {
-            return NotFound(new { message = $"Patient with identifier '{patientCode}' not found." });
-        }
-
-        return Ok(insight);
-    }
-
-    /// <summary>
-    /// Agentic AI: Allows patients to ask questions about their health records, reports, or medications
-    /// and receive intelligent, personalized clinical explanations.
-    /// </summary>
-    [HttpPost("ai/ask")]
-    public async Task<ActionResult<AskAIAgentResponse>> AskAIClinicalAgent([FromBody] AskAIAgentRequest dto)
-    {
-        if (string.IsNullOrWhiteSpace(dto.Question))
-        {
-            return BadRequest(new { message = "Question is required." });
-        }
-
-        var patientCode = dto.PatientCode;
-        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
-        {
-            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                           ?? User.FindFirstValue("sub")
-                           ?? User.FindFirstValue("nameid");
-            if (int.TryParse(userIdClaim, out var parsedId))
-            {
-                var p = await _emrService.GetPatientByUserIdAsync(parsedId);
-                if (p != null) patientCode = p.PatientCode;
-                else patientCode = userIdClaim;
-            }
-
-            if (string.IsNullOrWhiteSpace(patientCode))
-            {
-                var emailClaim = User.FindFirstValue(ClaimTypes.Email) ?? User.FindFirstValue("email");
-                if (!string.IsNullOrWhiteSpace(emailClaim))
-                {
-                    var allPatients = await _emrService.GetAllPatientsAsync(emailClaim.Trim());
-                    var p = allPatients.FirstOrDefault(x => string.Equals(x.Email, emailClaim.Trim(), StringComparison.OrdinalIgnoreCase));
-                    if (p != null) patientCode = p.PatientCode;
-                    else patientCode = emailClaim;
-                }
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(patientCode))
-        {
-            var all = await _emrService.GetAllPatientsAsync();
-            var first = all.FirstOrDefault();
-            if (first != null) patientCode = first.PatientCode;
-        }
-
-        if (string.IsNullOrWhiteSpace(patientCode))
-        {
-            return BadRequest(new { message = "Patient code could not be resolved." });
-        }
-
-        var answer = await _emrService.AskPatientClinicalAIAgentAsync(patientCode, dto.Question);
-        return Ok(answer);
     }
 }

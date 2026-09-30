@@ -42,8 +42,16 @@ public class ExceptionHandlingMiddleware
             KeyNotFoundException keyNotFoundEx => ((int)HttpStatusCode.NotFound, keyNotFoundEx.Message),
             ArgumentException argEx => ((int)HttpStatusCode.BadRequest, argEx.Message),
             UnauthorizedAccessException unauthEx => ((int)HttpStatusCode.Unauthorized, unauthEx.Message),
-            _ => ((int)HttpStatusCode.InternalServerError, "An unexpected error occurred. Please try again later.")
+            _ => ((int)HttpStatusCode.InternalServerError, exception.InnerException != null ? $"{exception.Message} -> {exception.InnerException.Message}" : exception.Message)
         };
+
+        string fullMsg = exception.Message;
+        var currEx = exception.InnerException;
+        while (currEx != null)
+        {
+            fullMsg += " -> " + currEx.Message;
+            currEx = currEx.InnerException;
+        }
 
         context.Response.StatusCode = statusCode;
 
@@ -51,9 +59,7 @@ public class ExceptionHandlingMiddleware
         {
             status = statusCode,
             message = message,
-            detail = _env.IsDevelopment() && statusCode == (int)HttpStatusCode.InternalServerError
-                ? (exception.InnerException != null ? $"{exception.Message} --> {exception.InnerException.Message}" : exception.Message)
-                : null
+            detail = fullMsg
         };
 
         var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
