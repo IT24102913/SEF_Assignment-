@@ -182,14 +182,15 @@ public class LabBookingsController : ControllerBase
     public async Task<IActionResult> Cancel(Guid id, [FromQuery] int patientId)
     {
         var booking = await _db.LabBookings.FindAsync(id);
-        if (booking == null) return NotFound();
+        if (booking == null) return NotFound(new { message = "Booking not found." });
         if (booking.PatientId != patientId) return Forbid();
 
         var cancellableStatuses = new[]
         {
             BookingStatus.PendingPrescriptionUpload,
             BookingStatus.PendingAIVerification,
-            BookingStatus.PendingLabApproval
+            BookingStatus.PendingLabApproval,
+            BookingStatus.Confirmed
         };
 
         if (!cancellableStatuses.Contains(booking.Status))
