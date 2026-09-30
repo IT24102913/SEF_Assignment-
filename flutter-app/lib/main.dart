@@ -10,9 +10,12 @@ import 'screens/lab/my_bookings_screen.dart';
 import 'screens/emr/customer_main_container.dart';
 import 'screens/doctor/doctor_search_screen.dart';
 import 'screens/doctor/my_appointments_screen.dart';
+import 'utils/config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Pre-warm the backend connection so first page navigation is instant
+  ApiConfig.getWorkingBaseUrl().catchError((_) {});
   runApp(const HealthBridgeApp());
 }
 
