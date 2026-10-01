@@ -26,6 +26,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<DoctorAppointment> DoctorAppointments => Set<DoctorAppointment>();
     public DbSet<PatientFeedback> PatientFeedbacks => Set<PatientFeedback>();
     public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<AIForecastNote> AIForecastNotes => Set<AIForecastNote>();
 
     // EMR Module
     public DbSet<Patient> Patients => Set<Patient>();

@@ -1,3 +1,4 @@
+using HealthBridge.Api.Agents;
 using HealthBridge.Api.DTOs.Medicine;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Services;
@@ -13,10 +14,14 @@ namespace HealthBridge.Api.Controllers;
 public class MedicinesController : ControllerBase
 {
     private readonly IMedicineService _medicineService;
+    private readonly InventoryForecastingAgent _forecastAgent;
 
-    public MedicinesController(IMedicineService medicineService)
+    public MedicinesController(
+        IMedicineService medicineService,
+        InventoryForecastingAgent forecastAgent)
     {
         _medicineService = medicineService;
+        _forecastAgent = forecastAgent;
     }
 
     /// <summary>
@@ -63,6 +68,7 @@ public class MedicinesController : ControllerBase
         try
         {
             var medicine = await _medicineService.CreateMedicineAsync(request);
+            _forecastAgent.InvalidateForecastCache();
             return CreatedAtAction(nameof(GetById), new { id = medicine.Id }, medicine);
         }
         catch (KeyNotFoundException ex)
@@ -97,6 +103,7 @@ public class MedicinesController : ControllerBase
                 return NotFound(new { message = $"Medicine with ID {id} was not found." });
             }
 
+            _forecastAgent.InvalidateForecastCache();
             return Ok(updatedMedicine);
         }
         catch (KeyNotFoundException ex)
@@ -122,6 +129,7 @@ public class MedicinesController : ControllerBase
         {
             return NotFound(new { message = $"Medicine with ID {id} was not found." });
         }
+        _forecastAgent.InvalidateForecastCache();
         return Ok(updated);
     }
 
@@ -138,6 +146,7 @@ public class MedicinesController : ControllerBase
         {
             return NotFound(new { message = $"Medicine with ID {id} was not found." });
         }
+        _forecastAgent.InvalidateForecastCache();
         return Ok(updated);
     }
 
@@ -155,6 +164,7 @@ public class MedicinesController : ControllerBase
             return NotFound(new { message = $"Medicine with ID {id} was not found." });
         }
 
+        _forecastAgent.InvalidateForecastCache();
         return NoContent();
     }
 }
