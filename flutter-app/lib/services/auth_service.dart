@@ -8,6 +8,7 @@ class AuthService {
   static const _keyEmail = 'auth_email';
   static const _keyRole = 'auth_role';
   static const _keyPicture = 'auth_picture';
+  static const _keyPatientCode = 'auth_patientCode';
 
   // In-memory fallback storage if native SharedPreferences channel fails
   static final Map<String, String> _memStorage = {};
@@ -33,6 +34,9 @@ class AuthService {
     if (user.profilePicture != null) {
       _memStorage[_keyPicture] = user.profilePicture!;
     }
+    if (user.patientCode != null) {
+      _memStorage[_keyPatientCode] = user.patientCode!;
+    }
 
     try {
       final prefs = await _getPrefs();
@@ -44,6 +48,9 @@ class AuthService {
         await prefs.setString(_keyRole, user.role);
         if (user.profilePicture != null) {
           await prefs.setString(_keyPicture, user.profilePicture!);
+        }
+        if (user.patientCode != null) {
+          await prefs.setString(_keyPatientCode, user.patientCode!);
         }
       }
     } on Object catch (_) {
@@ -59,6 +66,7 @@ class AuthService {
     String email = _memStorage[_keyEmail] ?? '';
     String role = _memStorage[_keyRole] ?? 'Patient';
     String? picture = _memStorage[_keyPicture];
+    String? patientCode = _memStorage[_keyPatientCode];
 
     try {
       final prefs = await _getPrefs();
@@ -69,6 +77,7 @@ class AuthService {
         if (email.isEmpty) email = prefs.getString(_keyEmail) ?? '';
         if (role == 'Patient') role = prefs.getString(_keyRole) ?? 'Patient';
         picture ??= prefs.getString(_keyPicture);
+        patientCode ??= prefs.getString(_keyPatientCode);
       }
     } catch (_) {}
 
@@ -80,6 +89,7 @@ class AuthService {
       email: email,
       role: role,
       profilePicture: picture,
+      patientCode: patientCode,
     );
   }
 
@@ -108,6 +118,7 @@ class AuthService {
         await prefs.remove(_keyEmail);
         await prefs.remove(_keyRole);
         await prefs.remove(_keyPicture);
+        await prefs.remove(_keyPatientCode);
       }
     } catch (_) {}
   }
@@ -126,6 +137,7 @@ class AuthUser {
   final String email;
   final String role;
   final String? profilePicture;
+  final String? patientCode;
 
   AuthUser({
     required this.token,
@@ -134,6 +146,7 @@ class AuthUser {
     required this.email,
     required this.role,
     this.profilePicture,
+    this.patientCode,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> j) {
@@ -161,6 +174,7 @@ class AuthUser {
       email: j['email']?.toString() ?? j['Email']?.toString() ?? userObj?['email']?.toString() ?? '',
       role: parseRole(j['role'] ?? j['Role'] ?? userObj?['role']),
       profilePicture: j['profilePicture']?.toString() ?? userObj?['profilePicture']?.toString(),
+      patientCode: userObj?['patientCode']?.toString() ?? j['patientCode']?.toString(),
     );
   }
 }

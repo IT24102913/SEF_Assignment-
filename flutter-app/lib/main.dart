@@ -88,9 +88,9 @@ class _HomePageState extends State<HomePage> {
         AuthState.name = user.name;
         AuthState.email = user.email;
         AuthState.role = user.role;
-        if (user.userId.isNotEmpty) {
-          AuthState.patientCode = 'PAT-${user.userId}';
-        }
+        AuthState.patientCode = (user.patientCode != null && user.patientCode!.isNotEmpty)
+            ? user.patientCode
+            : (user.userId.isNotEmpty ? 'PAT-${user.userId}' : null);
       });
     }
   }
