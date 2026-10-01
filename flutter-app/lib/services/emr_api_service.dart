@@ -412,6 +412,44 @@ class EmrApiService {
     throw Exception('Failed to connect to EMR API');
   }
 
+  static Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+    final headers = await _buildHeaders();
+    final hostsToTry = <String>{
+      ...ApiConfig.candidateHosts,
+      'http://127.0.0.1:5126',
+    }.toList();
+
+    for (final host in hostsToTry) {
+      try {
+        final uri = Uri.parse('$host/api/emr$path');
+        final res = await http.post(uri, headers: headers, body: jsonEncode(body)).timeout(const Duration(seconds: 6));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          return jsonDecode(res.body);
+        }
+      } catch (_) {}
+    }
+    throw Exception('Failed to post to EMR API');
+  }
+
+  static Future<bool> _delete(String path) async {
+    final headers = await _buildHeaders();
+    final hostsToTry = <String>{
+      ...ApiConfig.candidateHosts,
+      'http://127.0.0.1:5126',
+    }.toList();
+
+    for (final host in hostsToTry) {
+      try {
+        final uri = Uri.parse('$host/api/emr$path');
+        final res = await http.delete(uri, headers: headers).timeout(const Duration(seconds: 6));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    return false;
+  }
+
   /// Fetches the profile of the currently authenticated patient from /patients/me
   static Future<Patient> getMyPatient() async {
     // 1. Sync from AuthService if AuthState is missing token or details
@@ -646,5 +684,15 @@ class EmrApiService {
     } catch (_) {
       return [];
     }
+  }
+
+  // ── Create & Delete Lab Reports ───────────────────────────────────────────
+  static Future<LabReport> createLabReport(Map<String, dynamic> data) async {
+    final res = await _post('/lab-reports', data);
+    return LabReport.fromJson(res);
+  }
+
+  static Future<bool> deleteLabReport(String id) async {
+    return await _delete('/lab-reports/$id');
   }
 }

@@ -11,6 +11,7 @@ const statusConfig = {
 export default function Prescriptions() {
   const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     fetchPrescriptions();
@@ -97,10 +98,40 @@ export default function Prescriptions() {
   return (
     <div>
       <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>Pharmacy</h1>
-        <p style={{ color: '#64748b', fontSize: '0.92rem' }}>
-          Your active prescriptions, medication schedules, and refill history.
-        </p>
+        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>Pharmacy</span>
+          <button
+            type="button"
+            onClick={() => setShowInfo(prev => !prev)}
+            title={showInfo ? "Hide explanation" : "Click to view description"}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '22px',
+              height: '22px',
+              borderRadius: '50%',
+              backgroundColor: showInfo ? '#0d7c6b' : '#f1f5f9',
+              color: showInfo ? '#ffffff' : '#0d7c6b',
+              border: `1.5px solid ${showInfo ? '#0d7c6b' : '#cbd5e1'}`,
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 800,
+              fontFamily: 'monospace, sans-serif',
+              lineHeight: 1,
+              padding: 0,
+              transition: 'all 0.2s ease',
+              boxShadow: showInfo ? '0 0 0 3px rgba(13, 124, 107, 0.2)' : 'none'
+            }}
+          >
+            !
+          </button>
+        </h1>
+        {showInfo && (
+          <p style={{ color: '#0d7c6b', fontSize: '0.92rem', fontWeight: 500, margin: '4px 0 0 0', animation: 'fadeIn 0.2s ease-out' }}>
+            Your active prescriptions, medication schedules, and refill history.
+          </p>
+        )}
       </div>
 
       {loading ? (

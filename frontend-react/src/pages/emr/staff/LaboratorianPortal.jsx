@@ -113,7 +113,7 @@ export default function LaboratorianPortal({ staffSession }) {
     setSaving(true);
     try {
       const staffIdentifier = `${staffSession?.staffId || user?.fullName || 'LAB-202'} (Lab Staff)`;
-      const defaultSummary = resultsSummary.trim() || 'Diagnostic evaluation conducted under standardized laboratory protocols. Parameters within acceptable clinical variance.';
+      const defaultSummary = resultsSummary.trim();
 
       if (attachedFiles.length > 0) {
         // Upload each attached file as a report record

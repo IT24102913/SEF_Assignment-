@@ -11,9 +11,11 @@ import {
   LogOut, 
   Bell, 
   Activity,
-  ArrowLeft,
   CheckCheck,
-  Sparkles
+  Sparkles,
+  X,
+  Trash2,
+  ArrowLeft
 } from 'lucide-react';
 import EmrFooter from './EmrFooter';
 import { emrApi } from '../../api/emrApi';
@@ -53,17 +55,40 @@ export default function EmrLayout() {
     fetchLiveNotifications();
   }, [storedUser.id, storedUser.role]);
 
+  const getDismissedNotifKey = () => `emr_dismissed_notifs_${storedUser.id || storedUser.email || 'guest'}`;
+
   const fetchLiveNotifications = async () => {
     try {
       const data = await emrApi.getMyNotifications();
+      const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
       if (Array.isArray(data)) {
-        setNotifications(data);
+        setNotifications(data.filter(n => !dismissed.includes(n.id)));
       } else {
         setNotifications([]);
       }
     } catch {
       setNotifications([]);
     }
+  };
+
+  const dismissNotification = (id, e) => {
+    if (e) e.stopPropagation();
+    const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
+    if (!dismissed.includes(id)) {
+      dismissed.push(id);
+      localStorage.setItem(getDismissedNotifKey(), JSON.stringify(dismissed));
+    }
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const clearAllNotifications = (e) => {
+    if (e) e.stopPropagation();
+    const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
+    notifications.forEach(n => {
+      if (!dismissed.includes(n.id)) dismissed.push(n.id);
+    });
+    localStorage.setItem(getDismissedNotifKey(), JSON.stringify(dismissed));
+    setNotifications([]);
   };
 
   const handleLogout = () => {
@@ -176,17 +201,6 @@ export default function EmrLayout() {
             <ArrowLeft size={19} />
             Back to Main Portal
           </Link>
-
-          <button onClick={handleLogout} style={{
-            display: 'flex', alignItems: 'center', gap: '14px',
-            padding: '11px 16px', borderRadius: '10px',
-            color: '#fca5a5', backgroundColor: 'rgba(239,68,68,0.08)',
-            border: '1px solid rgba(239,68,68,0.15)',
-            cursor: 'pointer', fontSize: '0.92rem', fontWeight: 600,
-          }}>
-            <LogOut size={19} />
-            Logout
-          </button>
         </div>
       </aside>
 
@@ -247,18 +261,34 @@ export default function EmrLayout() {
                         {storedUser.role || 'Patient'}
                       </span>
                     </div>
-                    {notifications.some(n => n.unread) && (
-                      <button
-                        onClick={() => setNotifications(prev => prev.map(x => ({ ...x, unread: false })))}
-                        style={{
-                          background: 'none', border: 'none', color: T.accent,
-                          fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
-                          display: 'inline-flex', alignItems: 'center', gap: '4px'
-                        }}
-                      >
-                        <CheckCheck size={13} /> Mark all read
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {notifications.some(n => n.unread) && (
+                        <button
+                          onClick={() => setNotifications(prev => prev.map(x => ({ ...x, unread: false })))}
+                          style={{
+                            background: 'none', border: 'none', color: T.accent,
+                            fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}
+                          title="Mark all notifications as read"
+                        >
+                          <CheckCheck size={13} /> Read all
+                        </button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={clearAllNotifications}
+                          style={{
+                            background: 'none', border: 'none', color: '#ef4444',
+                            fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}
+                          title="Remove all notifications"
+                        >
+                          <Trash2 size={13} /> Clear all
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div style={{ maxHeight: '310px', overflowY: 'auto' }}>
@@ -285,9 +315,24 @@ export default function EmrLayout() {
                             transition: 'background 0.2s'
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2px', gap: '8px' }}>
                             <span style={{ fontWeight: 600, color: '#0d2b27' }}>{n.title}</span>
-                            {n.unread && <span style={{ width: '7px', height: '7px', backgroundColor: '#10b981', borderRadius: '50%' }} />}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                              {n.unread && <span style={{ width: '7px', height: '7px', backgroundColor: '#10b981', borderRadius: '50%' }} />}
+                              <button
+                                onClick={(e) => dismissNotification(n.id, e)}
+                                title="Remove notification"
+                                style={{
+                                  background: 'none', border: 'none', padding: '2px',
+                                  cursor: 'pointer', color: '#94a3b8', borderRadius: '4px',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
                           </div>
                           <div style={{ color: '#4d7a73', fontSize: '0.8rem', lineHeight: 1.4 }}>{n.message}</div>
                           <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '4px' }}>{n.time}</div>
