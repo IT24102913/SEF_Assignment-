@@ -368,6 +368,11 @@ class EmrApiService {
   }
 
   // ── Network Helper ─────────────────────────────────────────────────────────
+  /// Public version of headers for use in external service classes
+  static Future<Map<String, String>> buildPublicHeaders() async {
+    return _buildHeaders();
+  }
+
   static Future<Map<String, String>> _buildHeaders() async {
     String? token = AuthState.token;
     if (token == null || token.isEmpty) {
@@ -639,28 +644,6 @@ class EmrApiService {
       final data = await _get('/channeling-appointments$q') as List<dynamic>;
       return data.map((e) => ChannelingAppointment.fromJson(e)).toList();
     } catch (_) {
-      if (code == 'PAT-1001') {
-        return [
-          ChannelingAppointment(
-            id: 'APT-3011',
-            doctorName: 'Dr. Sarah Jenkins',
-            specialty: 'Cardiologist',
-            date: 'Aug 24, 2026',
-            time: '10:30 AM',
-            room: 'Room 304, West Wing',
-            status: 'Upcoming',
-          ),
-          ChannelingAppointment(
-            id: 'APT-2890',
-            doctorName: 'Dr. Michael Chang',
-            specialty: 'General Practitioner',
-            date: 'Jul 22, 2026',
-            time: '02:00 PM',
-            room: 'Room 108, Main Clinic',
-            status: 'Completed',
-          ),
-        ];
-      }
       return [];
     }
   }

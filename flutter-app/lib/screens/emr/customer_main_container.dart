@@ -9,6 +9,7 @@ import 'customer_pharmacy_screen.dart';
 import '../../screens/doctor/doctor_search_screen.dart';
 import '../../screens/lab/lab_hub_screen.dart';
 import 'emr_patient_screen.dart';
+import 'ai_clinical_advisor_screen.dart';
 import '../../my_pharmacy_orders_page.dart';
 
 import '../../widgets/draggable_floating_support_buttons.dart';
@@ -336,6 +337,16 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const MyPharmacyOrdersPage()));
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.psychology,
+                    label: 'AI Health Advisor',
+                    selected: false,
+                    color: const Color(0xFF7C3AED),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AIClinicalAdvisorScreen()));
                     },
                   ),
                   _buildDrawerItem(

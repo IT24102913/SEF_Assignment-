@@ -125,6 +125,9 @@ builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.PrescriptionVerificationA
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.LabQueueAndSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.LabAgentOrchestrator>();
 
+// ✅ Register EMR Agentic AI — Clinical Insight Agent (uses Gemini API for medical analysis)
+builder.Services.AddScoped<HealthBridge.Api.Agents.EMR.EMRClinicalInsightAgent>();
+
 // 5. Add Controllers and DISABLE Antiforgery
 builder.Services.AddControllers(options =>
 {
