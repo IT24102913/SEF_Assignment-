@@ -18,7 +18,9 @@ import Categories from './pages/pharmacy/staff/Categories';
 import Inventory from './pages/pharmacy/staff/Inventory';
 import Sales from './pages/pharmacy/staff/Sales';
 import AIForecast from './pages/pharmacy/staff/AIForecast';
+import AIForecastNotes from './pages/pharmacy/staff/AIForecastNotes';
 import Orders from './pages/pharmacy/staff/Orders';
+import PatientAnalytics from './pages/pharmacy/staff/PatientAnalytics';
 import CustomerPharmacyStore from './pages/pharmacy/patient/CustomerPharmacyStore';
 
 // ✅ Import Doctor Appointments & Channeling Module
@@ -129,9 +131,45 @@ function App() {
                         </ProtectedRoute>
                     } />
 
+                    <Route path="/admin/pharmacy/ai-forecast" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecast />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacy/staff/ai-forecast-notes" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecastNotes />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacist/ai-forecast-notes" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecastNotes />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/admin/pharmacy/ai-forecast-notes" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecastNotes />
+                        </ProtectedRoute>
+                    } />
+
                     <Route path="/pharmacist/orders" element={
                         <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
                             <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacy/staff/patient-analytics" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <PatientAnalytics />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacist/patient-analytics" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <PatientAnalytics />
                         </ProtectedRoute>
                     } />
 

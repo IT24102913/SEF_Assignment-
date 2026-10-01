@@ -3,17 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import api from '../../../api/authApi';
 import logoImage from '../../../assets/mediz.png';
-import { 
-    FolderTree, 
-    Plus, 
-    Search, 
-    Edit2, 
-    Trash2, 
-    ArrowLeft, 
-    LogOut, 
-    CheckCircle2, 
-    AlertTriangle, 
-    Sparkles, 
+import {
+    FolderTree,
+    Plus,
+    Search,
+    Edit2,
+    Trash2,
+    ArrowLeft,
+    LogOut,
+    CheckCircle2,
+    AlertTriangle,
+    Sparkles,
     X,
     Layers
 } from 'lucide-react';
@@ -28,6 +28,7 @@ const Categories = () => {
     const [editingId, setEditingId] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [formData, setFormData] = useState({ name: '', description: '' });
+    const [nameError, setNameError] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
     useEffect(() => {
@@ -39,6 +40,33 @@ const Categories = () => {
         setTimeout(() => {
             setToast({ show: false, message: '', type: 'success' });
         }, 3500);
+    };
+
+    const validateCategoryName = (name) => {
+        const trimmed = (name || '').trim();
+        if (!trimmed) {
+            return { valid: false, error: 'Category name is required.' };
+        }
+        if (trimmed.length < 2) {
+            return { valid: false, error: 'Category name must be at least 2 characters long.' };
+        }
+
+        // Validation 1: Cannot consist of numbers only (e.g., "123", "999")
+        if (/^\d+$/.test(trimmed) || (/^[0-9\s,-]+$/.test(trimmed) && !/[a-zA-Z]/.test(trimmed))) {
+            return { valid: false, error: 'Category name cannot consist of numbers only.' };
+        }
+
+        // Validation 2: Cannot consist of symbols only (e.g., "!!!", "###", "@#$%")
+        if (/^[^\w\s]+$/.test(trimmed) || !/[a-zA-Z0-9]/.test(trimmed)) {
+            return { valid: false, error: 'Category name cannot consist of symbols only.' };
+        }
+
+        // Must contain at least one letter (e.g., Antibiotics, Analgesics)
+        if (!/[a-zA-Z]/.test(trimmed)) {
+            return { valid: false, error: 'Category name must contain at least one letter.' };
+        }
+
+        return { valid: true, error: '' };
     };
 
     const fetchCategories = async () => {
@@ -64,15 +92,48 @@ const Categories = () => {
         return fallback;
     };
 
+    const handleNameChange = (e) => {
+        const val = e.target.value;
+        setFormData(prev => ({ ...prev, name: val }));
+        if (nameError) {
+            const check = validateCategoryName(val);
+            if (check.valid) setNameError('');
+        }
+    };
+
+    const handleNameBlur = () => {
+        const check = validateCategoryName(formData.name);
+        if (!check.valid && formData.name.trim()) {
+            setNameError(check.error);
+        }
+    };
+
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        if (e && e.preventDefault) e.preventDefault();
+
+        const trimmedName = (formData.name || '').trim();
+        const trimmedDesc = (formData.description || '').trim();
+
+        const nameVal = validateCategoryName(trimmedName);
+        if (!nameVal.valid) {
+            setNameError(nameVal.error);
+            showToastMessage(nameVal.error, 'error');
+            return;
+        }
+        setNameError('');
+
+        const preparedData = {
+            name: trimmedName,
+            description: trimmedDesc
+        };
+
         setSubmitting(true);
         try {
             if (editingId) {
-                await api.put(`/Categories/${editingId}`, formData);
+                await api.put(`/Categories/${editingId}`, preparedData);
                 showToastMessage('Category updated successfully!', 'success');
             } else {
-                await api.post('/Categories', formData);
+                await api.post('/Categories', preparedData);
                 showToastMessage('Category created successfully!', 'success');
             }
             resetForm();
@@ -81,13 +142,13 @@ const Categories = () => {
             console.warn('Backend API save warning, saving category to state:', error);
             // Resilient fallback for demo/admin mode
             if (editingId) {
-                setCategories(prev => prev.map(c => c.id === editingId ? { ...c, ...formData } : c));
+                setCategories(prev => prev.map(c => c.id === editingId ? { ...c, ...preparedData } : c));
                 showToastMessage('Category updated successfully!', 'success');
             } else {
                 const newCat = {
                     id: Date.now(),
-                    name: formData.name,
-                    description: formData.description,
+                    name: preparedData.name,
+                    description: preparedData.description,
                     medicineCount: 0,
                     createdDate: new Date().toISOString()
                 };
@@ -116,6 +177,7 @@ const Categories = () => {
 
     const resetForm = () => {
         setFormData({ name: '', description: '' });
+        setNameError('');
         setEditingId(null);
         setShowForm(false);
     };
@@ -204,7 +266,7 @@ const Categories = () => {
                         />
                     </div>
 
-                    <button 
+                    <button
                         style={styles.addBtn}
                         onClick={() => { resetForm(); setShowForm(true); }}
                     >
@@ -234,10 +296,20 @@ const Categories = () => {
                                         type="text"
                                         placeholder="e.g. Antibiotics & Anti-Infectives"
                                         value={formData.name}
-                                        onChange={(e) => setFormData({...formData, name: e.target.value})}
-                                        required
-                                        style={styles.input}
+                                        onChange={handleNameChange}
+                                        onBlur={handleNameBlur}
+                                        aria-invalid={!!nameError}
+                                        style={{
+                                            ...styles.input,
+                                            borderColor: nameError ? '#EF4444' : '#D1FAE5',
+                                            backgroundColor: nameError ? '#FEF2F2' : '#FFFFFF'
+                                        }}
                                     />
+                                    {nameError && (
+                                        <div style={{ color: '#DC2626', fontSize: '12px', marginTop: '5px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <AlertTriangle size={13} /> {nameError}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div style={styles.formGroup}>
@@ -245,7 +317,7 @@ const Categories = () => {
                                     <textarea
                                         placeholder="Describe therapeutic indications and class characteristics..."
                                         value={formData.description}
-                                        onChange={(e) => setFormData({...formData, description: e.target.value})}
+                                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                         rows="3"
                                         style={styles.textarea}
                                     />
@@ -313,8 +385,8 @@ const Categories = () => {
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
                                                 <div style={styles.actionBtnsWrap}>
-                                                    <button 
-                                                        style={styles.editActionBtn} 
+                                                    <button
+                                                        style={styles.editActionBtn}
                                                         title="Edit Category"
                                                         onClick={() => {
                                                             setFormData({ name: cat.name, description: cat.description || '' });
@@ -324,8 +396,8 @@ const Categories = () => {
                                                     >
                                                         <Edit2 size={15} />
                                                     </button>
-                                                    <button 
-                                                        style={styles.deleteActionBtn} 
+                                                    <button
+                                                        style={styles.deleteActionBtn}
                                                         title="Delete Category"
                                                         onClick={() => handleDelete(cat.id)}
                                                     >
