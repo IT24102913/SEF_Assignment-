@@ -29,7 +29,6 @@ public class PrescriptionValidatorAgent
 
     // Model used for all calls — single model, no fallback loop
     private const string ModelName = "gemini-3.8-flash";
-    private const string TextModelName = "gemini-flash-lite-latest";
     private const string GeminiBaseUrl =
         "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -749,13 +748,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         Stopwatch sw)
     {
         var apiKey = _config["Gemini:ApiKey"];
-        // Vision tasks (Stage 1) use 3.8 Flash — better image understanding
-        // Text tasks (Stage 2) use 2.5 Flash — better free quota (1500/day)
-        var model = stage.Contains("Stage 1")
-            ? (_config["Gemini:VisionModel"] ?? ModelName)
-            : (_config["Gemini:TextModel"] ?? TextModelName);
-
-        _logger.LogInformation("[{Stage}] Invoking model: {Model}", stage, model);
+        var model = _config["Gemini:Model"] ?? ModelName;
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -849,22 +842,6 @@ REQUESTED ITEM: ""{requestedTestName}""";
                     "[GetBase64ImageAsync] Failed to download: {Url}", imageUrl);
                 return null;
             }
-        }
-
-        // Relative local path fallback (e.g. /uploads/...)
-        try
-        {
-            var cleanPath = imageUrl.TrimStart('/', '\\');
-            var localPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", cleanPath);
-            if (File.Exists(localPath))
-            {
-                var bytes = await File.ReadAllBytesAsync(localPath);
-                return Convert.ToBase64String(bytes);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GetBase64ImageAsync] Failed to read local file: {Url}", imageUrl);
         }
 
         return null;

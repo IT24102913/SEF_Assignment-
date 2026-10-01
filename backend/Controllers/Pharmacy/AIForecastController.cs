@@ -1,5 +1,6 @@
 using HealthBridge.Api.Agents;
 using HealthBridge.Api.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,25 +9,29 @@ namespace HealthBridge.Api.Controllers.Pharmacy;
 [ApiController]
 [Route("api/[controller]")]
 [IgnoreAntiforgeryToken]
+[AllowAnonymous]
 public class AIForecastController : ControllerBase
 {
     private readonly ApplicationDbContext _context;
-    private readonly InventoryForecastingAgent _agent;
+    private readonly InventoryForecastingAgent _forecastingAgent;
     private readonly ILogger<AIForecastController> _logger;
 
     public AIForecastController(
         ApplicationDbContext context,
-        InventoryForecastingAgent agent,
+        InventoryForecastingAgent forecastingAgent,
         ILogger<AIForecastController> logger)
     {
         _context = context;
-        _agent = agent;
+        _forecastingAgent = forecastingAgent;
         _logger = logger;
     }
 
+    /// <summary>
+    /// Gets AI-enhanced inventory demand forecasting, stockout risk alerts, and seasonal advisory.
+    /// </summary>
     [HttpGet]
-    [ProducesResponseType(typeof(AIEnhancedForecastResponse), 200)]
-    public async Task<ActionResult<AIEnhancedForecastResponse>> GetForecast()
+    [ProducesResponseType(typeof(AIForecastResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<AIForecastResponse>> GetForecast()
     {
         try
         {
@@ -36,70 +41,45 @@ public class AIForecastController : ControllerBase
                 .ToListAsync();
 
             var orders = await _context.PharmacyOrders
-                .Include(o => o.Items)
-                .Where(o => o.CreatedAt >= DateTime.UtcNow.AddDays(-90))
+                .Include(o => o.Items!)
+                    .ThenInclude(i => i.Medicine!)
+                        .ThenInclude(m => m.Category!)
                 .AsNoTracking()
                 .ToListAsync();
 
-            // Base forecast (existing math)
-            var baseForecast = _agent.GenerateForecast(medicines, orders, 30);
+            var forecast = _forecastingAgent.GenerateForecast(medicines, orders);
 
-            // AI enhancement
-            var criticalItems = baseForecast.StockoutPredictions
-                .Where(p => p.Status == "CRITICAL")
-                .Take(5)
-                .ToList();
-
-            var seasonalInsights = await _agent.GetSeasonalInsightsAsync(criticalItems);
-            var aiRecommendations = await _agent.GetOverallRecommendationsAsync(
-                baseForecast.CriticalStockCount,
-                baseForecast.StockoutPredictions.Count(p => p.Status == "LOW"),
-                baseForecast.TopCategory);
-
-            // Apply AI Seasonal Multipliers to Multi-Period Demand Predictions
-            foreach (var pred in baseForecast.StockoutPredictions)
+            // Fetch Gemini AI Seasonal Insights and Action Item Recommendations
+            try
             {
-                var insight = seasonalInsights.FirstOrDefault(i => i.MedicineName == pred.MedicineName);
-                if (insight != null && insight.SeasonalMultiplier > 1.0)
-                {
-                    pred.SeasonalMultiplier = insight.SeasonalMultiplier;
-                    pred.SeasonalFactor = insight.SeasonalFactor;
-                    pred.PredictedDemand30Days = (int)Math.Ceiling(pred.PredictedDemand30Days * insight.SeasonalMultiplier);
-                    pred.PredictedDemand60Days = (int)Math.Ceiling(pred.PredictedDemand60Days * insight.SeasonalMultiplier);
-                    pred.PredictedDemand90Days = (int)Math.Ceiling(pred.PredictedDemand90Days * insight.SeasonalMultiplier);
-                }
+                var criticalItems = forecast.StockoutPredictions
+                    .Where(s => s.Status == "CRITICAL" || s.Status == "LOW" || s.TotalSoldPast30Days > 0)
+                    .OrderBy(s => s.DaysUntilEmpty ?? 999)
+                    .ToList();
+
+                var seasonalInsights = await _forecastingAgent.GetSeasonalInsightsAsync(criticalItems);
+                var recommendations = await _forecastingAgent.GetOverallRecommendationsAsync(
+                    forecast.CriticalStockCount,
+                    forecast.StockoutPredictions.Count(s => s.Status == "LOW" || s.Status == "WARNING"),
+                    forecast.TopCategory
+                );
+
+                forecast.SeasonalInsights = seasonalInsights;
+                forecast.AIRecommendations = recommendations;
+                forecast.AIInsightsAvailable = seasonalInsights != null && seasonalInsights.Any();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AIForecastController] AI seasonal insight generation error; falling back to rule engine.");
+                forecast.AIInsightsAvailable = false;
             }
 
-            // Merge into enhanced response
-            var enhanced = new AIEnhancedForecastResponse
-            {
-                ProjectedMonthlyRevenue = baseForecast.ProjectedMonthlyRevenue,
-                ProjectedMonthlyRevenueLabel = baseForecast.ProjectedMonthlyRevenueLabel,
-                CriticalStockCount = baseForecast.CriticalStockCount,
-                ExpiryRiskCount = baseForecast.ExpiryRiskCount,
-                TopCategory = baseForecast.TopCategory,
-                HasSufficientData = baseForecast.HasSufficientData,
-                StockoutPredictions = baseForecast.StockoutPredictions,
-                ExpiryRisks = baseForecast.ExpiryRisks,
-                HighDemandCategories = baseForecast.HighDemandCategories,
-                SeasonalInsights = seasonalInsights,
-                AIRecommendations = aiRecommendations,
-                AIInsightsAvailable = seasonalInsights.Any() || aiRecommendations.Any(),
-                GeneratedAt = DateTime.UtcNow
-            };
-
-            return Ok(enhanced);
+            return Ok(forecast);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[AIForecastController] Forecast failed");
-            return StatusCode(500, new { message = "Forecast failed", error = ex.Message });
+            _logger.LogError(ex, "[AIForecastController] Error generating forecast");
+            return StatusCode(500, new { message = "An error occurred while generating AI inventory forecast." });
         }
-    }
-
-    [HttpPost("bulk-order")]
-    public ActionResult<object> BulkOrder([FromBody] List<int> medicineIds)
-    {
-        return Ok(new { message = "Bulk order not yet implemented", count = medicineIds?.Count ?? 0 });
     }
 }
