@@ -47,10 +47,10 @@ class ApiConfig {
   /// - 'http://192.168.91.48:5126' -> Physical Android phone on the same Wi-Fi
   static String get localHost {
     if (kIsWeb) return 'http://localhost:5126';
-    return 'http://10.0.2.2:5126';
+    return 'http://127.0.0.1:5126';
   }
 
-  static String _activeHost = kIsWeb ? 'http://localhost:5126' : (useLocalBackend ? 'http://10.0.2.2:5126' : productionHost);
+  static String _activeHost = kIsWeb ? 'http://localhost:5126' : (useLocalBackend ? 'http://127.0.0.1:5126' : productionHost);
 
   static String get activeHost => _activeHost;
 
@@ -66,9 +66,10 @@ class ApiConfig {
       return [productionHost];
     }
     return [
+      'http://127.0.0.1:5126',
       'http://localhost:5126',
+      'http://10.35.16.140:5126',
       'http://10.0.2.2:5126',
-      'http://192.168.91.48:5126',
       productionHost,
     ];
   }
@@ -85,13 +86,14 @@ class ApiConfig {
   static Future<String> getWorkingBaseUrl() async {
     for (final host in candidateHosts) {
       try {
-        final res = await http.get(Uri.parse('$host/api/Medicines')).timeout(const Duration(seconds: 2));
+        final res = await http.get(Uri.parse('$host/api/Medicines')).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           _activeHost = host;
           return '$host/api';
         }
       } catch (_) {}
     }
-    return baseUrl;
+    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://127.0.0.1:5126';
+    return '$_activeHost/api';
   }
 }
