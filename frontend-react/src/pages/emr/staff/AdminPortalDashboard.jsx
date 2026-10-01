@@ -848,7 +848,7 @@ export default function AdminPortalDashboard({ staffSession }) {
                       {report.date && <> • Date: {report.date}</>}
                     </div>
 
-                    {report.resultsSummary && (
+                    {report.resultsSummary && !report.resultsSummary.includes('Diagnostic evaluation conducted') && (
                       <div style={{ fontSize: '0.82rem', color: '#334155', marginTop: '6px' }}>
                         <strong>Findings:</strong> {report.resultsSummary}
                       </div>

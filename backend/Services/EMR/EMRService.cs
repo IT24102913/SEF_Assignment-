@@ -610,15 +610,23 @@ public class EMRService : IEMRService
 
     public async Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null)
     {
-        var query = _db.ChannelingAppointments.AsQueryable();
+        var results = new List<ChannelingAppointmentDto>();
 
+        Patient? patient = null;
+        if (!string.IsNullOrWhiteSpace(patientCode))
+        {
+            var cleanCode = patientCode.Trim().ToUpper();
+            patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == cleanCode);
+        }
+
+        // 1. Check ChannelingAppointments table
+        var query = _db.ChannelingAppointments.AsQueryable();
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
             query = query.Where(a => a.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
         }
-
-        var list = await query.OrderByDescending(a => a.AppointmentDate).ToListAsync();
-        return list.Select(a => new ChannelingAppointmentDto
+        var channelingList = await query.OrderByDescending(a => a.AppointmentDate).ToListAsync();
+        results.AddRange(channelingList.Select(a => new ChannelingAppointmentDto
         {
             Id = a.Id,
             AppointmentCode = a.AppointmentCode,
@@ -628,7 +636,57 @@ public class EMRService : IEMRService
             AppointmentDate = a.AppointmentDate,
             Room = a.Room,
             Status = a.Status
-        });
+        }));
+
+        // 2. Also retrieve from DoctorAppointments table (where appointments booked through the portal are stored)
+        var docQuery = _db.DoctorAppointments.Include(d => d.Doctor).AsQueryable();
+        if (patient != null)
+        {
+            var pId = patient.UserId;
+            var pEmail = patient.Email?.Trim().ToLower();
+            var pName = patient.FullName?.Trim().ToLower();
+
+            docQuery = docQuery.Where(d =>
+                (pId.HasValue && d.PatientId == pId.Value) ||
+                (!string.IsNullOrEmpty(pEmail) && d.PatientEmail.ToLower() == pEmail) ||
+                (!string.IsNullOrEmpty(pName) && d.PatientName.ToLower() == pName)
+            );
+        }
+        else if (!string.IsNullOrWhiteSpace(patientCode))
+        {
+            docQuery = docQuery.Where(d => d.AppointmentNumber.Contains(patientCode));
+        }
+
+        var docList = await docQuery.OrderByDescending(d => d.AppointmentDate).ToListAsync();
+        foreach (var d in docList)
+        {
+            // Avoid duplicates if same appointment code exists
+            if (!results.Any(r => r.AppointmentCode == d.AppointmentNumber))
+            {
+                byte[] bytes = new byte[16];
+                BitConverter.GetBytes(d.Id).CopyTo(bytes, 0);
+                var guid = new Guid(bytes);
+
+                results.Add(new ChannelingAppointmentDto
+                {
+                    Id = guid,
+                    AppointmentCode = d.AppointmentNumber,
+                    PatientCode = patient?.PatientCode ?? patientCode ?? string.Empty,
+                    DoctorName = !string.IsNullOrEmpty(d.DoctorName) ? d.DoctorName : (d.Doctor?.FullName ?? "Doctor"),
+                    Specialty = !string.IsNullOrEmpty(d.Specialization) ? d.Specialization : (d.Doctor?.Specialization ?? "General Specialist"),
+                    AppointmentDate = d.AppointmentDate,
+                    Room = $"Room {(d.QueueNumber % 6) + 1} - Level 2",
+                    Status = d.Status.ToString(),
+                    QueueNumber = d.QueueNumber,
+                    TimeSlot = d.TimeSlot,
+                    TotalAmount = d.TotalAmount,
+                    PaymentStatus = d.PaymentStatus,
+                    HospitalBranch = "Health Bridge Central Hospital"
+                });
+            }
+        }
+
+        return results.OrderByDescending(r => r.AppointmentDate);
     }
 
     public async Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto)
