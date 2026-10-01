@@ -22,6 +22,7 @@ export default function ChannelingHistory() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('ALL'); // 'ALL' | 'Ongoing' | 'Upcoming' | 'Past'
   const [searchTerm, setSearchTerm] = useState('');
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     fetchAppointments();
@@ -210,12 +211,40 @@ export default function ChannelingHistory() {
         marginBottom: '24px' 
       }}>
         <div>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', marginBottom: '6px', letterSpacing: '-0.02em' }}>
-            Doctor Channeling History
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', marginBottom: '6px', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>Doctor Channeling History</span>
+            <button
+              type="button"
+              onClick={() => setShowInfo(prev => !prev)}
+              title={showInfo ? "Hide explanation" : "Click to view description"}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '22px',
+                height: '22px',
+                borderRadius: '50%',
+                backgroundColor: showInfo ? '#0d7c6b' : '#f1f5f9',
+                color: showInfo ? '#ffffff' : '#0d7c6b',
+                border: `1.5px solid ${showInfo ? '#0d7c6b' : '#cbd5e1'}`,
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 800,
+                fontFamily: 'monospace, sans-serif',
+                lineHeight: 1,
+                padding: 0,
+                transition: 'all 0.2s ease',
+                boxShadow: showInfo ? '0 0 0 3px rgba(13, 124, 107, 0.2)' : 'none'
+              }}
+            >
+              !
+            </button>
           </h1>
-          <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
-            All your booked doctor channeling appointments in one place — ongoing sessions, upcoming visits, and past consultations.
-          </p>
+          {showInfo && (
+            <p style={{ color: '#0d7c6b', fontSize: '0.95rem', fontWeight: 500, margin: '4px 0 0 0', animation: 'fadeIn 0.2s ease-out' }}>
+              All your booked doctor channeling appointments in one place — ongoing sessions, upcoming visits, and past consultations.
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '10px' }}>

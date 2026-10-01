@@ -1,4 +1,5 @@
 using HealthBridge.Api.DTOs.EMR;
+using HealthBridge.Api.Models.EMR;
 
 namespace HealthBridge.Api.Services.EMR;
 
@@ -40,6 +41,9 @@ public interface IEMRService
 
     // Business-Specific Operation
     Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId);
+
+    // AI Agent Support - returns full entity with navigation properties
+    Task<Patient?> GetPatientWithRecordsAsync(string patientCode);
 
     // Notifications (100% User-Specific and Role-Based)
     Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role);

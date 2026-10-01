@@ -9,9 +9,14 @@ public class ChannelingAppointmentDto
     public string Specialty { get; set; } = string.Empty;
     public DateTime AppointmentDate { get; set; }
     public string FormattedDate => AppointmentDate.ToString("MMM dd, yyyy");
-    public string FormattedTime => AppointmentDate.ToString("hh:mm tt");
+    public string FormattedTime => !string.IsNullOrEmpty(TimeSlot) ? TimeSlot : AppointmentDate.ToString("hh:mm tt");
     public string Room { get; set; } = string.Empty;
     public string Status { get; set; } = "Upcoming";
+    public int? QueueNumber { get; set; }
+    public string? TimeSlot { get; set; }
+    public decimal? TotalAmount { get; set; }
+    public string? PaymentStatus { get; set; }
+    public string? HospitalBranch { get; set; } = "Health Bridge Hospital";
 }
 
 public class CreateChannelingAppointmentDto

@@ -1,3 +1,4 @@
+using HealthBridge.Api.Agents.EMR;
 using HealthBridge.Api.DTOs.EMR;
 using HealthBridge.Api.Services.EMR;
 using Microsoft.AspNetCore.Authorization;
@@ -13,11 +14,13 @@ public class EMRController : ControllerBase
 {
     private readonly IEMRService _emrService;
     private readonly ILogger<EMRController> _logger;
+    private readonly EMRClinicalInsightAgent _aiAgent;
 
-    public EMRController(IEMRService emrService, ILogger<EMRController> logger)
+    public EMRController(IEMRService emrService, ILogger<EMRController> logger, EMRClinicalInsightAgent aiAgent)
     {
         _emrService = emrService;
         _logger = logger;
+        _aiAgent = aiAgent;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -415,5 +418,90 @@ public class EMRController : ControllerBase
 
         var created = await _emrService.CreateChannelingAppointmentAsync(dto);
         return Ok(created);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // AGENTIC AI - CLINICAL INSIGHTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Get AI-powered clinical insights and analysis for a patient.
+    /// Analyzes lab reports, prescriptions, and consultation notes using Gemini AI.
+    /// </summary>
+    [HttpGet("ai/insight")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AIClinicalInsightResponse>> GetAIClinicalInsight([FromQuery] string? patientCode)
+    {
+        try
+        {
+            // Resolve patient code from query param or authenticated user
+            string code = patientCode ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!string.IsNullOrWhiteSpace(userIdClaim) && int.TryParse(userIdClaim, out var userId))
+                {
+                    var myPatient = await _emrService.GetPatientByUserIdAsync(userId);
+                    code = myPatient?.PatientCode ?? string.Empty;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(code))
+                return BadRequest(new { message = "Patient code is required. Please log in or provide patientCode query parameter." });
+
+            // Fetch full patient with related data
+            var patient = await _emrService.GetPatientWithRecordsAsync(code);
+            if (patient == null)
+                return NotFound(new { message = $"Patient '{code}' not found." });
+
+            var insight = await _aiAgent.AnalyzePatientRecordsAsync(patient);
+            return Ok(insight);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EMR AI] Failed to generate clinical insight");
+            return StatusCode(500, new { message = "AI analysis failed. Please try again later.", detail = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Ask the AI agent a health question about a specific patient.
+    /// The AI has access to the patient's full medical record.
+    /// </summary>
+    [HttpPost("ai/ask")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AskAIAgentResponse>> AskAIAgent([FromBody] AskAIAgentRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Question))
+                return BadRequest(new { message = "Question is required." });
+
+            string code = request.PatientCode ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!string.IsNullOrWhiteSpace(userIdClaim) && int.TryParse(userIdClaim, out var userId))
+                {
+                    var myPatient = await _emrService.GetPatientByUserIdAsync(userId);
+                    code = myPatient?.PatientCode ?? string.Empty;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(code))
+                return BadRequest(new { message = "Patient code is required." });
+
+            var patient = await _emrService.GetPatientWithRecordsAsync(code);
+            if (patient == null)
+                return NotFound(new { message = $"Patient '{code}' not found." });
+
+            var response = await _aiAgent.AnswerQuestionAsync(patient, request.Question);
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EMR AI] Failed to answer question");
+            return StatusCode(500, new { message = "AI query failed. Please try again later.", detail = ex.Message });
+        }
     }
 }

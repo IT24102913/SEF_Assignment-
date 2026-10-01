@@ -67,7 +67,9 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthState.name = result.name;
       AuthState.email = result.email;
       AuthState.role = result.role;
-      AuthState.patientCode = 'PAT-${result.userId}';
+      AuthState.patientCode = (result.patientCode != null && result.patientCode!.isNotEmpty)
+          ? result.patientCode
+          : 'PAT-${result.userId}';
 
       if (mounted) Navigator.pushReplacementNamed(context, '/emr');
     } catch (e) {
