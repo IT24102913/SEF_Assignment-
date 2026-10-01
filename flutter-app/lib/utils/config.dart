@@ -8,15 +8,15 @@ class ApiConfig {
   /// Or defaults to manualRemoteHost below:
   static const String _dartDefinedBackendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
 
-  /// Set to true only when you are running your local backend with `dotnet run`
-  /// Defaults to false so the mobile app connects to the live hosted Railway backend
-  static const bool _useLocalInDebug = false;
+  /// Set to true so the mobile/web app connects to the running local backend and database
+  static const bool _useLocalInDebug = true;
 
   /// Automatically safe for Git and CI/CD:
-  /// - Release APK builds (GitHub Actions / production) ALWAYS use Railway hosted backend.
-  /// - Debug mode (flutter run on your PC) uses local backend unless _useLocalInDebug is set to false.
+  /// - Release APK builds (GitHub Actions / production) use Railway hosted backend unless defined.
+  /// - Debug mode or Web uses local backend by default.
   static bool get useLocalBackend {
-    if (kReleaseMode || _dartDefinedBackendUrl.isNotEmpty) {
+    if (kIsWeb) return true;
+    if (kReleaseMode && _dartDefinedBackendUrl.isNotEmpty) {
       return false;
     }
     return _useLocalInDebug;
@@ -42,23 +42,35 @@ class ApiConfig {
   }
 
   /// Preferred local host:
-  /// - 'http://192.168.1.6:5126' -> Physical Android phone on the same Wi-Fi
-  /// - 'http://10.0.2.2:5126'     -> Android Emulator
-  /// - 'http://localhost:5126'    -> Web, Windows, or Phone with `adb reverse tcp:5126 tcp:5126`
-  static String localHost = 'http://192.168.1.6:5126';
+  /// - 'http://localhost:5126'   -> Web or local Windows desktop
+  /// - 'http://10.0.2.2:5126'    -> Android Emulator
+  /// - 'http://192.168.91.48:5126' -> Physical Android phone on the same Wi-Fi
+  static String get localHost {
+    if (kIsWeb) return 'http://localhost:5126';
+    return 'http://127.0.0.1:5126';
+  }
 
-  static String _activeHost = useLocalBackend ? localHost : productionHost;
+  static String _activeHost = kIsWeb ? 'http://localhost:5126' : (useLocalBackend ? 'http://127.0.0.1:5126' : productionHost);
+
+  static String get activeHost => _activeHost;
 
   static List<String> get candidateHosts {
+    if (kIsWeb) {
+      return [
+        'http://localhost:5126',
+        'http://127.0.0.1:5126',
+        if (!useLocalBackend) productionHost,
+      ];
+    }
     if (!useLocalBackend) {
       return [productionHost];
     }
     return [
-      localHost,
-      'http://192.168.1.6:5126',   // Current Wi-Fi IPv4 address of PC
-      'http://10.0.2.2:5126',     // Android Emulator default loopback
-      'http://localhost:5126',    // Web / Direct local
-      productionHost,             // Hosted fallback
+      'http://127.0.0.1:5126',
+      'http://localhost:5126',
+      'http://10.35.16.140:5126',
+      'http://10.0.2.2:5126',
+      productionHost,
     ];
   }
 
@@ -74,13 +86,14 @@ class ApiConfig {
   static Future<String> getWorkingBaseUrl() async {
     for (final host in candidateHosts) {
       try {
-        final res = await http.get(Uri.parse('$host/api/Medicines')).timeout(const Duration(seconds: 2));
+        final res = await http.get(Uri.parse('$host/api/Medicines')).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           _activeHost = host;
           return '$host/api';
         }
       } catch (_) {}
     }
-    return baseUrl;
+    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://127.0.0.1:5126';
+    return '$_activeHost/api';
   }
 }
