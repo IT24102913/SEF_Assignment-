@@ -1006,5 +1006,17 @@ public class EMRService : IEMRService
 
         return notifs;
     }
+
+    // ─── AI Agent Support ─────────────────────────────────────────────────────
+
+    public async Task<Patient?> GetPatientWithRecordsAsync(string patientCode)
+    {
+        var code = patientCode.Trim().ToUpper();
+        return await _db.Patients
+            .Include(p => p.ConsultationNotes)
+            .Include(p => p.LabReports)
+            .Include(p => p.Prescriptions)
+            .FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == code);
+    }
 }
 
