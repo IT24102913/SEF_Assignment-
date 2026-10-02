@@ -12,14 +12,14 @@ public class PharmacyOrderService : IPharmacyOrderService
     private readonly PrescriptionSafetyAgent _safetyAgent;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PharmacyOrderService> _logger;
-    private readonly IEmailService _emailService;
+    private readonly IPharmacyEmailService _emailService;
 
     public PharmacyOrderService(
         ApplicationDbContext context,
         PrescriptionSafetyAgent safetyAgent,
         IServiceScopeFactory scopeFactory,
         ILogger<PharmacyOrderService> logger,
-        IEmailService emailService)
+        IPharmacyEmailService emailService)
     {
         _context = context;
         _safetyAgent = safetyAgent;
@@ -131,7 +131,7 @@ public class PharmacyOrderService : IPharmacyOrderService
 
                 string medicineName = !string.IsNullOrWhiteSpace(itemReq.MedicineName)
                     ? itemReq.MedicineName.Trim()
-                    : medicine.Name;
+                    : medicine?.Name ?? "Pharmaceutical Item";
 
                 if (isCard && !medicineName.EndsWith("(Card)", StringComparison.OrdinalIgnoreCase))
                 {
@@ -140,7 +140,7 @@ public class PharmacyOrderService : IPharmacyOrderService
 
                 orderItems.Add(new PharmacyOrderItem
                 {
-                    MedicineId = medicine.Id,
+                    MedicineId = medicine?.Id ?? (itemReq.MedicineId > 0 ? itemReq.MedicineId : 1),
                     MedicineName = medicineName,
                     UnitPrice = unitPrice,
                     Quantity = itemReq.Quantity,
@@ -270,7 +270,7 @@ public class PharmacyOrderService : IPharmacyOrderService
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                var emailSvc = scope.ServiceProvider.GetRequiredService<IPharmacyEmailService>();
                 await emailSvc.SendPharmacyOrderNotificationAsync(
                     savedOrderResponse.CustomerEmail,
                     savedOrderResponse.CustomerName,
@@ -355,7 +355,7 @@ public class PharmacyOrderService : IPharmacyOrderService
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                var emailSvc = scope.ServiceProvider.GetRequiredService<IPharmacyEmailService>();
                 await emailSvc.SendPharmacyOrderNotificationAsync(
                     response.CustomerEmail,
                     response.CustomerName,

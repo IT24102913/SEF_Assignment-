@@ -13,9 +13,9 @@ public class PharmacyOrdersController : ControllerBase
 {
     private readonly IPharmacyOrderService _orderService;
     private readonly IPatientAnalyticsService _analyticsService;
-    private readonly IEmailService _emailService;
+    private readonly IPharmacyEmailService _emailService;
 
-    public PharmacyOrdersController(IPharmacyOrderService orderService, IPatientAnalyticsService analyticsService, IEmailService emailService)
+    public PharmacyOrdersController(IPharmacyOrderService orderService, IPatientAnalyticsService analyticsService, IPharmacyEmailService emailService)
     {
         _orderService = orderService;
         _analyticsService = analyticsService;

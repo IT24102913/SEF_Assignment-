@@ -45,20 +45,14 @@ public class ExceptionHandlingMiddleware
             _ => ((int)HttpStatusCode.InternalServerError, exception.InnerException != null ? $"{exception.Message} -> {exception.InnerException.Message}" : exception.Message)
         };
 
-        string fullMsg = exception.Message;
-        var currEx = exception.InnerException;
-        while (currEx != null)
-        {
-            fullMsg += " -> " + currEx.Message;
-            currEx = currEx.InnerException;
-        }
+        string fullMsg = exception.ToString();
 
         context.Response.StatusCode = statusCode;
 
         var response = new
         {
             status = statusCode,
-            message = message,
+            message = fullMsg,
             detail = fullMsg
         };
 
