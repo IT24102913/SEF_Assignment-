@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { getStats } from '../../../api/labApi';
 import LabLayout from '../../../components/layout/LabLayout';
 import { ClipboardList, CheckCircle, XCircle, FlaskConical, TestTube, Brain, Clock, Activity, Sparkles, ArrowRight } from 'lucide-react';
+import labHeroBanner from '../../../assets/lab_hero_banner.jpg';
+import labAiAnalysis from '../../../assets/lab_ai_analysis.jpg';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -57,7 +59,9 @@ export default function Dashboard() {
       <div 
         className="lab-hero-banner animate-slide-up" 
         style={{ 
-          background: 'linear-gradient(135deg, #064E3B 0%, #065F46 50%, #0D9488 100%)',
+          backgroundImage: `linear-gradient(135deg, rgba(6, 78, 59, 0.90) 0%, rgba(6, 95, 70, 0.85) 50%, rgba(13, 148, 136, 0.80) 100%), url(${labHeroBanner})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
           boxShadow: '0 12px 28px rgba(6, 78, 59, 0.25)',
           borderRadius: 20
         }}
