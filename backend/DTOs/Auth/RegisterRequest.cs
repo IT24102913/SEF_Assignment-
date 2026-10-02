@@ -10,10 +10,11 @@ public class RegisterRequest
 
     [Required(ErrorMessage = "Email address is required.")]
     [EmailAddress(ErrorMessage = "Invalid email address format.")]
+    [RegularExpression(@"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$", ErrorMessage = "Please enter a valid email address with a valid domain (e.g. name@domain.com).")]
     public string Email { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "Phone number is required.")]
-    [RegularExpression(@"^\d{10}$", ErrorMessage = "Phone number must be exactly 10 digits.")]
+    [RegularExpression(@"^(?:\+94|0)?7[0-9]{8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
     public string PhoneNumber { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "NIC number is required.")]

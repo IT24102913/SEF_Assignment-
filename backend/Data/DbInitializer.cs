@@ -29,6 +29,11 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"IsPharmacyBlocked\" boolean DEFAULT false;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"BlockReason\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"ProfileImage\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"IsEmailVerified\" boolean DEFAULT true;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationToken\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationTokenExpiresAt\" timestamp with time zone;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"NicNumber\" text;");
+            await context.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"IsEmailVerified\" = true;");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
             await context.Database.ExecuteSqlRawAsync(@"

@@ -10,4 +10,7 @@ public class UserResponse
     public bool IsPharmacyBlocked { get; set; }
     public string? BlockReason { get; set; }
     public string? ProfileImage { get; set; }
+    public string? NicNumber { get; set; }
+    public string? PhoneNumber { get; set; }
+    public bool IsEmailVerified { get; set; }
 }

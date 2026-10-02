@@ -13,8 +13,8 @@ import {
 /* ─── Validation helpers ──────────────────────────────────────── */
 const validate = {
     fullName: (v) => v.trim().length >= 2 ? '' : 'Full name must be at least 2 characters.',
-    email: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? '' : 'Enter a valid email address (must contain @).',
-    phone: (v) => /^\d{10}$/.test(v.trim()) ? '' : 'Phone number must be exactly 10 digits.',
+    email: (v) => /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(v.trim()) ? '' : 'Enter a valid email address with a valid domain (e.g. name@domain.com).',
+    phone: (v) => /^(?:\+94|0)?7[0-9]{8}$/.test(v.replace(/[\s\-]/g, '')) ? '' : 'Enter a valid Sri Lankan phone number (e.g. +94771234567 or 0771234567).',
     nic: (v) => /^(\d{9}[VvXx]|\d{12})$/.test(v.trim()) ? '' : 'Enter a valid NIC (e.g. 199012345678 or 901234567V).',
     gender: (v) => ['Male', 'Female', 'Prefer not to say'].includes(v) ? '' : 'Please select a gender.',
     password: (v) => v.length >= 6 ? '' : 'Password must be at least 6 characters.',
@@ -216,10 +216,11 @@ const SuccessPopup = ({ onClose }) => (
             <h2 style={popupStyles.title}>Registration Successful! 🎉</h2>
             <p style={popupStyles.message}>
                 Your account has been created successfully.<br />
-                You can now sign in using your email and password.
+                A secure verification link has been dispatched to your email.<br />
+                Please verify your email address to activate sign in.
             </p>
             <button style={popupStyles.btn} onClick={onClose}>
-                Sign In Now →
+                Proceed to Sign In →
             </button>
         </div>
     </div>
@@ -433,9 +434,40 @@ const Login = () => {
                             </div>
 
                             {siError && (
-                                <div style={s.errorBox} className="animate-fade-in">
-                                    <XCircle size={15} color="#B91C1C" />
-                                    <span>{siError}</span>
+                                <div style={{ ...s.errorBox, display: 'flex', alignItems: 'flex-start', gap: '8px' }} className="animate-fade-in">
+                                    <XCircle size={15} color="#B91C1C" style={{ marginTop: '2px', flexShrink: 0 }} />
+                                    <div style={{ flex: 1 }}>
+                                        <div>{siError}</div>
+                                        {siError.toLowerCase().includes('verif') && siEmail && (
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    try {
+                                                        const res = await apiRegister; // or api call
+                                                        const authApi = (await import('../api/authApi')).default;
+                                                        await authApi.post('/auth/resend-verification', { email: siEmail.trim() });
+                                                        setSiError('Verification email resent! Please check your inbox.');
+                                                    } catch {
+                                                        setSiError('Failed to resend verification email.');
+                                                    }
+                                                }}
+                                                style={{
+                                                    marginTop: '6px',
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: '#00796B',
+                                                    fontWeight: '700',
+                                                    fontSize: '11px',
+                                                    textDecoration: 'underline',
+                                                    cursor: 'pointer',
+                                                    padding: 0,
+                                                    display: 'block'
+                                                }}
+                                            >
+                                                Resend Verification Email →
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 
