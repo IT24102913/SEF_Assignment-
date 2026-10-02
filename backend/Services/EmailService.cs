@@ -411,7 +411,7 @@ public class EmailService : IEmailService
         var html = $@"
         <div style='font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; max-width: 640px; margin: auto; padding: 24px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0;'>
             <div style='background: {headerBg}; color: white; padding: 22px 24px; border-radius: 12px; margin-bottom: 20px;'>
-                <h2 style='margin: 0; font-size: 20px; font-weight: 900;'>🏥 HEALTH BRIDGE PHARMACY</h2>
+                <h2 style='margin: 0; font-size: 20px; font-weight: 900;'>HEALTH BRIDGE PHARMACY</h2>
                 <p style='margin: 8px 0 0 0; font-size: 14px; opacity: 0.95; font-weight: 600;'>{headline}</p>
             </div>
 

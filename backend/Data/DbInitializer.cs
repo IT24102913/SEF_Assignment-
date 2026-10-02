@@ -25,10 +25,24 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationAction\" text NOT NULL DEFAULT '';");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AdminNote\" text NOT NULL DEFAULT '';");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedAt\" timestamp with time zone;");
+            // Users table access control columns
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"IsPharmacyBlocked\" boolean DEFAULT false;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"BlockReason\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"ProfileImage\" text;");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DbInitializer] Initial schema notice: {ex.Message}");
+        }
 
-        await context.Database.MigrateAsync();
+        try
+        {
+            await context.Database.MigrateAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DbInitializer] Migration notice: {ex.Message}");
+        }
 
         // 1. Seed Initial Admin Accounts if none exist
         if (!await context.Users.AnyAsync(u => u.Email == "nirwan@gmail.com"))
