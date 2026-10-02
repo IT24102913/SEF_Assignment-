@@ -390,6 +390,66 @@ public class EMRController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // PRESCRIPTION AUTHORIZATION WORKFLOW (Staff → Admin Edit/Delete Requests)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Staff member requests edit/delete permission from Admin for a specific prescription.
+    /// Pharmacist, Doctor, or Laboratorian submits this before performing sensitive operations.
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/request-authorization")]
+    public async Task<ActionResult<PrescriptionDto>> RequestPrescriptionAuthorization(Guid id, [FromBody] RequestPrescriptionAuthorizationDto dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Action))
+            return BadRequest(new { message = "Action (Edit or Delete) and Reason are required." });
+
+        var updated = await _emrService.RequestPrescriptionAuthorizationAsync(id, dto);
+        if (updated == null)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// Admin retrieves all prescriptions with pending edit/delete authorization requests.
+    /// Used by the Admin Notification Panel to list incoming staff permission requests.
+    /// </summary>
+    [HttpGet("prescriptions/authorizations/pending")]
+    public async Task<ActionResult<IEnumerable<PrescriptionAuthorizationSummaryDto>>> GetPendingPrescriptionAuthorizations()
+    {
+        var pending = await _emrService.GetPendingPrescriptionAuthorizationsAsync();
+        return Ok(pending);
+    }
+
+    /// <summary>
+    /// Admin approves a pending delete request and permanently removes the prescription.
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/approve-delete")]
+    public async Task<IActionResult> ApproveAndDeletePrescription(Guid id, [FromBody] ApprovePrescriptionDeleteDto dto)
+    {
+        var deleted = await _emrService.ApproveAndDeletePrescriptionAsync(id, dto?.AdminNote ?? string.Empty);
+        if (!deleted)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(new { message = "Prescription approved and deleted successfully.", prescriptionId = id });
+    }
+
+    /// <summary>
+    /// Admin rejects a pending edit/delete permission request. The prescription remains unchanged.
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/reject-authorization")]
+    public async Task<ActionResult<PrescriptionDto>> RejectPrescriptionAuthorization(Guid id, [FromBody] RejectPrescriptionAuthorizationDto dto)
+    {
+        var updated = await _emrService.RejectPrescriptionAuthorizationAsync(id, dto?.AdminNote ?? string.Empty);
+        if (updated == null)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(updated);
+    }
+
+
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // BUSINESS-SPECIFIC OPERATION: CLINICAL SUMMARY & HEALTH PASSPORT
     // ═══════════════════════════════════════════════════════════════════════════
 
