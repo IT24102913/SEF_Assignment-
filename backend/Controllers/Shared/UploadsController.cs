@@ -9,6 +9,7 @@ namespace HealthBridge.Api.Controllers;
 [ApiController]
 [Route("api/uploads")]
 [IgnoreAntiforgeryToken]
+[DisableRequestSizeLimit]
 public class UploadsController : ControllerBase
 {
     private readonly IWebHostEnvironment _env;
@@ -21,6 +22,7 @@ public class UploadsController : ControllerBase
     }
 
     [HttpPost]
+    [HttpPost("upload")]
     public async Task<IActionResult> UploadFile(IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -55,7 +57,7 @@ public class UploadsController : ControllerBase
         }
 
         var fullUrl = $"{publicBase}/uploads/{uniqueFileName}";
-        return Ok(new { fileUrl = fullUrl, relativePath = $"/uploads/{uniqueFileName}" });
+        return Ok(new { fileUrl = fullUrl, relativePath = $"/uploads/{uniqueFileName}", url = fullUrl });
     }
 
     private static string GetLocalIpAddress()
