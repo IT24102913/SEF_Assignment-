@@ -297,32 +297,32 @@ export default function LabReports() {
                 key={report.id}
                 style={{
                   backgroundColor: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '14px',
-                  padding: '20px 24px',
+                  border: '1.5px solid #cbd5e1',
+                  borderRadius: '16px',
+                  padding: '22px 26px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  boxShadow: '0 2px 8px -2px rgba(0,0,0,0.04)',
-                  transition: 'box-shadow 0.2s',
-                  gap: '16px',
+                  boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)',
+                  transition: 'all 0.2s ease-in-out',
+                  gap: '18px',
                   flexWrap: 'wrap'
                 }}
               >
                 {/* Left: Icon + Info */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '280px' }}>
-                  <div style={{ width: '46px', height: '46px', borderRadius: '12px', backgroundColor: '#f0fdf4', color: '#0d7c6b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#ecfdf5', color: '#095e51', border: '1.5px solid #a7f3d0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Microscope size={24} />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: '#0f172a', marginBottom: '3px' }}>
+                    <div style={{ fontWeight: 800, fontSize: '1.15rem', color: '#0f172a', marginBottom: '4px', letterSpacing: '-0.01em' }}>
                       {report.testTitle}
                     </div>
-                    <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
-                      <span style={{ backgroundColor: '#f1f5f9', padding: '2px 8px', borderRadius: '6px', fontWeight: 600, color: '#475569', marginRight: '8px' }}>
+                    <div style={{ fontSize: '0.84rem', color: '#475569' }}>
+                      <span style={{ backgroundColor: '#e2e8f0', border: '1px solid #cbd5e1', padding: '3px 10px', borderRadius: '6px', fontWeight: 700, color: '#0f172a', marginRight: '10px' }}>
                         {report.category}
                       </span>
-                      Ordered by <strong>{report.orderedDoctor}</strong> • {report.date}
+                      Ordered by <strong style={{ color: '#0f172a' }}>{report.orderedDoctor}</strong> • {report.date}
                     </div>
 
                     {/* Attached file indicator */}
@@ -331,22 +331,22 @@ export default function LabReports() {
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
-                        fontSize: '0.78rem',
+                        fontSize: '0.8rem',
                         color: '#0369a1',
                         backgroundColor: '#f0f9ff',
-                        border: '1px solid #bae6fd',
-                        padding: '3px 8px',
+                        border: '1.5px solid #bae6fd',
+                        padding: '4px 10px',
                         borderRadius: '6px',
-                        marginTop: '6px',
-                        fontWeight: 600
+                        marginTop: '8px',
+                        fontWeight: 700
                       }}>
-                        {isImage ? <ImageIcon size={13} color="#0284c7" /> : <FileText size={13} color="#0284c7" />}
+                        {isImage ? <ImageIcon size={14} color="#0284c7" /> : <FileText size={14} color="#0284c7" />}
                         {report.fileName}
                       </div>
                     )}
 
                     {report.resultsSummary && !report.resultsSummary.includes('Diagnostic evaluation conducted') && (
-                      <div style={{ fontSize: '0.82rem', color: '#334155', marginTop: '6px', backgroundColor: '#f8fafc', padding: '6px 10px', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '0.88rem', color: '#0f172a', fontWeight: 600, marginTop: '8px', backgroundColor: '#f8fafc', border: '1.5px solid #cbd5e1', borderLeft: '4px solid #0d7c6b', padding: '8px 12px', borderRadius: '8px' }}>
                         {report.resultsSummary}
                       </div>
                     )}

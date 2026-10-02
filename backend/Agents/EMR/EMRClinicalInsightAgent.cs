@@ -133,7 +133,8 @@ public class EMRClinicalInsightAgent
                         Question = question,
                         Answer = geminiAnswer,
                         ClinicalReferences = refs.Any() ? refs : new List<string> { "Patient Electronic Health Record" },
-                        AnsweredAt = DateTime.UtcNow
+                        AnsweredAt = DateTime.UtcNow,
+                        EngineUsed = "Google Gemini LLM (Agentic Clinical Intelligence)"
                     };
                 }
             }
@@ -188,7 +189,8 @@ public class EMRClinicalInsightAgent
             Question = question,
             Answer = answerBuilder.ToString().Trim(),
             ClinicalReferences = refs.Any() ? refs : new List<string> { "EMR Health Profile", "Clinical Records" },
-            AnsweredAt = DateTime.UtcNow
+            AnsweredAt = DateTime.UtcNow,
+            EngineUsed = "HealthBridge Agentic Clinical AI"
         };
     }
 
@@ -482,7 +484,7 @@ public class EMRClinicalInsightAgent
         var configuredModel = _config["Gemini:Model"];
         var modelsToTry = new List<string>();
         if (!string.IsNullOrWhiteSpace(configuredModel)) modelsToTry.Add(configuredModel.Trim());
-        foreach (var m in new[] { "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-flash-latest" })
+        foreach (var m in new[] { "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-lite-latest", "gemini-3.1-flash-lite" })
         {
             if (!modelsToTry.Contains(m)) modelsToTry.Add(m);
         }
@@ -559,7 +561,7 @@ Generate a comprehensive clinical insight JSON adhering strictly to this structu
             {
                 responseMimeType = "application/json",
                 temperature = 0.2,
-                maxOutputTokens = 3072
+                maxOutputTokens = 8192
             }
         };
 
@@ -630,7 +632,7 @@ Generate a comprehensive clinical insight JSON adhering strictly to this structu
         var configuredModel = _config["Gemini:Model"];
         var modelsToTry = new List<string>();
         if (!string.IsNullOrWhiteSpace(configuredModel)) modelsToTry.Add(configuredModel.Trim());
-        foreach (var m in new[] { "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-flash-latest" })
+        foreach (var m in new[] { "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-lite-latest", "gemini-3.1-flash-lite" })
         {
             if (!modelsToTry.Contains(m)) modelsToTry.Add(m);
         }

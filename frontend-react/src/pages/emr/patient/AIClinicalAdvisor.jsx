@@ -27,6 +27,7 @@ export default function AIClinicalAdvisor() {
   const [insight, setInsight] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview'); // overview, doctor, labs, medications, ask
+  const [showBannerInfo, setShowBannerInfo] = useState(false);
 
   // Interactive Q&A state
   const [question, setQuestion] = useState('');
@@ -143,13 +144,41 @@ export default function AIClinicalAdvisor() {
               <Sparkles size={15} /> AGENTIC AI HEALTH ADVISOR
             </div>
 
-            <h1 style={{ fontSize: '1.9rem', fontWeight: 800, margin: '0 0 10px 0', lineHeight: 1.2 }}>
-              Your Medical Records, Explained Clearly.
+            <h1 style={{ fontSize: '1.9rem', fontWeight: 800, margin: '0 0 10px 0', lineHeight: 1.2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <span>Your Medical Records, Explained Clearly.</span>
+              <button
+                type="button"
+                onClick={() => setShowBannerInfo(prev => !prev)}
+                title={showBannerInfo ? "Hide explanation" : "Click to view detailed explanation"}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  backgroundColor: showBannerInfo ? '#ffffff' : 'rgba(255, 255, 255, 0.25)',
+                  color: showBannerInfo ? '#095e51' : '#ffffff',
+                  border: '1.5px solid rgba(255, 255, 255, 0.7)',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  fontFamily: 'monospace, sans-serif',
+                  lineHeight: 1,
+                  transition: 'all 0.2s ease',
+                  padding: 0,
+                  boxShadow: showBannerInfo ? '0 0 0 3px rgba(255,255,255,0.3)' : 'none'
+                }}
+              >
+                !
+              </button>
             </h1>
 
-            <p style={{ margin: '0 0 16px 0', fontSize: '0.98rem', opacity: 0.92, lineHeight: 1.5 }}>
-              Our clinical AI agent reviews your <strong>Lab Reports</strong>, <strong>Prescriptions</strong>, and <strong>Doctor Consultation Notes</strong> to explain your health condition and what your doctor advised in simple, everyday language.
-            </p>
+            {showBannerInfo && (
+              <p style={{ margin: '0 0 16px 0', fontSize: '0.98rem', opacity: 0.95, lineHeight: 1.5, animation: 'fadeIn 0.25s ease-out' }}>
+                Our clinical AI agent reviews your <strong>Lab Reports</strong>, <strong>Prescriptions</strong>, and <strong>Doctor Consultation Notes</strong> to explain your health condition and what your doctor advised in simple, everyday language.
+              </p>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', fontSize: '0.85rem', opacity: 0.9 }}>
               <span>Patient: <strong>{insight?.patientName} ({insight?.patientCode})</strong></span>
@@ -310,7 +339,7 @@ export default function AIClinicalAdvisor() {
             borderRadius: '16px',
             border: '1.5px solid #cbd5e1',
             padding: '28px',
-            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.03)'
+            boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: '#e6f5f2', color: '#0d7c6b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -331,9 +360,9 @@ export default function AIClinicalAdvisor() {
               gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
               gap: '14px',
               backgroundColor: '#f8fafc',
-              padding: '16px 20px',
+              padding: '18px 22px',
               borderRadius: '12px',
-              border: '1px solid #e2e8f0'
+              border: '1.5px solid #cbd5e1'
             }}>
               <div>
                 <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600, display: 'block' }}>Chronic Conditions</span>
@@ -380,7 +409,8 @@ export default function AIClinicalAdvisor() {
             backgroundColor: '#ffffff',
             borderRadius: '16px',
             border: '1.5px solid #cbd5e1',
-            padding: '24px 28px'
+            padding: '24px 28px',
+            boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)'
           }}>
             <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '0 0 14px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <CheckCircle2 size={18} color="#0d7c6b" /> Recommended Next Steps
@@ -430,7 +460,7 @@ export default function AIClinicalAdvisor() {
                     border: '1.5px solid #cbd5e1',
                     borderRadius: '16px',
                     padding: '24px',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
+                    boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
@@ -534,7 +564,7 @@ export default function AIClinicalAdvisor() {
                     border: '1.5px solid #cbd5e1',
                     borderRadius: '16px',
                     padding: '24px',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
+                    boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -631,7 +661,7 @@ export default function AIClinicalAdvisor() {
                     border: '1.5px solid #cbd5e1',
                     borderRadius: '16px',
                     padding: '24px',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
+                    boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
@@ -707,7 +737,7 @@ export default function AIClinicalAdvisor() {
           borderRadius: '16px',
           border: '1.5px solid #cbd5e1',
           padding: '28px',
-          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.03)'
+          boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
             <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#e6f5f2', color: '#0d7c6b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
