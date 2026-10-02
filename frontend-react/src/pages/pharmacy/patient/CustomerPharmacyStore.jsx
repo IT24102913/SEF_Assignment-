@@ -441,11 +441,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             }
 
             const isRx = requiresVerification;
-            const finalCustomerEmail = customerEmail.trim() || ((user?.email && user.email.includes('@') && !user.email.includes('healthbridge.lk'))
+            const finalCustomerEmail = customerEmail.trim() || ((user?.email && user.email.includes('@'))
                 ? user.email
-                : (user?.username && user.username.includes('@') && !user.username.includes('healthbridge.lk'))
+                : (user?.username && user.username.includes('@'))
                     ? user.username
-                    : '');
+                    : `patient+${user?.id || Date.now()}@healthbridge.lk`);
 
             const rawPid = Number(user?.id);
             const validPatientId = (Number.isInteger(rawPid) && rawPid > 0 && rawPid <= 2147483647) ? rawPid : null;
