@@ -16,10 +16,7 @@ export default function RoleSelector({ onLogin }) {
       icon: Stethoscope,
       accentColor: '#0d7c6b',
       bgColor: '#e6f5f2',
-      authorizedNote: 'Authorized: Doctor or Admin only',
-      demoStaffId: 'doctor@gmail.com',
-      demoPassword: 'doctor123',
-      altStaffId: 'DOC-01'
+      authorizedNote: 'Authorized: Doctor or Admin only'
     },
     {
       id: 'Laboratorian',
@@ -27,10 +24,7 @@ export default function RoleSelector({ onLogin }) {
       icon: Microscope,
       accentColor: '#16a34a',
       bgColor: '#f0fdf4',
-      authorizedNote: 'Authorized: Laboratorian or Admin only',
-      demoStaffId: 'lab@gmail.com',
-      demoPassword: 'lab123',
-      altStaffId: 'LAB-01'
+      authorizedNote: 'Authorized: Laboratorian or Admin only'
     },
     {
       id: 'Pharmacist',
@@ -38,10 +32,7 @@ export default function RoleSelector({ onLogin }) {
       icon: Pill,
       accentColor: '#9333ea',
       bgColor: '#faf5ff',
-      authorizedNote: 'Authorized: Pharmacist or Admin only',
-      demoStaffId: 'pharmacist@gmail.com',
-      demoPassword: 'pharmacist123',
-      altStaffId: 'PHARM-01'
+      authorizedNote: 'Authorized: Pharmacist or Admin only'
     },
     {
       id: 'Admin',
@@ -49,10 +40,7 @@ export default function RoleSelector({ onLogin }) {
       icon: ShieldAlert,
       accentColor: '#ea580c',
       bgColor: '#fff7ed',
-      authorizedNote: 'Authorized: Admin only',
-      demoStaffId: 'admin@healthbridge.com',
-      demoPassword: 'Admin123!',
-      altStaffId: 'ADMIN-01'
+      authorizedNote: 'Authorized: Admin only'
     }
   ];
 
@@ -60,12 +48,6 @@ export default function RoleSelector({ onLogin }) {
 
   const handleRoleChange = (role) => {
     setSelectedRole(role.id);
-    setError('');
-  };
-
-  const handleFillDemo = (email, pass) => {
-    setStaffId(email);
-    setPassword(pass);
     setError('');
   };
 
@@ -243,7 +225,7 @@ export default function RoleSelector({ onLogin }) {
               type="text"
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
-              placeholder={`e.g. ${activeRoleConfig.demoStaffId} or ${activeRoleConfig.altStaffId}`}
+              placeholder={`Enter your ${selectedRole} ID or registered staff email`}
               required
               style={{
                 width: '100%',
@@ -306,103 +288,6 @@ export default function RoleSelector({ onLogin }) {
             {loading ? 'Verifying Authorized Role...' : `Sign In to ${selectedRole} Portal`} <ArrowRight size={18} />
           </button>
         </form>
-
-        {/* Quick Testing Demo Credentials helper */}
-        <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid #f1f5f9' }}>
-          <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginBottom: '8px' }}>
-            Quick fill credentials for testing:
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => handleFillDemo(activeRoleConfig.demoStaffId, activeRoleConfig.demoPassword)}
-              style={{
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                color: activeRoleConfig.accentColor,
-                backgroundColor: activeRoleConfig.bgColor,
-                border: `1px solid ${activeRoleConfig.accentColor}44`,
-                padding: '6px 12px',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              Fill Authorized ({activeRoleConfig.demoStaffId})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleFillDemo(activeRoleConfig.altStaffId, activeRoleConfig.demoPassword)}
-              style={{
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                color: '#475569',
-                backgroundColor: '#f1f5f9',
-                border: '1px solid #cbd5e1',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              Fill Staff ID ({activeRoleConfig.altStaffId})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleFillDemo('admin@healthbridge.com', 'Admin123!')}
-              style={{
-                fontSize: '0.78rem',
-                fontWeight: 600,
-                color: '#ea580c',
-                backgroundColor: '#fff7ed',
-                border: '1px solid #ea580c44',
-                padding: '6px 12px',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              Fill Admin (admin@healthbridge.com)
-            </button>
-
-            {selectedRole !== 'Consultant' && (
-              <button
-                type="button"
-                onClick={() => handleFillDemo('doctor@gmail.com', 'doctor123')}
-                style={{
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  color: '#dc2626',
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                Test Denied Doctor (doctor@gmail.com)
-              </button>
-            )}
-
-            {selectedRole === 'Consultant' && (
-              <button
-                type="button"
-                onClick={() => handleFillDemo('pharmacist@gmail.com', 'pharmacist123')}
-                style={{
-                  fontSize: '0.78rem',
-                  fontWeight: 600,
-                  color: '#dc2626',
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  cursor: 'pointer'
-                }}
-              >
-                Test Denied Pharmacist (pharmacist@gmail.com)
-              </button>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

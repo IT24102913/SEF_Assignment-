@@ -16,7 +16,11 @@ import {
   CheckCircle2,
   Clock,
   RotateCcw,
-  AlertTriangle
+  AlertTriangle,
+  Bell,
+  BellRing,
+  CheckCheck,
+  Inbox
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -26,6 +30,10 @@ export default function AdminPortalDashboard({ staffSession }) {
   const [consultations, setConsultations] = useState([]);
   const [labReports, setLabReports] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
+  const [staffNotifications, setStaffNotifications] = useState([]);
+  const [showNotifModal, setShowNotifModal] = useState(false);
+  const [notifStatusFilter, setNotifStatusFilter] = useState('ALL');
+  const [notifRoleFilter, setNotifRoleFilter] = useState('ALL');
 
   // ── Tab 1 Filters: Consultations ──────────────────────────────────────────
   const [consultSearch, setConsultSearch] = useState('');
@@ -53,6 +61,7 @@ export default function AdminPortalDashboard({ staffSession }) {
     setConsultations(emrStore.getConsultations() || []);
     setLabReports(emrStore.getLabReports() || []);
     setPrescriptions(emrStore.getPrescriptions() || []);
+    setStaffNotifications(emrStore.getStaffNotifications() || []);
   };
 
   useEffect(() => {
@@ -267,41 +276,133 @@ export default function AdminPortalDashboard({ staffSession }) {
     toast('Pharmacist authorization request dismissed.', { icon: 'ℹ️' });
   };
 
+  // Staff Notifications metrics and filtering
+  const pendingNotifCount = useMemo(() => {
+    return staffNotifications.filter(n => n.status === 'Pending').length;
+  }, [staffNotifications]);
+
+  const filteredNotifications = useMemo(() => {
+    return staffNotifications.filter(n => {
+      if (notifStatusFilter !== 'ALL' && n.status !== notifStatusFilter) return false;
+      if (notifRoleFilter !== 'ALL' && n.role !== notifRoleFilter) return false;
+      return true;
+    });
+  }, [staffNotifications, notifStatusFilter, notifRoleFilter]);
+
+  const handleMarkNotifDone = (id, targetTitle) => {
+    emrStore.markStaffNotificationCompleted(id, 'Admin approved and marked completed');
+    toast.success(`Request for "${targetTitle}" marked as Completed!`);
+  };
+
+  const handleExecuteDeleteAndComplete = async (notif) => {
+    if (!window.confirm(`Permanently delete the requested ${notif.type} "${notif.targetTitle}" for patient ${notif.patientName}?`)) {
+      return;
+    }
+
+    try {
+      if (notif.type === 'Lab Report' && notif.targetId) {
+        await emrStore.deleteLabReport(notif.targetId);
+      } else if (notif.type === 'Prescription' && notif.targetId) {
+        await emrStore.deletePrescription(notif.targetId);
+      } else if (notif.type === 'Consultation Note' && notif.targetId) {
+        await emrStore.deleteConsultation(notif.targetId);
+      }
+      emrStore.markStaffNotificationCompleted(notif.id, 'Action executed and item permanently removed by Admin');
+      toast.success(`"${notif.targetTitle}" deleted and notification marked as Completed.`);
+    } catch (err) {
+      toast.error('Failed to complete action.');
+    }
+  };
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
       {/* 1. Admin Header Banner */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
+        justifyContent: 'space-between',
         gap: '14px',
         marginBottom: '24px',
         backgroundColor: '#fff7ed',
         padding: '20px 24px',
         borderRadius: '16px',
         border: '1px solid #ffedd5',
-        boxShadow: '0 2px 8px rgba(234, 88, 12, 0.04)'
+        boxShadow: '0 2px 8px rgba(234, 88, 12, 0.04)',
+        flexWrap: 'wrap'
       }}>
-        <div style={{
-          width: '44px',
-          height: '44px',
-          borderRadius: '12px',
-          backgroundColor: '#ea580c',
-          color: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0
-        }}>
-          <ShieldAlert size={24} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{
+            width: '44px',
+            height: '44px',
+            borderRadius: '12px',
+            backgroundColor: '#ea580c',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <ShieldAlert size={24} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', margin: '0 0 2px 0' }}>
+              Admin Management Suite
+            </h2>
+            <p style={{ color: '#475569', fontSize: '0.9rem', margin: 0 }}>
+              Logged in as <strong>{staffSession.staffId}</strong> • Full system privileges over Consultation Notes, Lab Reports, Pharmacy Records & Patients.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', margin: '0 0 2px 0' }}>
-            Admin Management Suite
-          </h2>
-          <p style={{ color: '#475569', fontSize: '0.9rem', margin: 0 }}>
-            Logged in as <strong>{staffSession.staffId}</strong> • Full system privileges over Consultation Notes, Lab Reports, Pharmacy Records & Patients.
-          </p>
-        </div>
+
+        {/* Top Notification Center Button */}
+        <button
+          type="button"
+          onClick={() => setShowNotifModal(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '10px',
+            backgroundColor: '#ffffff',
+            color: '#0f172a',
+            border: '2px solid #fed7aa',
+            padding: '10px 18px',
+            borderRadius: '12px',
+            fontWeight: 800,
+            fontSize: '0.92rem',
+            cursor: 'pointer',
+            boxShadow: '0 4px 14px rgba(234, 88, 12, 0.1)',
+            position: 'relative',
+            transition: 'all 0.2s'
+          }}
+          title="Open Staff Requests & Notifications Panel"
+        >
+          <Bell size={20} color="#ea580c" />
+          <span>Staff Requests & Notifications</span>
+          {pendingNotifCount > 0 ? (
+            <span style={{
+              backgroundColor: '#ef4444',
+              color: '#ffffff',
+              fontSize: '0.74rem',
+              fontWeight: 800,
+              padding: '2px 9px',
+              borderRadius: '20px',
+              boxShadow: '0 0 8px rgba(239, 68, 68, 0.4)'
+            }}>
+              {pendingNotifCount} Pending
+            </span>
+          ) : (
+            <span style={{
+              backgroundColor: '#ecfdf5',
+              color: '#059669',
+              fontSize: '0.74rem',
+              fontWeight: 700,
+              padding: '2px 9px',
+              borderRadius: '20px'
+            }}>
+              ✓ All Done
+            </span>
+          )}
+        </button>
       </div>
 
       {/* 2. Tabs Navigation */}
@@ -1669,6 +1770,405 @@ export default function AdminPortalDashboard({ staffSession }) {
       )}
 
 
+      {/* ========================================================================= */}
+      {/* 5. STAFF REQUESTS & NOTIFICATIONS CENTER MODAL                             */}
+      {/* ========================================================================= */}
+      {showNotifModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(3px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '860px',
+            maxHeight: '88vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.3)',
+            border: '1px solid #cbd5e1',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '18px 24px',
+              backgroundColor: '#0f172a',
+              color: '#ffffff'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  backgroundColor: '#ea580c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff'
+                }}>
+                  <BellRing size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>
+                    Staff Edit / Delete Permission Requests
+                  </h3>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                    Notifications from Pharmacists, Laboratorians & Doctors ({staffNotifications.length} Total • {pendingNotifCount} Pending)
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowNotifModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '6px'
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Filter Bar */}
+            <div style={{
+              padding: '14px 24px',
+              backgroundColor: '#f8fafc',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              {/* Status Filter */}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {['ALL', 'Pending', 'Completed'].map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setNotifStatusFilter(status)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '8px',
+                      fontSize: '0.82rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      border: notifStatusFilter === status ? '1.5px solid #ea580c' : '1px solid #cbd5e1',
+                      backgroundColor: notifStatusFilter === status ? '#fff7ed' : '#ffffff',
+                      color: notifStatusFilter === status ? '#c2410c' : '#475569'
+                    }}
+                  >
+                    {status === 'ALL' ? `All (${staffNotifications.length})` : status === 'Pending' ? `Pending (${pendingNotifCount})` : `Completed (${staffNotifications.filter(n => n.status === 'Completed').length})`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Role Filter */}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {['ALL', 'Doctor', 'Laboratorian', 'Pharmacist'].map((role) => (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => setNotifRoleFilter(role)}
+                    style={{
+                      padding: '5px 12px',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      border: notifRoleFilter === role ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
+                      backgroundColor: notifRoleFilter === role ? '#0f172a' : '#ffffff',
+                      color: notifRoleFilter === role ? '#ffffff' : '#64748b'
+                    }}
+                  >
+                    {role === 'ALL' ? 'All Roles' : role}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notification Cards List */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, backgroundColor: '#f1f5f9', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {filteredNotifications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
+                  <Inbox size={44} style={{ margin: '0 auto 12px auto', opacity: 0.5 }} />
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: '1rem', color: '#334155' }}>
+                    No notifications match your current filter.
+                  </p>
+                  <span style={{ fontSize: '0.85rem' }}>Staff requests will appear here when doctors, pharmacists, or lab staff request permissions.</span>
+                </div>
+              ) : (
+                filteredNotifications.map((notif) => {
+                  const isPending = notif.status === 'Pending';
+                  
+                  // Role color badge styling
+                  let roleColor = '#0d7c6b';
+                  let roleBg = '#e6f5f2';
+                  let RoleIcon = Stethoscope;
+                  if (notif.role === 'Laboratorian') {
+                    roleColor = '#16a34a';
+                    roleBg = '#f0fdf4';
+                    RoleIcon = Microscope;
+                  } else if (notif.role === 'Pharmacist') {
+                    roleColor = '#9333ea';
+                    roleBg = '#faf5ff';
+                    RoleIcon = Pill;
+                  }
+
+                  return (
+                    <div
+                      key={notif.id}
+                      style={{
+                        backgroundColor: '#ffffff',
+                        border: isPending ? '1.5px solid #fdba74' : '1px solid #e2e8f0',
+                        borderRadius: '14px',
+                        padding: '18px 20px',
+                        boxShadow: isPending ? '0 4px 14px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0,0,0,0.02)',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      {/* Top Meta Line */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            backgroundColor: roleBg,
+                            color: roleColor,
+                            padding: '3px 10px',
+                            borderRadius: '8px',
+                            border: `1px solid ${roleColor}33`
+                          }}>
+                            <RoleIcon size={13} /> {notif.role}
+                          </span>
+
+                          <span style={{
+                            fontSize: '0.75rem',
+                            backgroundColor: '#f1f5f9',
+                            color: '#475569',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '6px'
+                          }}>
+                            {notif.type}
+                          </span>
+
+                          <span style={{
+                            fontSize: '0.75rem',
+                            backgroundColor: '#fee2e2',
+                            color: '#b91c1c',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '6px'
+                          }}>
+                            {notif.actionRequested || 'Edit / Delete Permission'}
+                          </span>
+                        </div>
+
+                        {/* Status Badge */}
+                        {isPending ? (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            backgroundColor: '#fff7ed',
+                            color: '#c2410c',
+                            padding: '3px 10px',
+                            borderRadius: '20px',
+                            border: '1px solid #fed7aa'
+                          }}>
+                            <Clock size={12} /> Pending Admin Action
+                          </span>
+                        ) : (
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            backgroundColor: '#dcfce7',
+                            color: '#15803d',
+                            padding: '3px 10px',
+                            borderRadius: '20px',
+                            border: '1px solid #86efac'
+                          }}>
+                            <CheckCircle2 size={12} /> Completed
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Request Content */}
+                      <div style={{ marginBottom: '12px' }}>
+                        <h4 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px 0' }}>
+                          {notif.targetTitle}
+                        </h4>
+                        <div style={{ fontSize: '0.84rem', color: '#475569', display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+                          <span>Patient: <strong>{notif.patientName}</strong> ({notif.patientId})</span>
+                          <span>Requested by: <strong>{notif.requesterName}</strong></span>
+                          <span>Time: {notif.timestamp}</span>
+                        </div>
+                        {notif.reason && (
+                          <div style={{
+                            marginTop: '8px',
+                            fontSize: '0.84rem',
+                            color: '#334155',
+                            backgroundColor: '#f8fafc',
+                            padding: '8px 12px',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0'
+                          }}>
+                            <strong>Reason:</strong> {notif.reason}
+                          </div>
+                        )}
+                        {!isPending && notif.completedAt && (
+                          <div style={{
+                            marginTop: '6px',
+                            fontSize: '0.78rem',
+                            color: '#15803d',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}>
+                            <CheckCircle2 size={13} /> {notif.resolutionNote || 'Completed by Super Admin'} at {notif.completedAt}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Buttons for Admin */}
+                      {isPending && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'flex-end',
+                          gap: '10px',
+                          borderTop: '1px solid #f1f5f9',
+                          paddingTop: '12px',
+                          flexWrap: 'wrap'
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => handleExecuteDeleteAndComplete(notif)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '7px 14px',
+                              backgroundColor: '#fee2e2',
+                              border: '1.5px solid #fca5a5',
+                              borderRadius: '8px',
+                              color: '#b91c1c',
+                              fontWeight: 700,
+                              fontSize: '0.82rem',
+                              cursor: 'pointer',
+                              transition: 'background 0.2s'
+                            }}
+                            title="Directly delete this record from system and mark request completed"
+                          >
+                            <Trash2 size={14} /> Approve & Delete Record
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleMarkNotifDone(notif.id, notif.targetTitle)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '7px 16px',
+                              backgroundColor: '#059669',
+                              border: 'none',
+                              borderRadius: '8px',
+                              color: '#ffffff',
+                              fontWeight: 700,
+                              fontSize: '0.84rem',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(5, 150, 105, 0.2)',
+                              transition: 'background 0.2s'
+                            }}
+                            title="Mark this request as resolved/completed"
+                          >
+                            <CheckCircle2 size={15} /> Mark as Done (Complete)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '14px 24px',
+              borderTop: '1px solid #e2e8f0',
+              backgroundColor: '#ffffff',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px'
+            }}>
+              <button
+                type="button"
+                onClick={() => {
+                  emrStore.clearCompletedStaffNotifications();
+                  toast.success('Completed notifications cleared.');
+                }}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  backgroundColor: '#ffffff',
+                  color: '#64748b',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Clear Completed History
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowNotifModal(false)}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#0f172a',
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
