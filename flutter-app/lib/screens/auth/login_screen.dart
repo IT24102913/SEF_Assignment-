@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/auth_api_service.dart';
 import '../../services/auth_service.dart';
 import '../../services/emr_api_service.dart';
@@ -16,6 +17,12 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   bool _showPass = false;
   bool _showConfirmPass = false;
+  bool _rememberMe = false;
+
+  // Keys for saved credentials
+  static const _savedEmailKey = 'saved_login_email';
+  static const _savedPassKey = 'saved_login_pass';
+  static const _rememberMeKey = 'remember_me';
 
   // Sign In Controllers
   final _emailCtrl = TextEditingController();
@@ -29,6 +36,48 @@ class _LoginScreenState extends State<LoginScreen> {
   final _regPassCtrl = TextEditingController();
   final _confirmPassCtrl = TextEditingController();
   String _selectedGender = 'Select Gender';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final remember = prefs.getBool(_rememberMeKey) ?? false;
+      if (remember) {
+        final savedEmail = prefs.getString(_savedEmailKey) ?? '';
+        final savedPass = prefs.getString(_savedPassKey) ?? '';
+        if (savedEmail.isNotEmpty && savedPass.isNotEmpty) {
+          setState(() {
+            _rememberMe = true;
+            _emailCtrl.text = savedEmail;
+            _passCtrl.text = savedPass;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveCredentials(String email, String pass) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_rememberMeKey, true);
+      await prefs.setString(_savedEmailKey, email);
+      await prefs.setString(_savedPassKey, pass);
+    } catch (_) {}
+  }
+
+  Future<void> _clearSavedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_rememberMeKey);
+      await prefs.remove(_savedEmailKey);
+      await prefs.remove(_savedPassKey);
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -56,6 +105,13 @@ class _LoginScreenState extends State<LoginScreen> {
       try {
         await AuthService.saveUser(result);
       } catch (_) {}
+
+      // Handle Remember Me
+      if (_rememberMe) {
+        await _saveCredentials(email, pass);
+      } else {
+        await _clearSavedCredentials();
+      }
 
       // Sync global application session & auth state
       AppSession.isLoggedIn = true;
@@ -377,7 +433,43 @@ class _LoginScreenState extends State<LoginScreen> {
                             onPressed: () => setState(() => _showPass = !_showPass),
                           ),
                         ),
-                        const SizedBox(height: 22),
+                        const SizedBox(height: 14),
+
+                        // ── Remember Me / Save Account Row ─────────────────────
+                        GestureDetector(
+                          onTap: () => setState(() => _rememberMe = !_rememberMe),
+                          child: Row(
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  color: _rememberMe ? const Color(0xFF0D9488) : Colors.white,
+                                  borderRadius: BorderRadius.circular(5),
+                                  border: Border.all(
+                                    color: _rememberMe ? const Color(0xFF0D9488) : const Color(0xFFCBD5E1),
+                                    width: 1.8,
+                                  ),
+                                ),
+                                child: _rememberMe
+                                    ? const Icon(Icons.check, color: Colors.white, size: 14)
+                                    : null,
+                              ),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Save account',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF475569),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
                         _buildSubmitButton(
                           label: 'Sign In',
                           onPressed: _login,
