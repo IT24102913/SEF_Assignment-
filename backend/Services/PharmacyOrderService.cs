@@ -131,7 +131,7 @@ public class PharmacyOrderService : IPharmacyOrderService
 
                 string medicineName = !string.IsNullOrWhiteSpace(itemReq.MedicineName)
                     ? itemReq.MedicineName.Trim()
-                    : (medicine != null ? medicine.Name : "Medicine");
+                    : medicine.Name;
 
                 if (isCard && !medicineName.EndsWith("(Card)", StringComparison.OrdinalIgnoreCase))
                 {
@@ -140,7 +140,7 @@ public class PharmacyOrderService : IPharmacyOrderService
 
                 orderItems.Add(new PharmacyOrderItem
                 {
-                    MedicineId = medicine?.Id ?? 0,
+                    MedicineId = medicine.Id,
                     MedicineName = medicineName,
                     UnitPrice = unitPrice,
                     Quantity = itemReq.Quantity,
@@ -160,12 +160,24 @@ public class PharmacyOrderService : IPharmacyOrderService
             }
         }
 
-        if (!patientId.HasValue && !string.IsNullOrWhiteSpace(request.CustomerEmail))
+        if (!string.IsNullOrWhiteSpace(request.CustomerEmail))
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == request.CustomerEmail.Trim().ToLower());
             if (user != null)
             {
-                patientId = user.Id;
+                if (!patientId.HasValue) patientId = user.Id;
+                if (user.IsPharmacyBlocked)
+                {
+                    throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
+                }
+            }
+        }
+        else if (patientId.HasValue)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == patientId.Value);
+            if (user != null && user.IsPharmacyBlocked)
+            {
+                throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
             }
         }
 

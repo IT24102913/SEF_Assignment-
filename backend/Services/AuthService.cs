@@ -186,6 +186,11 @@ public class AuthService : IAuthService
             _context.Patients.Add(emrPatient);
             await _context.SaveChangesAsync();
         }
+        else if (string.IsNullOrWhiteSpace(user.ProfileImage) && !string.IsNullOrWhiteSpace(payload.Picture))
+        {
+            user.ProfileImage = payload.Picture;
+            await _context.SaveChangesAsync();
+        }
 
         if (!user.IsActive)
         {
@@ -216,7 +221,10 @@ public class AuthService : IAuthService
             FullName = user.FullName,
             Email = user.Email,
             Role = user.Role,
-            PatientCode = patientCode
+            PatientCode = patientCode,
+            IsPharmacyBlocked = user.IsPharmacyBlocked,
+            BlockReason = user.BlockReason,
+            ProfileImage = user.ProfileImage
         };
     }
 }
