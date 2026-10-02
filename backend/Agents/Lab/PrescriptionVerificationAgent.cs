@@ -131,8 +131,10 @@ RULES & SECURITY FORGERY CHECKS:
 - If the image is a valid doctor handwritten or computer printed prescription, mark documentClassification accordingly, set isValidMedicalPrescription to true, set isForgeryOrTrainingSample to false.
 
 REQUESTED INVESTIGATION / TEST NAME: ""{input.TestName}""
+REGISTERED PATIENT ACCOUNT NAME: ""{input.PatientName}""
 
 Be flexible with medical abbreviations and synonyms (e.g. 'Full Blood Count' = 'CBC' = 'FBC', 'Lipid Profile' = 'Lipid', 'FBS' = 'Fasting Blood Sugar', 'Amoxicillin 500mg' = 'Tab. Amoxicillin').
+Also account for clinical naming conventions such as initials and titles (e.g. 'Mr. A. Gamage' matches 'anura gamage', 'S. Perera' matches 'Sunil Perera', 'Gamage, A.' matches 'Anura Gamage').
 
 Respond STRICTLY in pure JSON format without any markdown code fences or backticks:
 {{
@@ -515,14 +517,10 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
     {
         if (string.IsNullOrWhiteSpace(detectedName) ||
             detectedName.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ||
-            detectedName.Equals("Not Detected", StringComparison.OrdinalIgnoreCase))
+            detectedName.Equals("Not Detected", StringComparison.OrdinalIgnoreCase) ||
+            detectedName.Equals("Unreadable", StringComparison.OrdinalIgnoreCase))
         {
             return (false, "Unreadable / Not Detected", "No readable patient name was identified on the uploaded prescription slip.");
-        }
-
-        if (geminiReportedMatch == false)
-        {
-            return (false, detectedName, geminiReason ?? $"Detected patient name '{detectedName}' does not match account name '{profileName}'.");
         }
 
         if (geminiReportedMatch == true)
@@ -530,15 +528,69 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             return (true, detectedName, null);
         }
 
-        var cleanProfile = profileName.Replace("Mr.", "").Replace("Mrs.", "").Replace("Ms.", "").Replace("Dr.", "").Trim().ToLower();
-        var cleanDetected = detectedName.Replace("Mr.", "").Replace("Mrs.", "").Replace("Ms.", "").Replace("Dr.", "").Trim().ToLower();
-
-        if (cleanProfile == cleanDetected || cleanDetected.Contains(cleanProfile) || cleanProfile.Contains(cleanDetected))
+        if (IsClinicalNameMatch(profileName, detectedName))
         {
             return (true, detectedName, null);
         }
 
+        if (geminiReportedMatch == false)
+        {
+            return (false, detectedName, geminiReason ?? $"Detected patient name '{detectedName}' does not match registered profile name '{profileName}'.");
+        }
+
         return (false, detectedName, $"Detected patient name '{detectedName}' does not match registered profile name '{profileName}'.");
+    }
+
+    public static bool IsClinicalNameMatch(string name1, string name2)
+    {
+        if (string.IsNullOrWhiteSpace(name1) || string.IsNullOrWhiteSpace(name2))
+            return false;
+
+        static string Clean(string s)
+        {
+            var lower = s.ToLowerInvariant();
+            var titles = new[] { "mr.", "mr ", "mrs.", "mrs ", "ms.", "ms ", "miss ", "dr.", "dr ", "prof.", "prof ", "rev.", "rev ", "master " };
+            foreach (var t in titles)
+            {
+                if (lower.StartsWith(t))
+                {
+                    lower = lower.Substring(t.Length);
+                }
+            }
+            var chars = lower.Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray();
+            return new string(chars).Trim();
+        }
+
+        var c1 = Clean(name1);
+        var c2 = Clean(name2);
+
+        if (c1 == c2) return true;
+        if (c1.Contains(c2) || c2.Contains(c1)) return true;
+
+        var tokens1 = c1.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tokens2 = c2.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (tokens1.Length == 0 || tokens2.Length == 0) return false;
+
+        var surname1 = tokens1.Last();
+        var surname2 = tokens2.Last();
+
+        bool surnameMatches = surname1.Equals(surname2, StringComparison.OrdinalIgnoreCase) ||
+                              tokens2.Contains(surname1) || tokens1.Contains(surname2);
+
+        if (!surnameMatches)
+        {
+            var multiLetterMatches = tokens1.Where(t => t.Length > 2)
+                                            .Intersect(tokens2.Where(t => t.Length > 2))
+                                            .Any();
+            if (!multiLetterMatches) return false;
+        }
+
+        var initials1 = tokens1.Select(t => t[0]).ToList();
+        var initials2 = tokens2.Select(t => t[0]).ToList();
+
+        var commonInitials = initials1.Intersect(initials2).Count();
+        return commonInitials > 0;
     }
 
     public static (bool IsValid, bool IsExpired, string? Reason) EvaluatePrescriptionDate(
