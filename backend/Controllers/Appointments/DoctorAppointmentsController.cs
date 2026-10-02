@@ -172,20 +172,70 @@ public class DoctorAppointmentsController : ControllerBase
     }
 
     /// <summary>
-    /// Patient check-in at channeling desk via QR token. (Admin only)
+    /// Preview and verify appointment details via QR token before confirming check-in. (Admin only)
     /// </summary>
-    [HttpPost("{id}/checkin")]
+    [HttpGet("lookup-qr")]
     [Authorize(Roles = UserRole.Admin)]
-    public async Task<IActionResult> CheckIn(int id, [FromBody] CheckInRequest request)
+    public async Task<IActionResult> LookupByQr([FromQuery] string token)
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.QrToken))
+        if (string.IsNullOrWhiteSpace(token))
         {
-            return BadRequest(new { message = "QR check-in token is required." });
+            return BadRequest(new { message = "QR token or Appointment Number is required." });
         }
 
         try
         {
-            var result = await _appointmentService.CheckInAsync(id, request.QrToken.Trim());
+            var result = await _appointmentService.GetByQrTokenAsync(token.Trim());
+            if (result == null)
+            {
+                return NotFound(new { message = "No appointment found matching this QR code or Reference Number." });
+            }
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error looking up appointment by QR {Token}", token);
+            return StatusCode(500, new { message = "Failed to verify QR token." });
+        }
+    }
+
+    /// <summary>
+    /// Privacy-safe search for Channeling Desk with masked NIC and minimal fields. (Admin only)
+    /// </summary>
+    [HttpGet("desk-search")]
+    [Authorize(Roles = UserRole.Admin)]
+    public async Task<IActionResult> DeskSearch([FromQuery] string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Ok(new List<AppointmentSearchResultDto>());
+        }
+
+        try
+        {
+            var results = await _appointmentService.SearchAppointmentsForDeskAsync(query.Trim());
+            return Ok(results);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error searching appointments for desk with query {Query}", query);
+            return StatusCode(500, new { message = "Failed to search appointments." });
+        }
+    }
+
+    /// <summary>
+    /// Patient check-in at channeling desk via QR token or manual override by staff. (Admin only)
+    /// </summary>
+    [HttpPost("{id}/checkin")]
+    [Authorize(Roles = UserRole.Admin)]
+    public async Task<IActionResult> CheckIn(int id, [FromBody] CheckInRequest? request)
+    {
+        var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        int? adminUserId = int.TryParse(userIdClaim, out var parsedId) ? parsedId : null;
+
+        try
+        {
+            var result = await _appointmentService.CheckInAsync(id, request?.QrToken?.Trim(), adminUserId);
             return Ok(result);
         }
         catch (KeyNotFoundException)
@@ -199,7 +249,7 @@ public class DoctorAppointmentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking in appointment {Id}", id);
-            return StatusCode(500, new { message = "Check-in failed." });
+            return StatusCode(500, new { message = "Check-in failed due to server error." });
         }
     }
 

@@ -62,9 +62,12 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
   // Payment State
   const [paymentMethod, setPaymentMethod] = useState('CreditCard');
-  const [cardData, setCardData] = useState({ number: '', expiry: '', cvv: '' });
+  const [walletProvider, setWalletProvider] = useState('FriMi');
+  const [cardData, setCardData] = useState({ number: '', expiry: '', cvv: '', name: '' });
   const [walletPhone, setWalletPhone] = useState('');
   const [bankRef, setBankRef] = useState('');
+  const [paymentErrors, setPaymentErrors] = useState({});
+  const [pendingAppointmentId, setPendingAppointmentId] = useState(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [confirmedAppointment, setConfirmedAppointment] = useState(null);
 
@@ -216,11 +219,16 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     try {
       const res = await getDoctorSessions(doctor.id);
       if (Array.isArray(res.data)) {
-        setAvailableSessions(res.data);
+        // Filter out expired/past time slots immediately
+        const validUpcomingSessions = res.data.filter(s => !s.isExpired);
+        
+        setAvailableSessions(validUpcomingSessions);
         // Default to first available date
-        if (res.data.length > 0) {
-          const uniqueDates = [...new Set(res.data.map(s => s.sessionDate))];
+        if (validUpcomingSessions.length > 0) {
+          const uniqueDates = [...new Set(validUpcomingSessions.map(s => s.sessionDate))];
           setSelectedSessionDate(uniqueDates[0]);
+        } else {
+          setSelectedSessionDate('');
         }
       }
     } catch (err) {
@@ -316,7 +324,71 @@ const DoctorChannelingSection = ({ user, showToast }) => {
       notify('Please correct the highlighted errors in the form.', 'error');
       return;
     }
+    setPaymentErrors({});
     setCurrentStep(5);
+  };
+
+  const validatePayment = () => {
+    const errs = {};
+    if (paymentMethod === 'CreditCard') {
+      const cleanNum = (cardData.number || '').replace(/\s+/g, '');
+      if (!cleanNum) {
+        errs.cardNumber = 'Card number is required';
+      } else if (!/^\d{15,19}$/.test(cleanNum)) {
+        errs.cardNumber = 'Enter a valid 15-19 digit card number';
+      }
+
+      if (!cardData.expiry) {
+        errs.expiry = 'Expiry MM/YY required';
+      } else if (!/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(cardData.expiry)) {
+        errs.expiry = 'Format must be MM/YY (e.g. 08/27)';
+      }
+
+      if (!cardData.cvv) {
+        errs.cvv = 'CVV required';
+      } else if (!/^\d{3,4}$/.test(cardData.cvv)) {
+        errs.cvv = 'CVV must be 3 or 4 digits';
+      }
+    } else if (paymentMethod === 'MobileWallet') {
+      const cleanPhone = (walletPhone || '').replace(/\s+/g, '');
+      if (!cleanPhone) {
+        errs.walletPhone = 'Wallet registered mobile number is required';
+      } else if (!/^(?:07[0-9]{8}|\+947[0-9]{8})$/.test(cleanPhone)) {
+        errs.walletPhone = 'Invalid Sri Lankan mobile format (e.g. 077 123 4567)';
+      }
+    } else if (paymentMethod === 'BankTransfer') {
+      const cleanRef = (bankRef || '').trim();
+      if (!cleanRef) {
+        errs.bankRef = 'Bank deposit/transfer slip reference number is required';
+      } else if (cleanRef.length < 4) {
+        errs.bankRef = 'Reference must be at least 4 characters';
+      }
+    }
+
+    setPaymentErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleCardNumberChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '').substring(0, 16);
+    val = val.match(/.{1,4}/g)?.join(' ') || val;
+    setCardData(prev => ({ ...prev, number: val }));
+    if (paymentErrors.cardNumber) setPaymentErrors(prev => ({ ...prev, cardNumber: null }));
+  };
+
+  const handleExpiryChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '').substring(0, 4);
+    if (val.length >= 2) {
+      val = val.substring(0, 2) + '/' + val.substring(2);
+    }
+    setCardData(prev => ({ ...prev, expiry: val }));
+    if (paymentErrors.expiry) setPaymentErrors(prev => ({ ...prev, expiry: null }));
+  };
+
+  const handleCvvChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '').substring(0, 4);
+    setCardData(prev => ({ ...prev, cvv: val }));
+    if (paymentErrors.cvv) setPaymentErrors(prev => ({ ...prev, cvv: null }));
   };
 
   // ─── Reservation Handler (Pay on Arrival) ──────────────────────────────────
@@ -342,7 +414,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
       setConfirmedAppointment(bookRes.data);
       setCurrentStep(5);
-      notify('Place reserved successfully! Show your QR code at the desk on arrival.', 'success');
+      notify('Place reserved successfully! Settle payment on arrival at the hospital reception.', 'success');
     } catch (err) {
       console.error('Reservation failed', err);
       const msg = err.response?.data?.message || 'Failed to reserve appointment';
@@ -355,41 +427,57 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   // ─── Step 5: Payment & Finalize Booking ────────────────────────────────────
 
   const handleConfirmAndPay = async () => {
+    if (!validatePayment()) {
+      notify('Please complete and correct all required payment fields.', 'error');
+      return;
+    }
+
     setIsProcessingPayment(true);
     try {
-      // 1. Create Appointment with OnlinePayment booking type
-      const bookRes = await bookAppointment({
-        doctorId: selectedDoctor.id,
-        doctorSessionId: selectedSession.id,
-        bookingType: 'OnlinePayment',
-        patientName: patientDetails.fullName,
-        patientPhone: patientDetails.phone,
-        patientEmail: patientDetails.email,
-        patientNic: patientDetails.nic,
-        patientAddress: patientDetails.address,
-        notes: patientDetails.notes
-      });
+      let appointmentId = pendingAppointmentId;
 
-      const appointment = bookRes.data;
-
-      // 2. Process Simulated Payment
-      let maskedCard = null;
-      if (paymentMethod === 'CreditCard') {
-        const last4 = cardData.number.replace(/\s+/g, '').slice(-4) || '3456';
-        maskedCard = `**** **** **** ${last4}`;
+      // 1. Create Appointment with OnlinePayment booking type if not already initiated
+      if (!appointmentId) {
+        const bookRes = await bookAppointment({
+          doctorId: selectedDoctor.id,
+          doctorSessionId: selectedSession.id,
+          bookingType: 'OnlinePayment',
+          patientName: patientDetails.fullName,
+          patientPhone: patientDetails.phone,
+          patientEmail: patientDetails.email,
+          patientNic: patientDetails.nic,
+          patientAddress: patientDetails.address,
+          notes: patientDetails.notes
+        });
+        appointmentId = bookRes.data.id;
+        setPendingAppointmentId(appointmentId);
       }
 
-      const payRes = await payAppointment(appointment.id, {
+      // 2. Process Verified Payment Payload
+      let cardRef = null;
+      let bankReference = null;
+
+      if (paymentMethod === 'CreditCard') {
+        const cleanLast4 = cardData.number.replace(/\s+/g, '').slice(-4);
+        cardRef = `**** **** **** ${cleanLast4}`;
+      } else if (paymentMethod === 'MobileWallet') {
+        bankReference = `${walletProvider}-${walletPhone.trim()}`;
+      } else if (paymentMethod === 'BankTransfer') {
+        bankReference = `BOC-${bankRef.trim()}`;
+      }
+
+      const payRes = await payAppointment(appointmentId, {
         paymentMethod,
-        cardMaskedReference: maskedCard,
-        bankReference: paymentMethod === 'BankTransfer' ? bankRef : null
+        cardMaskedReference: cardRef,
+        bankReference
       });
 
       setConfirmedAppointment(payRes.data);
-      notify('Appointment confirmed and paid successfully!', 'success');
+      setPendingAppointmentId(null);
+      notify('Payment verified and appointment confirmed successfully!', 'success');
     } catch (err) {
-      console.error('Booking failed', err);
-      const msg = err.response?.data?.message || 'Failed to complete booking and payment';
+      console.error('Payment processing failed', err);
+      const msg = err.response?.data?.message || 'Payment processing failed. Please verify payment details and try again.';
       notify(msg, 'error');
     } finally {
       setIsProcessingPayment(false);
@@ -460,10 +548,10 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     }
   };
 
-  const uniqueSessionDates = [...new Set(availableSessions.map(s => s.sessionDate))];
+  const uniqueSessionDates = [...new Set(availableSessions.filter(s => !s.isExpired).map(s => s.sessionDate))];
 
   const sessionsForSelectedDate = availableSessions.filter(
-    s => s.sessionDate === selectedSessionDate
+    s => s.sessionDate === selectedSessionDate && !s.isExpired
   );
 
   const totalFee = (selectedDoctor?.consultationFee || 0) + 300.00;
@@ -1445,61 +1533,55 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   Select Time Slot for {selectedSessionDate}
                 </h4>
 
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-                  gap: '10px',
-                  marginBottom: '20px'
-                }}>
-                  {sessionsForSelectedDate.map(session => {
-                    const isSelected = selectedSession?.id === session.id;
-                    const isExpired = session.isExpired || false;
-                    const disabled = !session.isAvailable || isExpired;
+                {sessionsForSelectedDate.length === 0 ? (
+                  <p style={{ color: '#78909C', fontSize: '13px', margin: '10px 0 20px 0' }}>
+                    No upcoming time slots remaining for this date.
+                  </p>
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                    gap: '10px',
+                    marginBottom: '20px'
+                  }}>
+                    {sessionsForSelectedDate.map(session => {
+                      const isSelected = selectedSession?.id === session.id;
+                      const disabled = !session.isAvailable;
 
-                    return (
-                      <button
-                        key={session.id}
-                        disabled={disabled}
-                        onClick={() => setSelectedSession(session)}
-                        style={{
-                          padding: '12px 10px',
-                          borderRadius: '8px',
-                          border: isSelected
-                            ? '2px solid #00796B'
-                            : isExpired
-                              ? '1px solid #FFCDD2'
-                              : '1px solid #B2DFDB',
-                          backgroundColor: isExpired
-                            ? '#FFF5F5'
-                            : disabled
-                              ? '#ECEFF1'
-                              : isSelected
-                                ? '#E0F2F1'
-                                : '#FFFFFF',
-                          color: isExpired ? '#C62828' : disabled ? '#90A4AE' : '#004D40',
-                          fontWeight: '700',
-                          fontSize: '13px',
-                          cursor: disabled ? 'not-allowed' : 'pointer',
-                          textAlign: 'center',
-                          boxShadow: isSelected ? '0 2px 8px rgba(0,121,107,0.2)' : 'none',
-                          opacity: isExpired ? 0.75 : 1
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                          <Clock size={13} /> {session.timeFormatted}
-                        </div>
-                        <div style={{
-                          fontSize: '10px',
-                          marginTop: '4px',
-                          color: isExpired ? '#D32F2F' : disabled ? '#B0BEC5' : '#00796B',
-                          fontWeight: isExpired ? '800' : '600'
-                        }}>
-                          {isExpired ? 'Expired' : disabled ? 'Booked' : 'Available'}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                      return (
+                        <button
+                          key={session.id}
+                          disabled={disabled}
+                          onClick={() => setSelectedSession(session)}
+                          style={{
+                            padding: '12px 10px',
+                            borderRadius: '8px',
+                            border: isSelected ? '2px solid #00796B' : '1px solid #B2DFDB',
+                            backgroundColor: disabled ? '#ECEFF1' : isSelected ? '#E0F2F1' : '#FFFFFF',
+                            color: disabled ? '#90A4AE' : '#004D40',
+                            fontWeight: '700',
+                            fontSize: '13px',
+                            cursor: disabled ? 'not-allowed' : 'pointer',
+                            textAlign: 'center',
+                            boxShadow: isSelected ? '0 2px 8px rgba(0,121,107,0.2)' : 'none'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                            <Clock size={13} /> {session.timeFormatted}
+                          </div>
+                          <div style={{
+                            fontSize: '10px',
+                            marginTop: '4px',
+                            color: disabled ? '#B0BEC5' : '#00796B',
+                            fontWeight: '600'
+                          }}>
+                            {disabled ? 'Booked' : 'Available'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Persistent Dynamic Summary Bar */}
                 {selectedSession && (
@@ -2009,7 +2091,10 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                     <button
                       key={tab.id}
                       type="button"
-                      onClick={() => setPaymentMethod(tab.id)}
+                      onClick={() => {
+                        setPaymentMethod(tab.id);
+                        setPaymentErrors({});
+                      }}
                       style={{
                         padding: '12px 10px',
                         borderRadius: '8px',
@@ -2033,84 +2118,201 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
               {/* Tab Form Content */}
               {paymentMethod === 'CreditCard' && (
-                <div style={{ padding: '16px', borderRadius: '8px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
-                  <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#64748B' }}>
-                    * Simulated University Sandbox Payment. Raw card information is validated client-side only and never stored in the database.
-                  </p>
+                <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#004D40' }}>
+                      💳 Credit / Debit Card Payment
+                    </span>
+                    <span style={{ fontSize: '11px', color: '#64748B' }}>
+                      Visa • Mastercard • Amex
+                    </span>
+                  </div>
+
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
-                      CARD NUMBER
+                      CARD NUMBER *
                     </label>
                     <input
                       type="text"
-                      placeholder="1234 5678 9012 3456"
+                      placeholder="4111 2222 3333 4444"
                       maxLength={19}
                       value={cardData.number}
-                      onChange={(e) => setCardData({ ...cardData, number: e.target.value })}
-                      style={{ width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                      onChange={handleCardNumberChange}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: paymentErrors.cardNumber ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        boxSizing: 'border-box',
+                        outline: 'none'
+                      }}
                     />
+                    {paymentErrors.cardNumber && (
+                      <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                        {paymentErrors.cardNumber}
+                      </div>
+                    )}
                   </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
-                        EXPIRY (MM/YY)
+                        EXPIRY DATE (MM/YY) *
                       </label>
                       <input
                         type="text"
                         placeholder="MM/YY"
                         maxLength={5}
                         value={cardData.expiry}
-                        onChange={(e) => setCardData({ ...cardData, expiry: e.target.value })}
-                        style={{ width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                        onChange={handleExpiryChange}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: paymentErrors.expiry ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                          outline: 'none'
+                        }}
                       />
+                      {paymentErrors.expiry && (
+                        <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                          {paymentErrors.expiry}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
-                        CVV
+                        SECURITY CODE (CVV) *
                       </label>
                       <input
                         type="password"
                         placeholder="•••"
                         maxLength={4}
                         value={cardData.cvv}
-                        onChange={(e) => setCardData({ ...cardData, cvv: e.target.value })}
-                        style={{ width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                        onChange={handleCvvChange}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          border: paymentErrors.cvv ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          boxSizing: 'border-box',
+                          outline: 'none'
+                        }}
                       />
+                      {paymentErrors.cvv && (
+                        <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                          {paymentErrors.cvv}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
               {paymentMethod === 'MobileWallet' && (
-                <div style={{ padding: '16px', borderRadius: '8px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
-                  <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#475569' }}>
-                    Supports eZ Cash, Dialog Genie, and FriMi wallets. Enter your registered wallet mobile number:
-                  </p>
-                  <input
-                    type="tel"
-                    placeholder="e.g. 077 123 4567"
-                    value={walletPhone}
-                    onChange={(e) => setWalletPhone(e.target.value)}
-                    style={{ width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-                  />
+                <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>
+                      SELECT WALLET PROVIDER *
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {['FriMi', 'eZ Cash', 'Dialog Genie'].map(w => (
+                        <button
+                          key={w}
+                          type="button"
+                          onClick={() => setWalletProvider(w)}
+                          style={{
+                            flex: 1,
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            border: walletProvider === w ? '2px solid #00796B' : '1px solid #CBD5E1',
+                            backgroundColor: walletProvider === w ? '#E0F2F1' : '#FFFFFF',
+                            color: walletProvider === w ? '#004D40' : '#475569',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {w}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                      REGISTERED MOBILE NUMBER *
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="077 123 4567"
+                      value={walletPhone}
+                      onChange={(e) => {
+                        setWalletPhone(e.target.value);
+                        if (paymentErrors.walletPhone) setPaymentErrors(prev => ({ ...prev, walletPhone: null }));
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: paymentErrors.walletPhone ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        boxSizing: 'border-box',
+                        outline: 'none'
+                      }}
+                    />
+                    {paymentErrors.walletPhone && (
+                      <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                        {paymentErrors.walletPhone}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
               {paymentMethod === 'BankTransfer' && (
-                <div style={{ padding: '16px', borderRadius: '8px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#475569' }}>
-                    Account: <strong>Health Bridge Pvt Ltd</strong> | Bank of Ceylon: 00812345678 (Corporate Branch)
-                  </p>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
-                    TRANSFER SLIP REFERENCE NUMBER
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. TXN-8921827"
-                    value={bankRef}
-                    onChange={(e) => setBankRef(e.target.value)}
-                    style={{ width: '100%', padding: '9px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-                  />
+                <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
+                  <div style={{ backgroundColor: '#EFF6FF', padding: '10px 14px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #BFDBFE' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#1E40AF', marginBottom: '2px' }}>
+                      DIRECT DEPOSIT / ONLINE BANK TRANSFER
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#1E3A8A' }}>
+                      Account: <strong>Health Bridge Pvt Ltd</strong> • Bank: <strong>Bank of Ceylon (BOC)</strong><br />
+                      Account No: <strong>00812345678</strong> • Branch: <strong>Corporate Branch</strong>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                      DEPOSIT SLIP / ONLINE TXN REFERENCE *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. BOC-TXN-984218"
+                      value={bankRef}
+                      onChange={(e) => {
+                        setBankRef(e.target.value);
+                        if (paymentErrors.bankRef) setPaymentErrors(prev => ({ ...prev, bankRef: null }));
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: paymentErrors.bankRef ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        boxSizing: 'border-box',
+                        outline: 'none'
+                      }}
+                    />
+                    {paymentErrors.bankRef && (
+                      <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                        {paymentErrors.bankRef}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -2120,8 +2322,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 disabled={isProcessingPayment}
                 style={{
                   width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
+                  padding: '14px',
+                  borderRadius: '10px',
                   border: 'none',
                   backgroundColor: '#00796B',
                   color: '#FFFFFF',
@@ -2132,20 +2334,20 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
-                  boxShadow: '0 4px 12px rgba(0,121,107,0.25)'
+                  boxShadow: '0 4px 14px rgba(0,121,107,0.25)'
                 }}
               >
-                {isProcessingPayment ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                {isProcessingPayment ? 'Processing Payment...' : `Confirm & Pay LKR ${totalFee.toLocaleString()}`}
+                {isProcessingPayment ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                {isProcessingPayment ? 'Authorizing & Verifying Payment...' : `Authorize & Pay LKR ${totalFee.toLocaleString()}`}
               </button>
             </div>
           ) : (
-            /* Appointment Confirmed State (with QR Code) */
+            /* Appointment Confirmed / Reserved State (with QR Code) */
             <div style={{
               backgroundColor: '#FFFFFF',
               borderRadius: '16px',
               padding: '32px 24px',
-              border: '1px solid #80CBC4',
+              border: confirmedAppointment.paymentStatus === 'Paid' ? '2px solid #00796B' : '2px solid #F59E0B',
               boxShadow: '0 4px 20px rgba(0,77,64,0.08)',
               maxWidth: '560px',
               margin: '0 auto',
@@ -2155,8 +2357,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 width: '64px',
                 height: '64px',
                 borderRadius: '50%',
-                backgroundColor: '#E0F2F1',
-                color: '#00796B',
+                backgroundColor: confirmedAppointment.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
+                color: confirmedAppointment.paymentStatus === 'Paid' ? '#15803D' : '#B45309',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -2166,21 +2368,21 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               </div>
 
               <span style={{
-                backgroundColor: confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? '#FEF3C7' : '#DCFCE7',
-                color: confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? '#B45309' : '#15803D',
+                backgroundColor: confirmedAppointment.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
+                color: confirmedAppointment.paymentStatus === 'Paid' ? '#15803D' : '#B45309',
                 fontSize: '11px',
                 fontWeight: '800',
-                padding: '4px 10px',
+                padding: '4px 12px',
                 borderRadius: '20px',
                 textTransform: 'uppercase'
               }}>
-                {confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? 'Place Reserved — Pay at Desk' : 'Payment Confirmed'}
+                {confirmedAppointment.paymentStatus === 'Paid' ? '✓ PAYMENT CONFIRMED & VERIFIED' : 'RESERVATION PASS — PAYMENT DUE AT DESK'}
               </span>
 
-              <h2 style={{ margin: '8px 0 4px 0', fontSize: '20px', fontWeight: '900', color: '#004D40' }}>
-                {confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.status === 'Reserved' ? 'Place Reserved Successfully!' : 'Appointment Confirmed!'}
+              <h2 style={{ margin: '10px 0 4px 0', fontSize: '20px', fontWeight: '900', color: '#004D40' }}>
+                {confirmedAppointment.paymentStatus === 'Paid' ? 'Appointment & Payment Confirmed!' : 'Place Reserved Successfully!'}
               </h2>
-              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#607D8B' }}>
+              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748B' }}>
                 Ref: <strong>{confirmedAppointment.appointmentNumber}</strong>
               </p>
 
@@ -2188,14 +2390,14 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               <div style={{
                 backgroundColor: '#E0F2F1',
                 borderRadius: '10px',
-                padding: '12px',
+                padding: '12px 24px',
                 marginBottom: '16px',
                 display: 'inline-block'
               }}>
                 <div style={{ fontSize: '11px', color: '#00796B', fontWeight: '700', textTransform: 'uppercase' }}>
                   Assigned Queue Number
                 </div>
-                <div style={{ fontSize: '28px', fontWeight: '900', color: '#004D40' }}>
+                <div style={{ fontSize: '32px', fontWeight: '900', color: '#004D40' }}>
                   Queue #{String(confirmedAppointment.queueNumber).padStart(2, '0')}
                 </div>
               </div>
@@ -2204,18 +2406,26 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               <div style={{
                 backgroundColor: '#F8FAFC',
                 borderRadius: '10px',
-                padding: '14px',
+                padding: '16px',
                 textAlign: 'left',
                 fontSize: '13px',
                 color: '#334155',
                 marginBottom: '20px',
-                lineHeight: '1.6'
+                lineHeight: '1.7'
               }}>
                 <div><strong>Doctor:</strong> {confirmedAppointment.doctorName} ({confirmedAppointment.specialization})</div>
                 <div><strong>Date & Time:</strong> {confirmedAppointment.appointmentDate} at {confirmedAppointment.timeSlot}</div>
-                <div><strong>Hospital Branch:</strong> {confirmedAppointment.hospitalBranch}</div>
+                <div><strong>Hospital:</strong> {confirmedAppointment.hospitalBranch}</div>
                 <div><strong>Patient:</strong> {confirmedAppointment.patientName} (NIC: {confirmedAppointment.patientNic})</div>
-                <div><strong>Amount:</strong> LKR {confirmedAppointment.totalAmount.toLocaleString()} ({confirmedAppointment.bookingType === 'Reservation' || confirmedAppointment.paymentStatus === 'NotRequired' ? 'Pay at Counter' : 'Paid Online'})</div>
+                {confirmedAppointment.paymentStatus === 'Paid' ? (
+                  <div style={{ color: '#15803D', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
+                    Payment: LKR {confirmedAppointment.totalAmount?.toLocaleString()} Paid ({confirmedAppointment.paymentMethod} • Ref: {confirmedAppointment.paymentReference || 'VERIFIED'})
+                  </div>
+                ) : (
+                  <div style={{ color: '#B45309', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
+                    Amount Due on Arrival: LKR {confirmedAppointment.totalAmount?.toLocaleString()} (Cash / Card at Hospital Desk)
+                  </div>
+                )}
               </div>
 
               {/* Real-time QR Code for Check-in */}
@@ -2227,7 +2437,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   display: 'inline-block',
                   padding: '10px',
                   backgroundColor: '#FFFFFF',
-                  borderRadius: '8px',
+                  borderRadius: '10px',
                   border: '1px solid #E2E8F0',
                   boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
                 }}>
@@ -2238,17 +2448,62 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   />
                 </div>
                 <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: '#94A3B8' }}>
-                  Show this QR at the Channeling Desk on arrival to verify and check in
+                  Present this QR code at the Channeling Desk on arrival for expedited check-in
                 </p>
               </div>
 
               {/* Actions */}
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                {confirmedAppointment.paymentStatus === 'Paid' ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveReceiptApt(confirmedAppointment)}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      border: '1px solid #00796B',
+                      backgroundColor: '#00796B',
+                      color: '#FFFFFF',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <FileText size={15} /> View Official Receipt
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setActiveReceiptApt(confirmedAppointment)}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      border: '1px solid #CBD5E1',
+                      backgroundColor: '#FFFFFF',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <FileText size={15} /> View Reservation Slip
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => setActiveReceiptApt(confirmedAppointment)}
+                  onClick={() => {
+                    setCurrentStep(6);
+                    fetchMyAppointmentsList();
+                  }}
                   style={{
-                    padding: '9px 18px',
+                    padding: '10px 20px',
                     borderRadius: '8px',
                     border: '1px solid #CFD8DC',
                     backgroundColor: '#FFFFFF',
@@ -2261,26 +2516,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                     gap: '6px'
                   }}
                 >
-                  <Printer size={15} /> Download Receipt
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentStep(6);
-                    fetchMyAppointmentsList();
-                  }}
-                  style={{
-                    padding: '9px 20px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: '#00796B',
-                    color: '#FFFFFF',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Go to My Appointments
+                  <Calendar size={15} /> Go to My Appointments
                 </button>
               </div>
             </div>
@@ -2524,7 +2760,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         <QrCode size={14} /> View QR
                       </button>
 
-                      {isCompleted && (
+                      {(apt.paymentStatus === 'Paid' || isCompleted) ? (
                         <button
                           onClick={() => setActiveReceiptApt(apt)}
                           style={{
@@ -2532,16 +2768,35 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                             borderRadius: '6px',
                             border: '1px solid #CFD8DC',
                             backgroundColor: '#FFFFFF',
-                            color: '#37474F',
+                            color: '#00796B',
                             fontSize: '12px',
-                            fontWeight: '600',
+                            fontWeight: '700',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '4px'
                           }}
                         >
-                          <FileText size={14} /> Receipt
+                          <FileText size={14} /> Official Receipt
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setActiveReceiptApt(apt)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #FEF08A',
+                            backgroundColor: '#FEFCE8',
+                            color: '#854D0E',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <FileText size={14} /> Reservation Slip
                         </button>
                       )}
 
@@ -2715,57 +2970,138 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               <X size={20} color="#78909C" />
             </button>
 
-            <div style={{ textAlign: 'center', marginBottom: '16px', borderBottom: '1px dashed #CFD8DC', paddingBottom: '14px' }}>
-              <h3 style={{ margin: '0 0 2px 0', fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
-                Health Bridge Hospital (Pvt) Ltd
-              </h3>
-              <p style={{ margin: 0, fontSize: '11px', color: '#78909C' }}>
-                Official Channeling Consultation e-Receipt
-              </p>
-            </div>
+            {activeReceiptApt.paymentStatus === 'Paid' ? (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: '16px', borderBottom: '1px dashed #CFD8DC', paddingBottom: '14px' }}>
+                  <span style={{
+                    backgroundColor: '#DCFCE7',
+                    color: '#15803D',
+                    fontSize: '10px',
+                    fontWeight: '800',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    display: 'inline-block',
+                    marginBottom: '6px'
+                  }}>
+                    ✓ PAYMENT CONFIRMED & VERIFIED
+                  </span>
+                  <h3 style={{ margin: '0 0 2px 0', fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
+                    Health Bridge Hospital (Pvt) Ltd
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#78909C' }}>
+                    Official Channeling Consultation e-Receipt / Tax Invoice
+                  </p>
+                </div>
 
-            <div style={{ fontSize: '12px', color: '#37474F', lineHeight: '1.7', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Receipt / Apt Ref:</span>
-                <strong>{activeReceiptApt.appointmentNumber}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Queue Number:</span>
-                <strong style={{ color: '#004D40' }}>#{String(activeReceiptApt.queueNumber).padStart(2, '0')}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Patient Name:</span>
-                <strong>{activeReceiptApt.patientName}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Patient NIC:</span>
-                <strong>{activeReceiptApt.patientNic}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Doctor:</span>
-                <strong>{activeReceiptApt.doctorName}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Specialization:</span>
-                <strong>{activeReceiptApt.specialization}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Date & Time:</span>
-                <strong>{activeReceiptApt.appointmentDate} ({activeReceiptApt.timeSlot})</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Hospital Branch:</span>
-                <strong>{activeReceiptApt.hospitalBranch}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>Payment Method:</span>
-                <strong>{activeReceiptApt.paymentMethod} ({activeReceiptApt.paymentReference || 'Paid'})</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #ECEFF1', paddingTop: '6px', marginTop: '6px', fontSize: '13px' }}>
-                <span>Total Amount Paid:</span>
-                <strong style={{ color: '#00796B' }}>LKR {activeReceiptApt.totalAmount?.toLocaleString()}</strong>
-              </div>
-            </div>
+                <div style={{ fontSize: '12px', color: '#37474F', lineHeight: '1.7', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Receipt / Apt Ref:</span>
+                    <strong>{activeReceiptApt.appointmentNumber}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Queue Number:</span>
+                    <strong style={{ color: '#004D40' }}>#{String(activeReceiptApt.queueNumber).padStart(2, '0')}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Patient Name:</span>
+                    <strong>{activeReceiptApt.patientName}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Patient NIC:</span>
+                    <strong>{activeReceiptApt.patientNic}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Consultant Doctor:</span>
+                    <strong>{activeReceiptApt.doctorName}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Specialization:</span>
+                    <strong>{activeReceiptApt.specialization}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Session Date & Time:</span>
+                    <strong>{activeReceiptApt.appointmentDate} ({activeReceiptApt.timeSlot})</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Hospital Branch:</span>
+                    <strong>{activeReceiptApt.hospitalBranch}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Payment Method:</span>
+                    <strong>{activeReceiptApt.paymentMethod || 'Online Payment'}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Transaction Reference:</span>
+                    <strong style={{ color: '#00796B' }}>{activeReceiptApt.paymentReference || activeReceiptApt.appointmentNumber}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #ECEFF1', paddingTop: '6px', marginTop: '6px', fontSize: '13px' }}>
+                    <span>Total Amount Paid:</span>
+                    <strong style={{ color: '#00796B' }}>LKR {activeReceiptApt.totalAmount?.toLocaleString()}</strong>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: '16px', borderBottom: '1px dashed #F59E0B', paddingBottom: '14px' }}>
+                  <span style={{
+                    backgroundColor: '#FEF3C7',
+                    color: '#B45309',
+                    fontSize: '10px',
+                    fontWeight: '800',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    display: 'inline-block',
+                    marginBottom: '6px'
+                  }}>
+                    RESERVATION SLIP — PAYMENT DUE AT HOSPITAL
+                  </span>
+                  <h3 style={{ margin: '0 0 2px 0', fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
+                    Health Bridge Hospital (Pvt) Ltd
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#78909C' }}>
+                    Channeling Consultation Place Reservation
+                  </p>
+                </div>
+
+                <div style={{ fontSize: '12px', color: '#37474F', lineHeight: '1.7', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Booking Reference:</span>
+                    <strong>{activeReceiptApt.appointmentNumber}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Queue Number:</span>
+                    <strong style={{ color: '#004D40' }}>#{String(activeReceiptApt.queueNumber).padStart(2, '0')}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Patient Name:</span>
+                    <strong>{activeReceiptApt.patientName}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Patient NIC:</span>
+                    <strong>{activeReceiptApt.patientNic}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Doctor:</span>
+                    <strong>{activeReceiptApt.doctorName} ({activeReceiptApt.specialization})</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Session:</span>
+                    <strong>{activeReceiptApt.appointmentDate} at {activeReceiptApt.timeSlot}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Hospital:</span>
+                    <strong>{activeReceiptApt.hospitalBranch}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #ECEFF1', paddingTop: '6px', marginTop: '6px', fontSize: '13px' }}>
+                    <span>Fee Payable on Arrival:</span>
+                    <strong style={{ color: '#D97706' }}>LKR {activeReceiptApt.totalAmount?.toLocaleString()}</strong>
+                  </div>
+                  <div style={{ backgroundColor: '#FFFBEB', padding: '8px 10px', borderRadius: '6px', marginTop: '10px', fontSize: '11px', color: '#92400E' }}>
+                    * Present your check-in QR code at the reception desk to settle your fee via Cash or Card and receive your consultation token.
+                  </div>
+                </div>
+              </>
+            )}
 
             <div style={{ display: 'flex', gap: '10px' }}>
               <button

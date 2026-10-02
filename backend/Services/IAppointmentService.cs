@@ -19,11 +19,17 @@ public interface IAppointmentService
     Task<bool> DeleteAppointmentAsync(int appointmentId);
 
     // Phase 2 Workflow Operations
-    Task<AppointmentDto> CheckInAsync(int appointmentId, string qrToken);
+    Task<AppointmentDto?> GetByQrTokenAsync(string qrToken);
+    Task<AppointmentDto> CheckInAsync(int appointmentId, string? qrToken, int? checkedInByUserId);
+    Task<List<AppointmentSearchResultDto>> SearchAppointmentsForDeskAsync(string query);
     Task<DoctorSessionQueueDto> GetSessionQueueAsync(int sessionId);
     Task<DoctorSessionDto> StartSessionAsync(int sessionId);
     Task<DoctorSessionDto> DelaySessionAsync(int sessionId, DateTime expectedStartTime, string? reason);
     Task<AppointmentDto> CallNextPatientAsync(int sessionId);
     Task<DoctorSessionDto> CancelSessionAsync(int sessionId);
+
+    // Doctor Recurring Weekly Schedules
+    Task<List<DoctorScheduleDto>> GetDoctorSchedulesAsync(int doctorId);
+    Task<List<DoctorScheduleDto>> UpdateDoctorSchedulesAsync(int doctorId, List<DoctorScheduleDto> schedules);
 }
 

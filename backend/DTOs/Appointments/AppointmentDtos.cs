@@ -38,6 +38,8 @@ public class DoctorSessionDto
     public int Id { get; set; }
     public int DoctorId { get; set; }
     public string DoctorName { get; set; } = string.Empty;
+    public string RoomNumber { get; set; } = "Suite 201";
+    public string HospitalBranch { get; set; } = "Health Bridge Colombo";
     public string SessionDate { get; set; } = string.Empty; // YYYY-MM-DD
     public string SessionTime { get; set; } = string.Empty; // HH:mm
     public string TimeFormatted { get; set; } = string.Empty; // 08:00 AM
@@ -86,7 +88,21 @@ public class StatusUpdateDto
 
 public class CheckInRequest
 {
-    public string QrToken { get; set; } = string.Empty;
+    public string? QrToken { get; set; }
+}
+
+public class AppointmentSearchResultDto
+{
+    public int Id { get; set; }
+    public string AppointmentNumber { get; set; } = string.Empty;
+    public string PatientName { get; set; } = string.Empty;
+    public string MaskedNic { get; set; } = string.Empty;
+    public string DoctorName { get; set; } = string.Empty;
+    public string Specialization { get; set; } = string.Empty;
+    public string AppointmentDate { get; set; } = string.Empty;
+    public string TimeSlot { get; set; } = string.Empty;
+    public int QueueNumber { get; set; }
+    public string Status { get; set; } = string.Empty;
 }
 
 public class DelaySessionRequest
@@ -101,6 +117,8 @@ public class DoctorSessionQueueDto
     public int DoctorId { get; set; }
     public string DoctorName { get; set; } = string.Empty;
     public string Specialization { get; set; } = string.Empty;
+    public string RoomNumber { get; set; } = "Suite 201";
+    public string HospitalBranch { get; set; } = "Health Bridge Colombo";
     public string SessionStatus { get; set; } = "Scheduled";
     public string SessionDate { get; set; } = string.Empty;
     public string SessionTime { get; set; } = string.Empty;
@@ -137,6 +155,7 @@ public class AppointmentDto
     public string BookingType { get; set; } = "OnlinePayment";
     public Guid QrToken { get; set; }
     public DateTime? CheckedInAt { get; set; }
+    public int? CheckedInByUserId { get; set; }
     public string ArrivalStatus { get; set; } = "NotArrived";
     public string QueueStatus { get; set; } = "NotCheckedIn";
     public DateTime? CalledAt { get; set; }
@@ -177,4 +196,17 @@ public class AIRecommendationResponse
     public string AnalyzedSymptoms { get; set; } = string.Empty;
     public List<SpecialtyRecommendation> Recommendations { get; set; } = new();
     public string ClinicalNotes { get; set; } = string.Empty;
+}
+
+public class DoctorScheduleDto
+{
+    public int Id { get; set; }
+    public int DoctorId { get; set; }
+    public DayOfWeek DayOfWeek { get; set; }
+    public string DayName { get; set; } = string.Empty;
+    public string StartTime { get; set; } = string.Empty;
+    public string EndTime { get; set; } = string.Empty;
+    public int SlotDurationMinutes { get; set; } = 60;
+    public int MaxPatientsPerSlot { get; set; } = 3;
+    public bool IsActive { get; set; } = true;
 }

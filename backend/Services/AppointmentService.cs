@@ -67,6 +67,7 @@ public class AppointmentService : IAppointmentService
 
         var query = _context.Doctors
             .Include(d => d.Sessions)
+            .Include(d => d.Schedules)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -95,11 +96,15 @@ public class AppointmentService : IAppointmentService
             }
             else if (filterDate == today)
             {
-                query = query.Where(d => d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity && s.SessionTime > nowTime));
+                query = query.Where(d => 
+                    d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity && s.SessionTime > nowTime) ||
+                    d.Schedules.Any(s => s.IsActive && s.DayOfWeek == filterDate.DayOfWeek && s.EndTime > nowTime));
             }
             else
             {
-                query = query.Where(d => d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity));
+                query = query.Where(d => 
+                    d.Sessions.Any(s => s.SessionDate == filterDate && s.IsActive && s.CurrentBookings < s.MaxCapacity) ||
+                    d.Schedules.Any(s => s.IsActive && s.DayOfWeek == filterDate.DayOfWeek));
             }
         }
 
@@ -110,6 +115,10 @@ public class AppointmentService : IAppointmentService
             var upcomingSessions = d.Sessions.Where(s => s.IsActive && (s.SessionDate > today || (s.SessionDate == today && s.SessionTime > nowTime))).ToList();
             var todaySessions = upcomingSessions.Where(s => s.SessionDate == today && s.CurrentBookings < s.MaxCapacity).ToList();
             var tomorrowSessions = upcomingSessions.Where(s => s.SessionDate == tomorrow && s.CurrentBookings < s.MaxCapacity).ToList();
+
+            var hasTodaySchedule = d.Schedules.Any(s => s.IsActive && s.DayOfWeek == today.DayOfWeek && s.EndTime > nowTime);
+            var hasTomorrowSchedule = d.Schedules.Any(s => s.IsActive && s.DayOfWeek == tomorrow.DayOfWeek);
+
             var totalAvailableSlots = upcomingSessions.Sum(s => Math.Max(0, s.MaxCapacity - s.CurrentBookings));
 
             return new DoctorDto
@@ -133,9 +142,9 @@ public class AppointmentService : IAppointmentService
                 Bio = d.Bio,
                 Email = d.Email,
                 IsAvailable = d.IsAvailable,
-                AvailableToday = todaySessions.Any(),
-                AvailableTomorrow = tomorrowSessions.Any(),
-                SlotsLeft = totalAvailableSlots
+                AvailableToday = todaySessions.Any() || hasTodaySchedule,
+                AvailableTomorrow = tomorrowSessions.Any() || hasTomorrowSchedule,
+                SlotsLeft = totalAvailableSlots > 0 ? totalAvailableSlots : (hasTodaySchedule || hasTomorrowSchedule ? 15 : 0)
             };
         }).ToList();
 
@@ -192,11 +201,15 @@ public class AppointmentService : IAppointmentService
 
         var doc = await _context.Doctors
             .Include(d => d.Sessions)
+            .Include(d => d.Schedules)
             .FirstOrDefaultAsync(d => d.Id == id);
 
         if (doc == null) return null;
 
         var upcoming = doc.Sessions.Where(s => s.IsActive && (s.SessionDate > today || (s.SessionDate == today && s.SessionTime > nowTime))).ToList();
+        var hasTodaySchedule = doc.Schedules.Any(s => s.IsActive && s.DayOfWeek == today.DayOfWeek && s.EndTime > nowTime);
+        var hasTomorrowSchedule = doc.Schedules.Any(s => s.IsActive && s.DayOfWeek == tomorrow.DayOfWeek);
+        var totalAvailableSlots = upcoming.Sum(s => Math.Max(0, s.MaxCapacity - s.CurrentBookings));
 
         return new DoctorDto
         {
@@ -219,9 +232,9 @@ public class AppointmentService : IAppointmentService
             Bio = doc.Bio,
             Email = doc.Email,
             IsAvailable = doc.IsAvailable,
-            AvailableToday = upcoming.Any(s => s.SessionDate == today && s.CurrentBookings < s.MaxCapacity),
-            AvailableTomorrow = upcoming.Any(s => s.SessionDate == tomorrow && s.CurrentBookings < s.MaxCapacity),
-            SlotsLeft = upcoming.Sum(s => Math.Max(0, s.MaxCapacity - s.CurrentBookings))
+            AvailableToday = upcoming.Any(s => s.SessionDate == today && s.CurrentBookings < s.MaxCapacity) || hasTodaySchedule,
+            AvailableTomorrow = upcoming.Any(s => s.SessionDate == tomorrow && s.CurrentBookings < s.MaxCapacity) || hasTomorrowSchedule,
+            SlotsLeft = totalAvailableSlots > 0 ? totalAvailableSlots : (hasTodaySchedule || hasTomorrowSchedule ? 15 : 0)
         };
     }
 
@@ -231,6 +244,96 @@ public class AppointmentService : IAppointmentService
         var today = DateOnly.FromDateTime(localNow);
         var nowTime = TimeOnly.FromDateTime(localNow);
 
+        // 1. Determine target dates: specific date or next 14 days
+        List<DateOnly> targetDates;
+        if (date.HasValue)
+        {
+            targetDates = new List<DateOnly> { date.Value };
+        }
+        else
+        {
+            // Up to 14 days ahead
+            targetDates = Enumerable.Range(0, 14).Select(i => today.AddDays(i)).ToList();
+        }
+
+        // 2. Fetch Doctor's weekly recurring schedule templates
+        var schedules = await _context.DoctorSchedules
+            .Where(s => s.DoctorId == doctorId && s.IsActive)
+            .ToListAsync();
+
+        if (!schedules.Any())
+        {
+            var doctor = await _context.Doctors.FindAsync(doctorId);
+            if (doctor != null)
+            {
+                schedules = DbInitializer.GetDefaultSchedulesForDoctor(doctor);
+                _context.DoctorSchedules.AddRange(schedules);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        // 3. Dynamically generate and ensure DoctorSessions exist for target dates based on recurring schedules
+        if (schedules.Any())
+        {
+            var minDate = targetDates.Min();
+            var maxDate = targetDates.Max();
+
+            var existingSessions = await _context.DoctorSessions
+                .Where(s => s.DoctorId == doctorId && s.SessionDate >= minDate && s.SessionDate <= maxDate)
+                .ToListAsync();
+
+            var existingMap = new HashSet<(DateOnly Date, TimeOnly Time)>(
+                existingSessions.Select(s => (s.SessionDate, s.SessionTime))
+            );
+
+            var newSessions = new List<DoctorSession>();
+
+            foreach (var targetDate in targetDates)
+            {
+                if (targetDate < today) continue;
+
+                var daySchedules = schedules.Where(s => s.DayOfWeek == targetDate.DayOfWeek).ToList();
+                foreach (var schedule in daySchedules)
+                {
+                    var slotTime = schedule.StartTime;
+                    var durationMinutes = schedule.SlotDurationMinutes > 0 ? schedule.SlotDurationMinutes : 60;
+
+                    while (slotTime < schedule.EndTime)
+                    {
+                        var nextSlot = slotTime.AddMinutes(durationMinutes);
+                        if (nextSlot > schedule.EndTime && slotTime != schedule.StartTime)
+                        {
+                            break;
+                        }
+
+                        if (!existingMap.Contains((targetDate, slotTime)))
+                        {
+                            newSessions.Add(new DoctorSession
+                            {
+                                DoctorId = doctorId,
+                                SessionDate = targetDate,
+                                SessionTime = slotTime,
+                                MaxCapacity = schedule.MaxPatientsPerSlot > 0 ? schedule.MaxPatientsPerSlot : 3,
+                                CurrentBookings = 0,
+                                IsActive = true,
+                                SessionStatus = SessionStatus.Scheduled
+                            });
+                            existingMap.Add((targetDate, slotTime));
+                        }
+
+                        slotTime = nextSlot;
+                    }
+                }
+            }
+
+            if (newSessions.Any())
+            {
+                _context.DoctorSessions.AddRange(newSessions);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        // 4. Query sessions for the requested date or upcoming 14 days
         var query = _context.DoctorSessions
             .Include(s => s.Doctor)
             .Where(s => s.DoctorId == doctorId && s.IsActive);
@@ -241,7 +344,7 @@ public class AppointmentService : IAppointmentService
         }
         else
         {
-            query = query.Where(s => s.SessionDate >= today);
+            query = query.Where(s => s.SessionDate >= today && s.SessionDate <= today.AddDays(14));
         }
 
         var list = await query
@@ -260,6 +363,8 @@ public class AppointmentService : IAppointmentService
                 Id = s.Id,
                 DoctorId = s.DoctorId,
                 DoctorName = s.Doctor?.FullName ?? string.Empty,
+                RoomNumber = s.Doctor?.RoomNumber ?? "Suite 201",
+                HospitalBranch = s.Doctor?.HospitalBranch ?? "Health Bridge Colombo",
                 SessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
                 SessionTime = s.SessionTime.ToString("HH:mm"),
                 TimeFormatted = FormatTimeSlot(s.SessionTime),
@@ -306,7 +411,18 @@ public class AppointmentService : IAppointmentService
             ?? throw new InvalidOperationException("Doctor not found.");
 
         session.CurrentBookings += 1;
-        var queueNumber = session.CurrentBookings;
+
+        // Calculate sequential daily queue number across all slots for this doctor on this session date
+        var sessionStartUtc = session.SessionDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var sessionEndUtc = session.SessionDate.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+
+        var existingDailyCount = await _context.DoctorAppointments
+            .CountAsync(a => a.DoctorId == doctor.Id &&
+                             a.AppointmentDate >= sessionStartUtc &&
+                             a.AppointmentDate <= sessionEndUtc &&
+                             a.Status != AppointmentStatus.Cancelled);
+
+        var queueNumber = existingDailyCount + 1;
         var aptNumber = $"APT-{session.SessionDate:yyyyMMdd}-{session.Id:D4}-{queueNumber:D3}";
         var aptDateTime = session.SessionDate.ToDateTime(session.SessionTime, DateTimeKind.Utc);
 
@@ -685,7 +801,34 @@ public class AppointmentService : IAppointmentService
 
     // ── Phase 2 Workflow Operations ────────────────────────────────────────────────
 
-    public async Task<AppointmentDto> CheckInAsync(int appointmentId, string qrToken)
+    public async Task<AppointmentDto?> GetByQrTokenAsync(string qrToken)
+    {
+        if (string.IsNullOrWhiteSpace(qrToken))
+            return null;
+
+        var tokenStr = qrToken.Trim();
+        DoctorAppointment? apt = null;
+
+        if (Guid.TryParse(tokenStr, out var parsedGuid))
+        {
+            apt = await _context.DoctorAppointments
+                .Include(a => a.Doctor)
+                .Include(a => a.DoctorSession)
+                .FirstOrDefaultAsync(a => a.QrToken == parsedGuid);
+        }
+
+        if (apt == null)
+        {
+            apt = await _context.DoctorAppointments
+                .Include(a => a.Doctor)
+                .Include(a => a.DoctorSession)
+                .FirstOrDefaultAsync(a => a.AppointmentNumber.ToLower() == tokenStr.ToLower());
+        }
+
+        return apt == null ? null : MapToDto(apt, apt.Doctor?.HospitalBranch);
+    }
+
+    public async Task<AppointmentDto> CheckInAsync(int appointmentId, string? qrToken, int? checkedInByUserId)
     {
         var apt = await _context.DoctorAppointments
             .Include(a => a.Doctor)
@@ -695,30 +838,56 @@ public class AppointmentService : IAppointmentService
         if (apt == null)
             throw new KeyNotFoundException("Appointment not found.");
 
-        // Validation 1: Token resolves to appointment
-        if (!Guid.TryParse(qrToken, out var parsedToken) || apt.QrToken != parsedToken)
+        // Validation 1: If QR token is supplied, verify it resolves to this specific appointment ID
+        if (!string.IsNullOrWhiteSpace(qrToken))
         {
-            throw new InvalidOperationException("Invalid QR check-in token.");
+            if (!Guid.TryParse(qrToken.Trim(), out var parsedToken) || apt.QrToken != parsedToken)
+            {
+                throw new InvalidOperationException("Invalid QR check-in token for this appointment.");
+            }
+        }
+        else
+        {
+            // Manual search path - must be performed by authenticated staff
+            _logger.LogInformation("Manual desk check-in without QR token for Appointment {AptNo} by User {UserId}", apt.AppointmentNumber, checkedInByUserId);
         }
 
-        // Validation 2: Status is Confirmed or Reserved
+        // Validation 2: Status check (Cannot check in Cancelled or PendingPayment)
+        if (apt.Status == AppointmentStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Cannot check in a cancelled appointment.");
+        }
+
+        if (apt.Status == AppointmentStatus.PendingPayment)
+        {
+            throw new InvalidOperationException("Cannot check in an appointment with pending payment. Patient must settle fees first.");
+        }
+
         if (apt.Status != AppointmentStatus.Confirmed && apt.Status != AppointmentStatus.Reserved)
         {
             throw new InvalidOperationException($"Cannot check in an appointment with status: {apt.Status}.");
         }
 
-        // Validation 3: Not already checked in
+        // Validation 3: Double check-in idempotency (if already checked in, return current state smoothly)
         if (apt.CheckedInAt.HasValue)
         {
-            throw new InvalidOperationException("Patient has already checked in for this appointment.");
+            return MapToDto(apt, apt.Doctor?.HospitalBranch);
         }
 
-        // Validation 4: Parent session IsActive
+        // Validation 4: Parent session IsActive & Not Cancelled
         if (apt.DoctorSession == null || !apt.DoctorSession.IsActive || apt.DoctorSession.SessionStatus == SessionStatus.Cancelled)
         {
-            throw new InvalidOperationException("The doctor's session for this appointment is not active.");
+            throw new InvalidOperationException("The doctor's session for this appointment is cancelled or inactive.");
         }
 
+        // Validation 5: Wrong-day check-in detection
+        var today = DateTime.UtcNow.Date;
+        if (apt.AppointmentDate.Date != today)
+        {
+            throw new InvalidOperationException($"Wrong-day check-in: This appointment is scheduled for {apt.AppointmentDate:yyyy-MM-dd}, not today ({today:yyyy-MM-dd}).");
+        }
+
+        // Compute ArrivalStatus at CONFIRM time (not lookup time)
         var now = DateTime.UtcNow;
         var earlyThreshold = int.TryParse(_configuration["CheckIn:EarlyThresholdMinutes"], out var t) ? t : 15;
 
@@ -740,12 +909,46 @@ public class AppointmentService : IAppointmentService
             arrival = ArrivalStatus.Late;
         }
 
+        var newPaymentStatus = apt.BookingType == BookingType.Reservation ? "Paid" : apt.PaymentStatus;
+        var newPaymentMethod = apt.BookingType == BookingType.Reservation ? "CashierDesk" : apt.PaymentMethod;
+
+        // Atomic conditional update to prevent double-check-in race condition (two counters at the same instant)
+        var rowsAffected = await _context.DoctorAppointments
+            .Where(a => a.Id == appointmentId && a.CheckedInAt == null)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.CheckedInAt, now)
+                .SetProperty(a => a.CheckedInByUserId, checkedInByUserId)
+                .SetProperty(a => a.ArrivalStatus, arrival)
+                .SetProperty(a => a.QueueStatus, QueueStatus.Waiting)
+                .SetProperty(a => a.PaymentStatus, newPaymentStatus)
+                .SetProperty(a => a.PaymentMethod, newPaymentMethod)
+                .SetProperty(a => a.Status, AppointmentStatus.Confirmed));
+
+        if (rowsAffected == 0)
+        {
+            // Another counter won the race condition; reload and return idempotent response without error
+            var reloaded = await _context.DoctorAppointments
+                .Include(a => a.Doctor)
+                .Include(a => a.DoctorSession)
+                .FirstOrDefaultAsync(a => a.Id == appointmentId);
+
+            if (reloaded?.CheckedInAt != null)
+            {
+                return MapToDto(reloaded, reloaded.Doctor?.HospitalBranch);
+            }
+            throw new InvalidOperationException("Failed to check in appointment.");
+        }
+
+        // Update local in-memory entity for DTO mapping and email dispatch
         apt.CheckedInAt = now;
+        apt.CheckedInByUserId = checkedInByUserId;
         apt.ArrivalStatus = arrival;
         apt.QueueStatus = QueueStatus.Waiting;
+        apt.PaymentStatus = newPaymentStatus;
+        apt.PaymentMethod = newPaymentMethod;
+        apt.Status = AppointmentStatus.Confirmed;
 
-        await _context.SaveChangesAsync();
-        _logger.LogInformation("Patient checked in for Appointment {AptNo}. ArrivalStatus={Status}", apt.AppointmentNumber, arrival);
+        _logger.LogInformation("Patient checked in for Appointment {AptNo} by User {UserId}. ArrivalStatus={Status}", apt.AppointmentNumber, checkedInByUserId, arrival);
 
         _ = SendChannelingEmailAsync(
             apt.PatientEmail,
@@ -761,6 +964,48 @@ public class AppointmentService : IAppointmentService
         return MapToDto(apt, apt.Doctor?.HospitalBranch);
     }
 
+    public async Task<List<AppointmentSearchResultDto>> SearchAppointmentsForDeskAsync(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return new List<AppointmentSearchResultDto>();
+
+        var s = query.Trim().ToLower();
+
+        // 1. Fetch matching entities from database first (EF Core translated expressions only)
+        var rawList = await _context.DoctorAppointments
+            .Where(a => a.PatientName.ToLower().Contains(s) ||
+                        a.DoctorName.ToLower().Contains(s) ||
+                        a.AppointmentNumber.ToLower().Contains(s) ||
+                        (a.PatientNic != null && a.PatientNic.ToLower().Contains(s)) ||
+                        (a.PatientPhone != null && a.PatientPhone.Contains(s)))
+            .OrderByDescending(a => a.AppointmentDate)
+            .ThenBy(a => a.QueueNumber)
+            .Take(15)
+            .ToListAsync();
+
+        // 2. Perform in-memory projection with C# helper methods and date formatting
+        return rawList.Select(a => new AppointmentSearchResultDto
+        {
+            Id = a.Id,
+            AppointmentNumber = a.AppointmentNumber,
+            PatientName = a.PatientName,
+            MaskedNic = MaskNic(a.PatientNic),
+            DoctorName = a.DoctorName,
+            Specialization = a.Specialization,
+            AppointmentDate = a.AppointmentDate.ToString("yyyy-MM-dd"),
+            TimeSlot = a.TimeSlot,
+            QueueNumber = a.QueueNumber,
+            Status = a.Status.ToString()
+        }).ToList();
+    }
+
+    private static string MaskNic(string? nic)
+    {
+        if (string.IsNullOrWhiteSpace(nic)) return "N/A";
+        if (nic.Length <= 4) return "****";
+        return new string('*', nic.Length - 4) + nic[^4..];
+    }
+
     public async Task<DoctorSessionQueueDto> GetSessionQueueAsync(int sessionId)
     {
         var session = await _context.DoctorSessions
@@ -772,8 +1017,7 @@ public class AppointmentService : IAppointmentService
 
         var queueAppointments = await _context.DoctorAppointments
             .Include(a => a.Doctor)
-            .Where(a => a.DoctorSessionId == sessionId &&
-                       (a.QueueStatus == QueueStatus.Waiting || a.QueueStatus == QueueStatus.Called || a.QueueStatus == QueueStatus.InConsultation))
+            .Where(a => a.DoctorSessionId == sessionId && a.Status != AppointmentStatus.Cancelled)
             .OrderBy(a => a.QueueNumber)
             .ToListAsync();
 
@@ -783,6 +1027,8 @@ public class AppointmentService : IAppointmentService
             DoctorId = session.DoctorId,
             DoctorName = session.Doctor?.FullName ?? string.Empty,
             Specialization = session.Doctor?.Specialization ?? string.Empty,
+            RoomNumber = session.Doctor?.RoomNumber ?? "Suite 201",
+            HospitalBranch = session.Doctor?.HospitalBranch ?? "Health Bridge Colombo",
             SessionStatus = session.SessionStatus.ToString(),
             SessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
             SessionTime = session.SessionTime.ToString("HH:mm"),
@@ -968,6 +1214,70 @@ public class AppointmentService : IAppointmentService
         };
     }
 
+    public async Task<List<DoctorScheduleDto>> GetDoctorSchedulesAsync(int doctorId)
+    {
+        var schedules = await _context.DoctorSchedules
+            .Where(s => s.DoctorId == doctorId)
+            .OrderBy(s => s.DayOfWeek)
+            .ThenBy(s => s.StartTime)
+            .ToListAsync();
+
+        if (!schedules.Any())
+        {
+            var doctor = await _context.Doctors.FindAsync(doctorId);
+            if (doctor != null)
+            {
+                schedules = DbInitializer.GetDefaultSchedulesForDoctor(doctor);
+                _context.DoctorSchedules.AddRange(schedules);
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        return schedules.Select(s => new DoctorScheduleDto
+        {
+            Id = s.Id,
+            DoctorId = s.DoctorId,
+            DayOfWeek = s.DayOfWeek,
+            DayName = s.DayOfWeek.ToString(),
+            StartTime = s.StartTime.ToString("HH:mm"),
+            EndTime = s.EndTime.ToString("HH:mm"),
+            SlotDurationMinutes = s.SlotDurationMinutes,
+            MaxPatientsPerSlot = s.MaxPatientsPerSlot,
+            IsActive = s.IsActive
+        }).ToList();
+    }
+
+    public async Task<List<DoctorScheduleDto>> UpdateDoctorSchedulesAsync(int doctorId, List<DoctorScheduleDto> scheduleDtos)
+    {
+        var existing = await _context.DoctorSchedules
+            .Where(s => s.DoctorId == doctorId)
+            .ToListAsync();
+
+        _context.DoctorSchedules.RemoveRange(existing);
+
+        var newEntities = scheduleDtos.Select(dto =>
+        {
+            var st = TimeOnly.TryParse(dto.StartTime, out var sVal) ? sVal : new TimeOnly(8, 0);
+            var et = TimeOnly.TryParse(dto.EndTime, out var eVal) ? eVal : new TimeOnly(16, 0);
+
+            return new DoctorSchedule
+            {
+                DoctorId = doctorId,
+                DayOfWeek = dto.DayOfWeek,
+                StartTime = st,
+                EndTime = et,
+                SlotDurationMinutes = dto.SlotDurationMinutes > 0 ? dto.SlotDurationMinutes : 60,
+                MaxPatientsPerSlot = dto.MaxPatientsPerSlot > 0 ? dto.MaxPatientsPerSlot : 3,
+                IsActive = dto.IsActive
+            };
+        }).ToList();
+
+        _context.DoctorSchedules.AddRange(newEntities);
+        await _context.SaveChangesAsync();
+
+        return await GetDoctorSchedulesAsync(doctorId);
+    }
+
     private static string FormatTimeSlot(TimeOnly time)
     {
         var dt = DateTime.Today.Add(time.ToTimeSpan());
@@ -1009,6 +1319,7 @@ public class AppointmentService : IAppointmentService
             BookingType = apt.BookingType.ToString(),
             QrToken = apt.QrToken,
             CheckedInAt = apt.CheckedInAt,
+            CheckedInByUserId = apt.CheckedInByUserId,
             ArrivalStatus = apt.ArrivalStatus.ToString(),
             QueueStatus = apt.QueueStatus.ToString(),
             CalledAt = apt.CalledAt,

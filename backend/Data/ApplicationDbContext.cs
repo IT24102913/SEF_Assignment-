@@ -1,4 +1,4 @@
-﻿using HealthBridge.Api.Models;
+using HealthBridge.Api.Models;
 using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,6 +22,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<LabBooking> LabBookings => Set<LabBooking>();
     public DbSet<LabTimeSlot> LabTimeSlots => Set<LabTimeSlot>();
     public DbSet<Doctor> Doctors => Set<Doctor>();
+    public DbSet<DoctorSchedule> DoctorSchedules => Set<DoctorSchedule>();
     public DbSet<DoctorSession> DoctorSessions => Set<DoctorSession>();
     public DbSet<DoctorAppointment> DoctorAppointments => Set<DoctorAppointment>();
     public DbSet<PatientFeedback> PatientFeedbacks => Set<PatientFeedback>();
@@ -163,6 +164,16 @@ public class ApplicationDbContext : DbContext
             entity.Property(d => d.Rating).HasPrecision(3, 2);
             entity.HasIndex(d => d.Specialization);
             entity.HasIndex(d => d.HospitalBranch);
+        });
+
+        // DoctorSchedule configuration
+        modelBuilder.Entity<DoctorSchedule>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasOne(s => s.Doctor)
+                  .WithMany(d => d.Schedules)
+                  .HasForeignKey(s => s.DoctorId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // DoctorSession configuration

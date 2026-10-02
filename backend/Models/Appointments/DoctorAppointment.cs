@@ -85,6 +85,8 @@ public class DoctorAppointment
 
     public DateTime? CheckedInAt { get; set; }
 
+    public int? CheckedInByUserId { get; set; }
+
     public ArrivalStatus ArrivalStatus { get; set; } = ArrivalStatus.NotArrived;
 
     public QueueStatus QueueStatus { get; set; } = QueueStatus.NotCheckedIn;

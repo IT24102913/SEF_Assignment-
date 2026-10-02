@@ -1,16 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import {
   getAllAppointments, updateAppointmentStatus, deleteAppointment, getAppointmentStats,
-  checkInAppointment, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession
+  checkInAppointment, lookupAppointmentByQr, searchAppointmentsForDesk, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession
 } from '../../../api/doctorApi';
 import logoImage from '../../../assets/mediz.png';
 import {
   Stethoscope, Calendar, Clock, MapPin, User, Search,
   CheckCircle2, XCircle, AlertCircle, RefreshCw, QrCode,
   Filter, ArrowLeft, Trash2, Phone, Mail, X, Activity, DollarSign,
-  Play, AlertTriangle, UserCheck, ShieldAlert
+  Play, AlertTriangle, UserCheck, ShieldAlert, ChevronDown, ChevronUp,
+  CalendarDays
 } from 'lucide-react';
 
 const DoctorAppointmentsAdmin = () => {
@@ -27,20 +28,54 @@ const DoctorAppointmentsAdmin = () => {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
   // Desk Check-In State
+  const [deskMode, setDeskMode] = useState('scan'); // 'scan' | 'manual'
   const [deskQrInput, setDeskQrInput] = useState('');
-  const [deskAptIdInput, setDeskAptIdInput] = useState('');
+  const [deskManualQuery, setDeskManualQuery] = useState('');
+  const [manualSearchResults, setManualSearchResults] = useState([]);
+  const [isSearchingManual, setIsSearchingManual] = useState(false);
+  const [previewApt, setPreviewApt] = useState(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
   const [checkInResult, setCheckInResult] = useState(null);
+  const scannerInputRef = useRef(null);
 
   // Sessions Management State
   const [doctorsList, setDoctorsList] = useState([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
   const [doctorSessions, setDoctorSessions] = useState([]);
+  const [sessionFilterTab, setSessionFilterTab] = useState('today'); // 'today' | 'upcoming' | 'history'
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [delayModalSession, setDelayModalSession] = useState(null);
   const [delayExpectedTime, setDelayExpectedTime] = useState('');
   const [delayReason, setDelayReason] = useState('');
   const [cancelModalSession, setCancelModalSession] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
+
+  // Accordion state for upcoming / history grouped dates
+  const [expandedDates, setExpandedDates] = useState({});
+  const toggleDateExpanded = (dateStr) => {
+    setExpandedDates(prev => ({
+      ...prev,
+      [dateStr]: !prev[dateStr]
+    }));
+  };
+
+  // Master Appointments Table Date & Status Filters
+  const [tableDateFilter, setTableDateFilter] = useState('today'); // 'today' | 'week' | 'all'
+  const [tableStatusTab, setTableStatusTab] = useState('ALL'); // 'ALL' | 'AwaitingCheckIn' | 'Waiting' | 'Completed'
+
+  const formatFriendlyDate = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: '2-digit', year: 'numeric' });
+      }
+      return dateStr;
+    } catch {
+      return dateStr;
+    }
+  };
 
   useEffect(() => {
     fetchData();
@@ -106,12 +141,77 @@ const DoctorAppointmentsAdmin = () => {
     fetchData();
   };
 
-  const handleCheckIn = async (aptId, qrToken) => {
+  const handleQrLookup = async (tokenOverride) => {
+    const token = (tokenOverride || deskQrInput).trim();
+    if (!token) {
+      showToast('Please scan a QR code or paste a QR token', 'error');
+      return;
+    }
+    setIsLookingUp(true);
+    try {
+      const res = await lookupAppointmentByQr(token);
+      setPreviewApt(res.data);
+      setDeskQrInput('');
+      showToast(`Appointment found for ${res.data.patientName}`, 'success');
+    } catch (err) {
+      console.error('QR Lookup failed', err);
+      const msg = err.response?.data?.message || 'No appointment found matching this QR code';
+      showToast(msg, 'error');
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  const handleManualSearch = async (e) => {
+    if (e) e.preventDefault();
+    if (!deskManualQuery.trim()) {
+      showToast('Please enter Patient Name, NIC, Phone, or Appointment Number', 'error');
+      return;
+    }
+    setIsSearchingManual(true);
+    try {
+      const res = await searchAppointmentsForDesk(deskManualQuery.trim());
+      if (Array.isArray(res.data)) {
+        setManualSearchResults(res.data);
+        if (res.data.length === 0) {
+          showToast('No matching appointments found', 'error');
+        }
+      }
+    } catch (err) {
+      console.error('Manual search failed', err);
+      showToast('Search failed. Please try again.', 'error');
+    } finally {
+      setIsSearchingManual(false);
+    }
+  };
+
+  const handleSelectManualApt = async (m) => {
+    setIsLookingUp(true);
+    try {
+      const res = await lookupAppointmentByQr(m.appointmentNumber);
+      setPreviewApt(res.data);
+      setManualSearchResults([]);
+      setDeskManualQuery('');
+      showToast(`Loaded details for ${res.data.patientName}`, 'success');
+    } catch (err) {
+      setPreviewApt(m);
+      setManualSearchResults([]);
+      setDeskManualQuery('');
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
+  const handleConfirmCheckIn = async () => {
+    if (!previewApt || actionLoading) return;
     setActionLoading(true);
     try {
-      const res = await checkInAppointment(aptId, qrToken);
+      // Manual path passes null qrToken if not present
+      const token = previewApt.qrToken || null;
+      const res = await checkInAppointment(previewApt.id, token);
       const updatedApt = res.data;
       setCheckInResult(updatedApt);
+      setPreviewApt(updatedApt);
       showToast(`Patient ${updatedApt.patientName} checked in! Arrival: ${updatedApt.arrivalStatus}`, 'success');
       fetchData();
     } catch (err) {
@@ -123,13 +223,12 @@ const DoctorAppointmentsAdmin = () => {
     }
   };
 
-  const handleManualDeskCheckIn = (e) => {
-    e.preventDefault();
-    if (!deskAptIdInput || !deskQrInput) {
-      showToast('Please enter both Appointment ID and QR Token', 'error');
-      return;
+  const handleClearPreview = () => {
+    setPreviewApt(null);
+    setCheckInResult(null);
+    if (deskMode === 'scan') {
+      setTimeout(() => scannerInputRef.current?.focus(), 100);
     }
-    handleCheckIn(parseInt(deskAptIdInput, 10), deskQrInput.trim());
   };
 
   const handleStartSession = async (sessionId) => {
@@ -321,607 +420,1075 @@ const DoctorAppointmentsAdmin = () => {
           </div>
         )}
 
-        {/* ─── Fast-Track QR Check-In Counter ─── */}
+        {/* ─── Channeling Desk Patient Verification & Check-In Station ─── */}
         <div style={{
           backgroundColor: '#FFFFFF',
           borderRadius: '12px',
-          padding: '18px 22px',
-          border: '1px solid #80CBC4',
-          boxShadow: '0 2px 10px rgba(0,77,64,0.06)',
-          marginBottom: '20px'
+          padding: '20px 24px',
+          border: '1.5px solid #80CBC4',
+          boxShadow: '0 4px 16px rgba(0,77,64,0.08)',
+          marginBottom: '22px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ backgroundColor: '#E0F2F1', padding: '6px', borderRadius: '8px', color: '#00796B' }}>
-                <UserCheck size={18} />
+          {/* Header & Mode Switcher */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ backgroundColor: '#E0F2F1', padding: '8px', borderRadius: '10px', color: '#00796B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <UserCheck size={22} />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '800', color: '#004D40' }}>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#004D40' }}>
                   Channeling Desk Patient Check-In Verification
                 </h3>
-                <p style={{ margin: 0, fontSize: '11px', color: '#607D8B' }}>
-                  Scan patient QR token or enter Appointment ID to verify and calculate arrival status (Early / OnTime / Late).
+                <p style={{ margin: 0, fontSize: '12px', color: '#607D8B' }}>
+                  Verify patient identity via QR scan or manual search before admitting them to the doctor's live queue.
                 </p>
               </div>
             </div>
 
-            {checkInResult && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '6px 12px',
-                backgroundColor: '#DCFCE7',
-                borderRadius: '8px',
-                border: '1px solid #86EFAC'
-              }}>
-                <CheckCircle2 size={16} color="#15803D" />
-                <span style={{ fontSize: '12px', color: '#166534', fontWeight: '700' }}>
-                  Checked In: {checkInResult.patientName} (Arrival: <strong>{checkInResult.arrivalStatus}</strong>)
-                </span>
-                <button
-                  onClick={() => setCheckInResult(null)}
-                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#166534', padding: '0 4px' }}
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
+            {/* Mode Toggle Pills */}
+            <div style={{ display: 'flex', backgroundColor: '#F1F5F9', padding: '3px', borderRadius: '8px', gap: '4px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeskMode('scan');
+                  setTimeout(() => scannerInputRef.current?.focus(), 100);
+                }}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: deskMode === 'scan' ? '#00796B' : 'transparent',
+                  color: deskMode === 'scan' ? '#FFFFFF' : '#475569',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <QrCode size={14} /> 1. QR Scanner
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeskMode('manual');
+                  setManualSearchResults([]);
+                }}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: deskMode === 'manual' ? '#00796B' : 'transparent',
+                  color: deskMode === 'manual' ? '#FFFFFF' : '#475569',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <Search size={14} /> 2. Can't scan? Manual Search
+              </button>
+            </div>
           </div>
 
-          <form onSubmit={handleManualDeskCheckIn} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 120px' }}>
-              <input
-                type="number"
-                placeholder="Apt ID (e.g. 1)"
-                value={deskAptIdInput}
-                onChange={(e) => setDeskAptIdInput(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #CFD8DC',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  boxSizing: 'border-box'
-                }}
-              />
+          {/* Mode 1: QR Scanner Input */}
+          {deskMode === 'scan' && (
+            <form onSubmit={(e) => { e.preventDefault(); handleQrLookup(); }} style={{ marginBottom: '14px' }}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 340px', position: 'relative' }}>
+                  <input
+                    ref={scannerInputRef}
+                    type="text"
+                    placeholder="Aim scanner at patient QR code or paste QR Token (e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6)..."
+                    value={deskQrInput}
+                    onChange={(e) => setDeskQrInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1.5px solid #B2DFDB',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      fontFamily: 'monospace',
+                      backgroundColor: '#FAFCFC',
+                      boxSizing: 'border-box',
+                      outline: 'none',
+                      color: '#004D40'
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isLookingUp || !deskQrInput.trim()}
+                  style={{
+                    padding: '10px 22px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#00796B',
+                    color: '#FFFFFF',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: !deskQrInput.trim() ? 'not-allowed' : 'pointer',
+                    opacity: !deskQrInput.trim() ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isLookingUp ? <RefreshCw size={14} className="spin" /> : <Search size={14} />}
+                  Fetch & Verify Details
+                </button>
+              </div>
+              <p style={{ margin: '6px 0 0 2px', fontSize: '11px', color: '#90A4AE' }}>
+                Compatible with hardware USB/Bluetooth barcode & QR scanners. Automatic search triggers when scanned.
+              </p>
+            </form>
+          )}
+
+          {/* Mode 2: Manual Search Fallback */}
+          {deskMode === 'manual' && (
+            <div style={{ marginBottom: '14px' }}>
+              <form onSubmit={handleManualSearch} style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                <div style={{ flex: '1 1 340px' }}>
+                  <input
+                    type="text"
+                    placeholder="Search by Patient Name, NIC, Phone, or Appointment # (e.g. APT-202610...)"
+                    value={deskManualQuery}
+                    onChange={(e) => setDeskManualQuery(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1.5px solid #CFD8DC',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      backgroundColor: '#FFFFFF',
+                      boxSizing: 'border-box',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSearchingManual || !deskManualQuery.trim()}
+                  style={{
+                    padding: '10px 22px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#00796B',
+                    color: '#FFFFFF',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isSearchingManual ? <RefreshCw size={14} className="spin" /> : <Search size={14} />}
+                  Find Appointment
+                </button>
+              </form>
+
+              {/* Manual Search Results Dropdown/List */}
+              {manualSearchResults.length > 0 && (
+                <div style={{
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: '8px',
+                  border: '1px solid #E2E8F0',
+                  padding: '10px 14px',
+                  maxHeight: '200px',
+                  overflowY: 'auto'
+                }}>
+                  <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748B', marginBottom: '8px' }}>
+                    Found {manualSearchResults.length} matching appointment(s):
+                  </div>
+                  {manualSearchResults.map((m) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 10px',
+                        borderBottom: '1px solid #F1F5F9',
+                        gap: '10px',
+                        flexWrap: 'wrap'
+                      }}
+                    >
+                      <div>
+                        <span style={{ fontWeight: '800', color: '#1E293B', fontSize: '12px' }}>{m.patientName}</span>
+                        <span style={{ fontSize: '11px', color: '#64748B', marginLeft: '6px' }}>(NIC: {m.maskedNic || m.patientNic || 'N/A'})</span>
+                        <div style={{ fontSize: '11px', color: '#475569' }}>
+                          Ref: <strong>{m.appointmentNumber}</strong> • Dr. {m.doctorName} ({m.specialization}) • {m.appointmentDate} • Queue #{String(m.queueNumber).padStart(2, '0')}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectManualApt(m)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid #00796B',
+                          backgroundColor: '#E0F2F1',
+                          color: '#004D40',
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Select & Verify ➔
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div style={{ flex: '3 1 240px' }}>
-              <input
-                type="text"
-                placeholder="Paste Scanned QR Token (e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6)"
-                value={deskQrInput}
-                onChange={(e) => setDeskQrInput(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #CFD8DC',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={actionLoading}
-              style={{
-                padding: '8px 18px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: '#00796B',
-                color: '#FFFFFF',
-                fontSize: '12px',
-                fontWeight: '700',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <CheckCircle2 size={14} /> Verify & Check In
-            </button>
-          </form>
+          )}
+
+          {/* ─── Unified Confirmation Preview Card ─── */}
+          {(() => {
+            if (!previewApt) return null;
+
+            const todayDateStr = new Date().toISOString().split('T')[0];
+            const isWrongDay = previewApt.appointmentDate && previewApt.appointmentDate !== todayDateStr;
+            const isAlreadyCheckedIn = Boolean(previewApt.checkedInAt || previewApt.queueStatus === 'Waiting');
+            const isCancelled = previewApt.status === 'Cancelled' || previewApt.doctorSession?.sessionStatus === 'Cancelled';
+            const isPendingPayment = previewApt.status === 'PendingPayment' ||
+              (previewApt.bookingType === 'OnlinePayment' && previewApt.paymentStatus !== 'Completed' && previewApt.paymentStatus !== 'Paid');
+            const isSessionInactive = previewApt.doctorSession && (!previewApt.doctorSession.isActive || previewApt.doctorSession.sessionStatus === 'Cancelled');
+            const isCheckInBlocked = isWrongDay || isCancelled || isPendingPayment || isSessionInactive || isAlreadyCheckedIn;
+
+            const isReservation = previewApt.bookingType === 'Reservation';
+            const isOnlinePaid = previewApt.paymentStatus === 'Completed' || previewApt.paymentStatus === 'Paid';
+
+            return (
+              <div style={{
+                backgroundColor: isWrongDay ? '#FFFBEB' : '#F0FDFA',
+                borderRadius: '10px',
+                border: isWrongDay ? '1.5px solid #F59E0B' : (isCheckInBlocked && !isAlreadyCheckedIn ? '1.5px solid #EF4444' : '1.5px solid #00796B'),
+                padding: '16px 20px',
+                marginTop: '12px',
+                boxShadow: '0 2px 10px rgba(0,77,64,0.06)',
+                animation: 'fadeIn 0.25s ease'
+              }}>
+                {/* Card Title & Close */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid #CCFBF1', paddingBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CheckCircle2 size={18} color={isWrongDay ? '#D97706' : '#00796B'} />
+                    <span style={{ fontSize: '14px', fontWeight: '800', color: '#004D40' }}>
+                      Patient Verification & Check-In Preview
+                    </span>
+                    <span style={{
+                      backgroundColor: '#CCFBF1',
+                      color: '#0F766E',
+                      fontSize: '11px',
+                      fontWeight: '800',
+                      padding: '2px 8px',
+                      borderRadius: '12px'
+                    }}>
+                      {previewApt.appointmentNumber}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearPreview}
+                    title="Clear & scan next patient"
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      color: '#64748B',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: '700'
+                    }}
+                  >
+                    <X size={14} /> Clear / Next
+                  </button>
+                </div>
+
+                {/* ── Blocking State Alert Banners ── */}
+                {isWrongDay && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: '#FEF3C7',
+                    border: '1px solid #FDE68A',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    marginBottom: '14px',
+                    color: '#92400E',
+                    fontSize: '12px',
+                    fontWeight: '700'
+                  }}>
+                    <AlertTriangle size={18} color="#D97706" />
+                    <span>
+                      ⚠️ WRONG-DAY WARNING: This appointment is scheduled for <strong>{previewApt.appointmentDate}</strong>, which is NOT today ({todayDateStr}). Check-in is blocked.
+                    </span>
+                  </div>
+                )}
+
+                {isCancelled && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: '#FEE2E2',
+                    border: '1px solid #FECACA',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    marginBottom: '14px',
+                    color: '#991B1B',
+                    fontSize: '12px',
+                    fontWeight: '700'
+                  }}>
+                    <XCircle size={18} color="#DC2626" />
+                    <span>
+                      ⛔ APPOINTMENT CANCELLED: This appointment was cancelled. Patient cannot be admitted.
+                    </span>
+                  </div>
+                )}
+
+                {isPendingPayment && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    marginBottom: '14px',
+                    color: '#B91C1C',
+                    fontSize: '12px',
+                    fontWeight: '700'
+                  }}>
+                    <AlertCircle size={18} color="#EF4444" />
+                    <span>
+                      💳 PAYMENT REQUIRED: Online payment is not settled ({previewApt.paymentStatus}). Please direct patient to billing cashier.
+                    </span>
+                  </div>
+                )}
+
+                {isSessionInactive && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: '#FEF2F2',
+                    border: '1px solid #FCA5A5',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    marginBottom: '14px',
+                    color: '#B91C1C',
+                    fontSize: '12px',
+                    fontWeight: '700'
+                  }}>
+                    <AlertTriangle size={18} color="#EF4444" />
+                    <span>
+                      ⚠️ INACTIVE SESSION: The doctor's consultation session for this slot is inactive or cancelled.
+                    </span>
+                  </div>
+                )}
+
+                {/* Grid of Verified Details */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                  gap: '12px 16px',
+                  marginBottom: '16px'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Patient Name</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A' }}>{previewApt.patientName}</div>
+                    <div style={{ fontSize: '11px', color: '#475569' }}>NIC: {previewApt.patientNic || 'N/A'} • {previewApt.patientPhone}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Consultant Doctor</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A' }}>{previewApt.doctorName}</div>
+                    <div style={{ fontSize: '11px', color: '#0F766E', fontWeight: '700' }}>{previewApt.specialization}</div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Session & Time</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A' }}>{previewApt.timeSlot}</div>
+                    <div style={{ fontSize: '11px', color: isWrongDay ? '#D97706' : '#475569', fontWeight: isWrongDay ? '700' : '400' }}>
+                      {previewApt.appointmentDate} • {previewApt.hospitalBranch || previewApt.hospital}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Assigned Queue</div>
+                    <div style={{ fontSize: '18px', fontWeight: '900', color: '#00796B' }}>
+                      Queue #{String(previewApt.queueNumber).padStart(2, '0')}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748B' }}>
+                      Status: <strong style={{ color: '#0F766E' }}>{previewApt.status}</strong>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Payment Details</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A' }}>
+                      LKR {previewApt.totalAmount?.toLocaleString()}
+                    </div>
+                    <div style={{
+                      fontSize: '11px',
+                      color: isReservation ? '#1D4ED8' : (isOnlinePaid ? '#15803D' : '#B45309'),
+                      fontWeight: '700'
+                    }}>
+                      {isReservation
+                        ? 'Reservation (Pay on Arrival)'
+                        : (isOnlinePaid ? `Online Paid (${previewApt.paymentMethod || 'Card'})` : 'Payment Pending')}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Arrival & Queue State</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: previewApt.queueStatus === 'Waiting' ? '#166534' : '#B45309' }}>
+                      Queue: {previewApt.queueStatus || 'Not Checked In'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748B' }}>
+                      Arrival: <strong>{previewApt.arrivalStatus || 'Calculated at check-in'}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Bar */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', borderTop: '1px solid #CCFBF1', paddingTop: '12px' }}>
+                  {isAlreadyCheckedIn ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontSize: '12px', fontWeight: '700' }}>
+                      <CheckCircle2 size={18} color="#166534" />
+                      <span>
+                        ✓ Patient already checked in at {new Date(previewApt.checkedInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (Arrival: <strong>{previewApt.arrivalStatus}</strong>). Admitted to waiting queue.
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <div style={{ fontSize: '12px', color: '#0F766E', fontWeight: '700' }}>
+                          Confirm patient identity before admitting:
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748B' }}>
+                          Arrival punctuality is calculated at confirm time • Visible on Doctor dashboard upon refresh
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleConfirmCheckIn}
+                        disabled={actionLoading || isCheckInBlocked}
+                        style={{
+                          padding: '10px 24px',
+                          borderRadius: '8px',
+                          border: 'none',
+                          backgroundColor: isCheckInBlocked ? '#94A3B8' : '#00796B',
+                          color: '#FFFFFF',
+                          fontSize: '13px',
+                          fontWeight: '800',
+                          cursor: isCheckInBlocked ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          boxShadow: isCheckInBlocked ? 'none' : '0 2px 8px rgba(0,121,107,0.3)'
+                        }}
+                      >
+                        {actionLoading ? <RefreshCw size={15} className="spin" /> : <UserCheck size={16} />}
+                        {isCheckInBlocked ? 'CHECK-IN BLOCKED' : 'CONFIRM CHECK-IN & ADMIT TO QUEUE'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* ─── Doctor Session Workflow Operations ─── */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '12px',
-          padding: '18px 22px',
-          border: '1px solid #E0E0E0',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
-          marginBottom: '20px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Stethoscope size={18} color="#00796B" />
-              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '800', color: '#004D40' }}>
-                Consultation Session Management
-              </h3>
-            </div>
+        {(() => {
+          const todayDateStr = new Date().toISOString().split('T')[0];
+          const selectedDoctor = doctorsList.find(d => d.id === selectedDoctorId) || doctorsList[0];
+          
+          const adminTodaySessions = doctorSessions.filter(s => s.sessionDate === todayDateStr);
+          const upcomingSessions = doctorSessions.filter(s => s.sessionDate > todayDateStr && s.sessionStatus !== 'Cancelled');
+          const historySessions = doctorSessions.filter(s => (s.sessionDate < todayDateStr && s.sessionDate !== todayDateStr) || s.sessionStatus === 'Completed' || s.sessionStatus === 'Cancelled');
+          
+          const displayedAdminSessions = sessionFilterTab === 'today' ? adminTodaySessions : sessionFilterTab === 'upcoming' ? upcomingSessions : historySessions;
 
-            {/* Doctor Selector */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '12px', color: '#607D8B', fontWeight: '600' }}>Select Doctor:</span>
-              <select
-                value={selectedDoctorId}
-                onChange={(e) => setSelectedDoctorId(parseInt(e.target.value, 10))}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #CFD8DC',
-                  fontSize: '12px',
-                  backgroundColor: '#FFFFFF',
-                  fontWeight: '600',
-                  color: '#004D40',
-                  outline: 'none'
-                }}
-              >
-                {doctorsList.map(doc => (
-                  <option key={doc.id} value={doc.id}>
-                    {doc.fullName} ({doc.specialization})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          const todayBookings = adminTodaySessions.reduce((acc, s) => acc + (s.currentBookings || 0), 0);
+          const todayCapacity = adminTodaySessions.reduce((acc, s) => acc + (s.maxPatients || s.maxCapacity || 15), 0);
+          const primaryTodaySession = adminTodaySessions.find(s => s.sessionStatus === 'InProgress') ||
+                                      adminTodaySessions.find(s => s.sessionStatus === 'Scheduled' || s.sessionStatus === 'Delayed') ||
+                                      adminTodaySessions[0];
 
-          {loadingSessions ? (
-            <div style={{ textAlign: 'center', padding: '20px', color: '#00796B', fontSize: '12px' }}>
-              <RefreshCw size={16} className="animate-spin" style={{ margin: '0 auto 6px auto' }} />
-              Loading sessions...
-            </div>
-          ) : doctorSessions.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '16px', color: '#78909C', fontSize: '12px' }}>
-              No sessions found for the selected consultant.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
-              {doctorSessions.map(session => {
-                const isScheduled = session.sessionStatus === 'Scheduled';
-                const isInProgress = session.sessionStatus === 'InProgress';
-                const isDelayed = session.sessionStatus === 'Delayed';
-                const isCompleted = session.sessionStatus === 'Completed';
-                const isCancelled = session.sessionStatus === 'Cancelled';
+          return (
+            <div style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '14px',
+              padding: '20px 24px',
+              border: '1px solid #E2E8F0',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+              marginBottom: '22px'
+            }}>
+              {/* Header & Doctor Selection */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Stethoscope size={20} color="#00796B" />
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#004D40' }}>
+                      Consultation Session Management Desk
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#64748B' }}>
+                      Monitor live doctor clinics, manage delays, and adjust consultation schedules
+                    </p>
+                  </div>
+                </div>
 
-                const statusBadgeBg = isScheduled ? '#E0F2FE' : isInProgress ? '#DCFCE7' : isDelayed ? '#FEF3C7' : isCompleted ? '#F3F4F6' : '#FEE2E2';
-                const statusBadgeColor = isScheduled ? '#0369A1' : isInProgress ? '#15803D' : isDelayed ? '#B45309' : isCompleted ? '#475569' : '#B91C1C';
-
-                return (
-                  <div
-                    key={session.id}
+                {/* Doctor Selector */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '12px', color: '#475569', fontWeight: '700' }}>Select Doctor:</span>
+                  <select
+                    value={selectedDoctorId}
+                    onChange={(e) => setSelectedDoctorId(parseInt(e.target.value, 10))}
                     style={{
-                      border: '1px solid #E2E8F0',
+                      padding: '8px 14px',
                       borderRadius: '8px',
-                      padding: '12px 16px',
-                      backgroundColor: '#F8FAFC'
+                      border: '1.5px solid #CBD5E1',
+                      fontSize: '12px',
+                      backgroundColor: '#F8FAFC',
+                      fontWeight: '700',
+                      color: '#004D40',
+                      outline: 'none',
+                      cursor: 'pointer'
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>
-                        {session.sessionDate} • {session.timeFormatted}
-                      </div>
+                    {doctorsList.map(doc => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.fullName} ({doc.specialization})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Session Filter Tabs: Today, Upcoming, History */}
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                marginBottom: '16px',
+                borderBottom: '1px solid #E2E8F0',
+                paddingBottom: '10px',
+                flexWrap: 'wrap'
+              }}>
+                {[
+                  { id: 'today', label: `🟢 Today's Sessions (${todayDateStr})`, count: adminTodaySessions.length },
+                  { id: 'upcoming', label: `📅 Upcoming Schedule`, count: upcomingSessions.length },
+                  { id: 'history', label: `📜 Past / Expired History`, count: historySessions.length }
+                ].map(tab => {
+                  const isActive = sessionFilterTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setSessionFilterTab(tab.id)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        backgroundColor: isActive ? '#00796B' : '#F1F5F9',
+                        color: isActive ? '#FFFFFF' : '#475569',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        boxShadow: isActive ? '0 2px 6px rgba(0,121,107,0.25)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>{tab.label}</span>
                       <span style={{
-                        backgroundColor: statusBadgeBg,
-                        color: statusBadgeColor,
-                        fontSize: '10px',
-                        fontWeight: '800',
                         padding: '2px 8px',
-                        borderRadius: '10px'
+                        borderRadius: '10px',
+                        backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : '#E2E8F0',
+                        color: isActive ? '#FFFFFF' : '#64748B',
+                        fontSize: '11px',
+                        fontWeight: '800'
                       }}>
-                        {session.sessionStatus}
+                        {tab.count}
                       </span>
-                    </div>
+                    </button>
+                  );
+                })}
+              </div>
 
-                    <div style={{ fontSize: '11px', color: '#64748B', marginBottom: '8px' }}>
-                      Room {session.roomNumber} • Bookings: <strong>{session.currentBookings}/{session.maxPatients}</strong> • Serving: <strong>#{session.currentlyServingQueueNumber || 0}</strong>
-                    </div>
-
-                    {isDelayed && (
-                      <div style={{ fontSize: '11px', color: '#B45309', marginBottom: '8px', backgroundColor: '#FEF9C3', padding: '4px 8px', borderRadius: '4px' }}>
-                        Delay: {session.expectedStartTime ? `Expected at ${session.expectedStartTime}` : ''} ({session.delayReason || 'Doctor running late'})
+              {/* Doctor Roster Summary Card */}
+              {selectedDoctor && (
+                <div style={{
+                  backgroundColor: '#F0FDFA',
+                  border: '1.5px solid #99F6E4',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  marginBottom: '18px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: '800', color: '#0F766E', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        TODAY'S CLINIC SUMMARY ({todayDateStr})
                       </div>
-                    )}
+                      <h4 style={{ margin: '4px 0 2px 0', fontSize: '16px', fontWeight: '800', color: '#134E4A' }}>
+                        {selectedDoctor.fullName} <span style={{ fontSize: '13px', fontWeight: '600', color: '#0D9488' }}>({selectedDoctor.specialization})</span>
+                      </h4>
+                      <div style={{ fontSize: '12px', color: '#475569' }}>
+                        Doctor Schedule: <strong>{selectedDoctor.availableDays || 'Mon & Wed'} ({selectedDoctor.availableTime || '08:00 AM – 12:00 PM'})</strong> | Room: <strong>{selectedDoctor.roomNumber || 'Suite 201'}</strong>, {selectedDoctor.hospitalBranch || 'Health Bridge Colombo'}
+                      </div>
+                    </div>
 
-                    {/* Session Controls */}
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                      {(isScheduled || isDelayed) && (
-                        <button
-                          onClick={() => handleStartSession(session.id)}
-                          disabled={actionLoading}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            border: 'none',
-                            backgroundColor: '#00796B',
-                            color: '#FFFFFF',
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <Play size={12} /> Start
-                        </button>
-                      )}
-
-                      {!isCompleted && !isCancelled && (
-                        <>
-                          <button
-                            onClick={() => setDelayModalSession(session)}
-                            disabled={actionLoading}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #F59E0B',
-                              backgroundColor: '#FEF3C7',
-                              color: '#B45309',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <AlertTriangle size={12} /> Delay
-                          </button>
-
-                          <button
-                            onClick={() => setCancelModalSession(session)}
-                            disabled={actionLoading}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                              border: '1px solid #FCA5A5',
-                              backgroundColor: '#FEF2F2',
-                              color: '#B91C1C',
-                              fontSize: '11px',
-                              fontWeight: '700',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px'
-                            }}
-                          >
-                            <XCircle size={12} /> Cancel
-                          </button>
-                        </>
-                      )}
+                    <div style={{
+                      backgroundColor: '#FFFFFF',
+                      border: '1px solid #CCFBF1',
+                      borderRadius: '8px',
+                      padding: '8px 16px',
+                      textAlign: 'right'
+                    }}>
+                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '800', textTransform: 'uppercase' }}>
+                        TOTAL CAPACITY TODAY
+                      </div>
+                      <div style={{ fontSize: '16px', fontWeight: '900', color: '#0F766E' }}>
+                        {todayBookings} / {todayCapacity > 0 ? todayCapacity : 15} Patients Booked
+                      </div>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
 
-        {/* Search & Filter Controls */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '10px',
-          padding: '16px 20px',
-          border: '1px solid #E0E0E0',
-          marginBottom: '20px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '14px'
-        }}>
-          <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '280px' }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={16} color="#90A4AE" style={{ position: 'absolute', left: '10px', top: '10px' }} />
-              <input
-                type="text"
-                placeholder="Search by patient, doctor, NIC, or ref..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px 8px 34px',
-                  border: '1px solid #CFD8DC',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-            <button
-              type="submit"
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: '#00796B',
-                color: '#FFFFFF',
-                fontSize: '12px',
-                fontWeight: '700',
-                cursor: 'pointer'
-              }}
-            >
-              Search
-            </button>
-          </form>
-
-          {/* Status Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Filter size={14} color="#607D8B" />
-            <span style={{ fontSize: '12px', color: '#546E7A', fontWeight: '600' }}>Status:</span>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              style={{
-                padding: '7px 10px',
-                borderRadius: '6px',
-                border: '1px solid #CFD8DC',
-                fontSize: '12px',
-                backgroundColor: '#FFFFFF',
-                outline: 'none'
-              }}
-            >
-              <option value="ALL">All Statuses</option>
-              <option value="Reserved">Reserved</option>
-              <option value="Confirmed">Confirmed</option>
-              <option value="InProgress">In Progress</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
-              <option value="NoShow">No Show</option>
-              <option value="PendingPayment">Pending Payment</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Appointments Table */}
-        <div style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: '12px',
-          border: '1px solid #E0E0E0',
-          overflow: 'hidden',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
-        }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
-                <th style={{ padding: '12px 14px' }}>Queue #</th>
-                <th style={{ padding: '12px 14px' }}>Ref / Date</th>
-                <th style={{ padding: '12px 14px' }}>Doctor</th>
-                <th style={{ padding: '12px 14px' }}>Patient Details</th>
-                <th style={{ padding: '12px 14px' }}>Booking & Pay</th>
-                <th style={{ padding: '12px 14px' }}>Arrival Status</th>
-                <th style={{ padding: '12px 14px' }}>Queue Status</th>
-                <th style={{ padding: '12px 14px' }}>Appt Status</th>
-                <th style={{ padding: '12px 14px', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#78909C' }}>
-                    <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 8px auto' }} />
-                    Loading operations queue...
-                  </td>
-                </tr>
-              ) : appointments.length === 0 ? (
-                <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#78909C' }}>
-                    No appointments matching the specified filter.
-                  </td>
-                </tr>
-              ) : (
-                appointments.map(apt => {
-                  const isReserved = apt.status === 'Reserved';
-                  const isConfirmed = apt.status === 'Confirmed';
-                  const isInProgress = apt.status === 'InProgress';
-                  const isCompleted = apt.status === 'Completed';
-                  const isCancelled = apt.status === 'Cancelled' || apt.status === 'NoShow';
-
-                  const badgeBg = isReserved ? '#FEF3C7' : isConfirmed ? '#DCFCE7' : isInProgress ? '#FFEDD5' : isCompleted ? '#E0F2FE' : '#FEE2E2';
-                  const badgeColor = isReserved ? '#B45309' : isConfirmed ? '#15803D' : isInProgress ? '#C2410C' : isCompleted ? '#0369A1' : '#B91C1C';
-
-                  const arrivalBg = apt.arrivalStatus === 'OnTime' ? '#DCFCE7' : apt.arrivalStatus === 'Early' ? '#DBEAFE' : apt.arrivalStatus === 'Late' ? '#FEE2E2' : '#F1F5F9';
-                  const arrivalColor = apt.arrivalStatus === 'OnTime' ? '#166534' : apt.arrivalStatus === 'Early' ? '#1E40AF' : apt.arrivalStatus === 'Late' ? '#991B1B' : '#64748B';
-
-                  const queueBg = apt.queueStatus === 'InConsultation' ? '#FEF08A' : apt.queueStatus === 'Waiting' ? '#E0F2FE' : apt.queueStatus === 'Completed' ? '#DCFCE7' : '#F1F5F9';
-                  const queueColor = apt.queueStatus === 'InConsultation' ? '#854D0E' : apt.queueStatus === 'Waiting' ? '#0369A1' : apt.queueStatus === 'Completed' ? '#166534' : '#64748B';
-
-                  return (
-                    <tr key={apt.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
-                      <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          backgroundColor: '#E0F2F1',
-                          color: '#004D40',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          fontWeight: '800',
-                          fontSize: '12px'
-                        }}>
-                          #{String(apt.queueNumber).padStart(2, '0')}
+                  {/* If today has a session, show quick action bar */}
+                  {primaryTodaySession && (
+                    <div style={{
+                      marginTop: '12px',
+                      paddingTop: '12px',
+                      borderTop: '1px solid #CCFBF1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: '800', color: '#1E293B' }}>
+                          {primaryTodaySession.timeFormatted} Clinic Session
                         </span>
-                      </td>
-
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: '700', color: '#1E293B' }}>{apt.appointmentNumber}</div>
-                        <div style={{ fontSize: '11px', color: '#64748B' }}>{apt.appointmentDate} at {apt.timeSlot}</div>
-                        <div style={{ fontSize: '10px', color: '#94A3B8' }}>ID: {apt.id}</div>
-                      </td>
-
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: '700', color: '#004D40' }}>{apt.doctorName}</div>
-                        <div style={{ fontSize: '11px', color: '#64748B' }}>{apt.specialization} ({apt.hospitalBranch})</div>
-                      </td>
-
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: '700', color: '#1E293B' }}>{apt.patientName}</div>
-                        <div style={{ fontSize: '11px', color: '#64748B' }}>
-                          NIC: {apt.patientNic} | {apt.patientPhone}
-                        </div>
-                      </td>
-
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: '700', color: '#004D40' }}>LKR {apt.totalAmount.toLocaleString()}</div>
                         <span style={{
                           fontSize: '10px',
                           fontWeight: '800',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: apt.bookingType === 'Reservation' ? '#FEF9C3' : '#E0F2FE',
-                          color: apt.bookingType === 'Reservation' ? '#854D0E' : '#0369A1'
-                        }}>
-                          {apt.bookingType || 'Online'} • {apt.paymentStatus}
-                        </span>
-                      </td>
-
-                      {/* Arrival Status */}
-                      <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          backgroundColor: arrivalBg,
-                          color: arrivalColor,
-                          fontSize: '11px',
-                          fontWeight: '700',
                           padding: '2px 8px',
-                          borderRadius: '10px'
+                          borderRadius: '10px',
+                          backgroundColor: primaryTodaySession.sessionStatus === 'InProgress' ? '#DCFCE7' : primaryTodaySession.sessionStatus === 'Delayed' ? '#FEF3C7' : '#E0F2FE',
+                          color: primaryTodaySession.sessionStatus === 'InProgress' ? '#166534' : primaryTodaySession.sessionStatus === 'Delayed' ? '#B45309' : '#0369A1'
                         }}>
-                          {apt.arrivalStatus || 'Pending'}
+                          {primaryTodaySession.sessionStatus === 'InProgress' ? '🟢 IN PROGRESS' : primaryTodaySession.sessionStatus === 'Delayed' ? '⚠️ DELAYED' : '🔵 ' + primaryTodaySession.sessionStatus.toUpperCase()}
                         </span>
-                      </td>
-
-                      {/* Queue Status */}
-                      <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          backgroundColor: queueBg,
-                          color: queueColor,
-                          fontSize: '11px',
-                          fontWeight: '700',
-                          padding: '2px 8px',
-                          borderRadius: '10px'
-                        }}>
-                          {apt.queueStatus || 'Waiting'}
+                        <span style={{ fontSize: '11px', color: '#64748B' }}>
+                          Serving: <strong>#{String(primaryTodaySession.currentlyServingQueueNumber || 0).padStart(2, '0')}</strong> • Booked: <strong>{primaryTodaySession.currentBookings}/{primaryTodaySession.maxPatients || primaryTodaySession.maxCapacity || 15}</strong>
                         </span>
-                      </td>
+                      </div>
 
-                      {/* Appointment Status */}
-                      <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          backgroundColor: badgeBg,
-                          color: badgeColor,
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          padding: '3px 8px',
-                          borderRadius: '12px'
-                        }}>
-                          {apt.status}
-                        </span>
-                      </td>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        {(primaryTodaySession.sessionStatus === 'Scheduled' || primaryTodaySession.sessionStatus === 'Delayed') && (
+                          <button
+                            type="button"
+                            onClick={() => handleStartSession(primaryTodaySession.id)}
+                            disabled={actionLoading}
+                            style={{
+                              padding: '6px 14px',
+                              borderRadius: '6px',
+                              border: 'none',
+                              backgroundColor: '#00796B',
+                              color: '#FFFFFF',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}
+                          >
+                            <Play size={13} /> Start Clinic
+                          </button>
+                        )}
 
-                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                          {/* Fast Check-In button using apt.qrToken */}
-                          {(!apt.checkedInAt || apt.arrivalStatus === 'Pending') && !isCompleted && !isCancelled && (
+                        {primaryTodaySession.sessionStatus !== 'Completed' && primaryTodaySession.sessionStatus !== 'Cancelled' && (
+                          <>
                             <button
-                              onClick={() => handleCheckIn(apt.id, apt.qrToken)}
+                              type="button"
+                              onClick={() => setDelayModalSession(primaryTodaySession)}
                               disabled={actionLoading}
-                              title="Check in patient at desk"
                               style={{
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                border: '1px solid #00796B',
-                                backgroundColor: '#E0F2F1',
-                                color: '#004D40',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: '1px solid #F59E0B',
+                                backgroundColor: '#FEF3C7',
+                                color: '#B45309',
                                 fontSize: '11px',
                                 fontWeight: '700',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '3px'
+                                gap: '5px'
                               }}
                             >
-                              <UserCheck size={12} /> Check-In
+                              <AlertTriangle size={13} /> Mark Delay
                             </button>
-                          )}
 
-                          {/* QR Code Action */}
-                          <button
-                            onClick={() => setSelectedQrApt(apt)}
-                            title="Verify Check-in QR"
-                            style={{
-                              padding: '5px',
-                              borderRadius: '4px',
-                              border: '1px solid #CFD8DC',
-                              backgroundColor: '#FFFFFF',
-                              cursor: 'pointer',
-                              color: '#00796B'
-                            }}
-                          >
-                            <QrCode size={14} />
-                          </button>
-
-                          {/* Quick Status Workflow Action */}
-                          {isInProgress && (
                             <button
-                              onClick={() => handleStatusChange(apt.id, 'Completed')}
+                              type="button"
+                              onClick={() => setCancelModalSession(primaryTodaySession)}
                               disabled={actionLoading}
                               style={{
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                border: 'none',
-                                backgroundColor: '#15803D',
-                                color: '#FFFFFF',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Complete
-                            </button>
-                          )}
-
-                          {!isCompleted && !isCancelled && (
-                            <button
-                              onClick={() => handleStatusChange(apt.id, 'NoShow')}
-                              disabled={actionLoading}
-                              title="Mark No Show"
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: '4px',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
                                 border: '1px solid #FCA5A5',
                                 backgroundColor: '#FEF2F2',
                                 color: '#B91C1C',
                                 fontSize: '11px',
                                 fontWeight: '700',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '5px'
                               }}
                             >
-                              No-Show
+                              <XCircle size={13} /> Cancel Session
                             </button>
-                          )}
-
-                          <button
-                            onClick={() => handleDelete(apt.id)}
-                            disabled={actionLoading}
-                            title="Delete"
-                            style={{
-                              padding: '5px',
-                              borderRadius: '4px',
-                              border: 'none',
-                              backgroundColor: '#FEE2E2',
-                              color: '#DC2626',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
-            </tbody>
-          </table>
+
+              {/* Slot Cards List — flat grid for Today, accordion grouped-by-date for Upcoming / History */}
+              {loadingSessions ? (
+                <div style={{ textAlign: 'center', padding: '30px', color: '#00796B', fontSize: '12px' }}>
+                  <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto 8px auto' }} />
+                  Loading consultant sessions...
+                </div>
+              ) : displayedAdminSessions.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', backgroundColor: '#F8FAFC', borderRadius: '10px', border: '1px dashed #CBD5E1', color: '#78909C', fontSize: '13px' }}>
+                  No {sessionFilterTab} consultation sessions found for this doctor.
+                </div>
+              ) : sessionFilterTab === 'today' ? (
+                /* TODAY — keep flat card grid */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+                  {displayedAdminSessions.map(session => {
+                    const isScheduled = session.sessionStatus === 'Scheduled';
+                    const isInProgress = session.sessionStatus === 'InProgress';
+                    const isDelayed = session.sessionStatus === 'Delayed';
+                    const isCompleted = session.sessionStatus === 'Completed';
+                    const isCancelled = session.sessionStatus === 'Cancelled';
+                    const statusBadgeBg = isScheduled ? '#E0F2FE' : isInProgress ? '#DCFCE7' : isDelayed ? '#FEF3C7' : isCompleted ? '#F3F4F6' : '#FEE2E2';
+                    const statusBadgeColor = isScheduled ? '#0369A1' : isInProgress ? '#15803D' : isDelayed ? '#B45309' : isCompleted ? '#475569' : '#B91C1C';
+                    return (
+                      <div key={session.id} style={{ border: isInProgress ? '2px solid #10B981' : isDelayed ? '1.5px solid #F59E0B' : '1px solid #E2E8F0', borderRadius: '10px', padding: '14px 16px', backgroundColor: isInProgress ? '#F0FDF4' : '#F8FAFC' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>TODAY • {session.timeFormatted}</div>
+                          <span style={{ backgroundColor: statusBadgeBg, color: statusBadgeColor, fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '10px' }}>{session.sessionStatus}</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748B', marginBottom: '8px' }}>
+                          Room: <strong>{session.roomNumber || selectedDoctor?.roomNumber || 'Suite 201'}</strong> • Bookings: <strong>{session.currentBookings}/{session.maxPatients || session.maxCapacity || 15}</strong> • Serving: <strong>#{String(session.currentlyServingQueueNumber || 0).padStart(2, '0')}</strong>
+                        </div>
+                        {isDelayed && <div style={{ fontSize: '11px', color: '#B45309', marginBottom: '8px', backgroundColor: '#FEF9C3', padding: '4px 8px', borderRadius: '4px' }}>Delay: {session.expectedStartTime ? `Expected at ${session.expectedStartTime}` : ''} ({session.delayReason || 'Doctor running late'})</div>}
+                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                          {(isScheduled || isDelayed) && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={12} /> Start</button>}
+                          {!isCompleted && !isCancelled && (<><button type="button" onClick={() => setDelayModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={12} /> Cancel</button></>)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (() => {
+                /* UPCOMING / HISTORY — group by date, render accordion rows */
+                const grouped = displayedAdminSessions.reduce((acc, s) => {
+                  const d = s.sessionDate;
+                  if (!acc[d]) acc[d] = [];
+                  acc[d].push(s);
+                  return acc;
+                }, {});
+                const sortedDates = Object.keys(grouped).sort();
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {sortedDates.map(dateStr => {
+                      const slots = grouped[dateStr];
+                      const isOpen = expandedDates[dateStr] || false;
+                      const totalBooked = slots.reduce((s, x) => s + (x.currentBookings || 0), 0);
+                      const totalSlots = slots.length;
+                      const hasActiveSlot = slots.some(s => s.sessionStatus === 'InProgress' || s.sessionStatus === 'Delayed');
+                      return (
+                        <div key={dateStr} style={{ border: hasActiveSlot ? '1.5px solid #10B981' : '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', backgroundColor: '#FFFFFF' }}>
+                          {/* Accordion Header Row */}
+                          <button
+                            type="button"
+                            onClick={() => toggleDateExpanded(dateStr)}
+                            style={{ width: '100%', padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: hasActiveSlot ? 'linear-gradient(90deg,#F0FDF4,#ECFDF5)' : '#F8FAFC', border: 'none', cursor: 'pointer', textAlign: 'left', gap: '12px' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                              <CalendarDays size={18} color={hasActiveSlot ? '#10B981' : '#64748B'} />
+                              <div>
+                                <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>🗓️ {formatFriendlyDate(dateStr)}</div>
+                                <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
+                                  <span style={{ marginRight: '12px' }}>{totalBooked > 0 ? `${totalBooked} Patient${totalBooked > 1 ? 's' : ''} Booked` : 'No Bookings Yet'}</span>
+                                  <span>{totalSlots} Time Slot{totalSlots > 1 ? 's' : ''} Available</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              {totalBooked > 0 && (
+                                <span style={{ backgroundColor: '#DCFCE7', color: '#166534', fontSize: '11px', fontWeight: '800', padding: '2px 10px', borderRadius: '12px' }}>
+                                  {totalBooked} Booked
+                                </span>
+                              )}
+                              {hasActiveSlot && (
+                                <span style={{ backgroundColor: '#DCFCE7', color: '#166534', fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '10px' }}>● ACTIVE</span>
+                              )}
+                              <span style={{ display: 'flex', alignItems: 'center', color: '#475569' }}>
+                                {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                              </span>
+                            </div>
+                          </button>
+
+                          {/* Expanded Slot List */}
+                          {isOpen && (
+                            <div style={{ borderTop: '1px solid #E2E8F0', padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#FFFFFF' }}>
+                              {slots.map(session => {
+                                const isScheduled = session.sessionStatus === 'Scheduled';
+                                const isInProgress = session.sessionStatus === 'InProgress';
+                                const isDelayed = session.sessionStatus === 'Delayed';
+                                const isCompleted = session.sessionStatus === 'Completed';
+                                const isCancelled = session.sessionStatus === 'Cancelled';
+                                const statusBadgeBg = isScheduled ? '#E0F2FE' : isInProgress ? '#DCFCE7' : isDelayed ? '#FEF3C7' : isCompleted ? '#F3F4F6' : '#FEE2E2';
+                                const statusBadgeColor = isScheduled ? '#0369A1' : isInProgress ? '#15803D' : isDelayed ? '#B45309' : isCompleted ? '#475569' : '#B91C1C';
+                                return (
+                                  <div key={session.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: isInProgress ? '#F0FDF4' : isDelayed ? '#FFFBEB' : '#F8FAFC', border: isInProgress ? '1.5px solid #10B981' : isDelayed ? '1px solid #FCD34D' : '1px solid #E2E8F0', flexWrap: 'wrap', gap: '10px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B', minWidth: '72px' }}>└─► {session.timeFormatted}</span>
+                                      <span style={{ backgroundColor: statusBadgeBg, color: statusBadgeColor, fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '8px' }}>{session.sessionStatus}</span>
+                                      <span style={{ fontSize: '11px', color: '#64748B' }}>
+                                        <strong>{session.currentBookings || 0}/{session.maxPatients || session.maxCapacity || 15}</strong> Booked • Room: <strong>{session.roomNumber || selectedDoctor?.roomNumber || 'Suite 201'}</strong>
+                                      </span>
+                                      {isDelayed && <span style={{ fontSize: '11px', color: '#B45309', fontStyle: 'italic' }}>⚠ {session.delayReason || 'Delayed'}</span>}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                      {(isScheduled || isDelayed) && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={11} /> Start</button>}
+                                      {!isCompleted && !isCancelled && (<><button type="button" onClick={() => setDelayModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={11} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={11} /> Cancel</button></>)}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()
+              }
+            </div>
+          );
+        })()}
+
+        {/* ─── Master Appointments Table ─── */}
+        <div style={{ backgroundColor: '#FFFFFF', borderRadius: '14px', border: '1px solid #E2E8F0', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+
+          {/* Table Header & Controls */}
+          <div style={{ padding: '18px 22px', borderBottom: '1px solid #E2E8F0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#004D40' }}>Master Channeling Appointments</h3>
+                <p style={{ margin: 0, fontSize: '11px', color: '#64748B' }}>Live view of all patient bookings for check-in and queue management</p>
+              </div>
+              {/* Search */}
+              <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={15} color="#90A4AE" style={{ position: 'absolute', left: '10px', top: '9px' }} />
+                  <input
+                    type="text"
+                    placeholder="Search patient, NIC, ref..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{ padding: '8px 12px 8px 32px', border: '1.5px solid #CBD5E1', borderRadius: '8px', fontSize: '12px', width: '220px', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <button type="submit" style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Search</button>
+              </form>
+            </div>
+
+            {/* Date Range Toggle */}
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'today', label: '📅 Today Only' },
+                { id: 'week', label: '⏩ Next 7 Days' },
+                { id: 'all', label: '🌐 All Dates' }
+              ].map(opt => {
+                const isAct = tableDateFilter === opt.id;
+                return (
+                  <button key={opt.id} type="button"
+                    onClick={() => setTableDateFilter(opt.id)}
+                    style={{ padding: '6px 14px', borderRadius: '7px', border: isAct ? 'none' : '1.5px solid #CBD5E1', backgroundColor: isAct ? '#0F766E' : '#FFFFFF', color: isAct ? '#FFFFFF' : '#475569', fontSize: '12px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.14s' }}>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Status Tab Pills */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {[
+                { id: 'ALL', label: 'ALL', color: '#475569', bg: '#F1F5F9' },
+                { id: 'AwaitingCheckIn', label: '⚪ Awaiting Check-In', color: '#64748B', bg: '#F1F5F9' },
+                { id: 'Waiting', label: '🟢 Checked-In / Waiting', color: '#15803D', bg: '#DCFCE7' },
+                { id: 'InProgress', label: '🟡 In Consultation', color: '#854D0E', bg: '#FEF08A' },
+                { id: 'Completed', label: '🔵 Completed', color: '#0369A1', bg: '#E0F2FE' }
+              ].map(opt => {
+                const isAct = tableStatusTab === opt.id;
+                return (
+                  <button key={opt.id} type="button"
+                    onClick={() => setTableStatusTab(opt.id)}
+                    style={{ padding: '5px 13px', borderRadius: '20px', border: isAct ? 'none' : '1.5px solid #E2E8F0', backgroundColor: isAct ? opt.bg : '#FFFFFF', color: isAct ? opt.color : '#64748B', fontSize: '11px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.14s', boxShadow: isAct ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Scrollable Table Body */}
+          <div style={{ overflowX: 'auto', maxHeight: '520px', overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', minWidth: '960px' }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+                <tr style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '11px 14px' }}>Queue #</th>
+                  <th style={{ padding: '11px 14px' }}>Ref / Date</th>
+                  <th style={{ padding: '11px 14px' }}>Doctor</th>
+                  <th style={{ padding: '11px 14px' }}>Patient</th>
+                  <th style={{ padding: '11px 14px' }}>Booking & Pay</th>
+                  <th style={{ padding: '11px 14px' }}>Arrival</th>
+                  <th style={{ padding: '11px 14px' }}>Queue Status</th>
+                  <th style={{ padding: '11px 14px' }}>Appt Status</th>
+                  <th style={{ padding: '11px 14px', textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const todayStr2 = new Date().toISOString().split('T')[0];
+                  const weekLater = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+
+                  let filtered = appointments;
+
+                  // Date filter
+                  if (tableDateFilter === 'today') {
+                    filtered = filtered.filter(a => a.appointmentDate === todayStr2);
+                  } else if (tableDateFilter === 'week') {
+                    filtered = filtered.filter(a => a.appointmentDate >= todayStr2 && a.appointmentDate <= weekLater);
+                  }
+
+                  // Status tab filter
+                  if (tableStatusTab === 'AwaitingCheckIn') {
+                    filtered = filtered.filter(a => !a.checkedInAt && a.queueStatus !== 'Waiting' && a.queueStatus !== 'InConsultation' && a.status !== 'Completed' && a.status !== 'Cancelled' && a.status !== 'NoShow');
+                  } else if (tableStatusTab === 'Waiting') {
+                    filtered = filtered.filter(a => a.queueStatus === 'Waiting' || (a.checkedInAt && a.status !== 'Completed' && a.queueStatus !== 'InConsultation'));
+                  } else if (tableStatusTab === 'InProgress') {
+                    filtered = filtered.filter(a => a.queueStatus === 'InConsultation' || a.status === 'InProgress');
+                  } else if (tableStatusTab === 'Completed') {
+                    filtered = filtered.filter(a => a.status === 'Completed' || a.queueStatus === 'Completed');
+                  }
+
+                  if (loading) return (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#78909C' }}><RefreshCw size={22} className="animate-spin" style={{ margin: '0 auto 8px auto' }} /><br />Loading operations queue...</td></tr>
+                  );
+                  if (filtered.length === 0) return (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#78909C' }}>No appointments matching the selected filters.</td></tr>
+                  );
+
+                  return filtered.map(apt => {
+                    const isReserved = apt.status === 'Reserved';
+                    const isConfirmed = apt.status === 'Confirmed';
+                    const isInProgress = apt.status === 'InProgress';
+                    const isCompleted = apt.status === 'Completed';
+                    const isCancelled = apt.status === 'Cancelled' || apt.status === 'NoShow';
+                    const isCheckedIn = Boolean(apt.checkedInAt || apt.queueStatus === 'Waiting');
+
+                    const badgeBg = isReserved ? '#FEF3C7' : isConfirmed ? '#DCFCE7' : isInProgress ? '#FFEDD5' : isCompleted ? '#E0F2FE' : '#FEE2E2';
+                    const badgeColor = isReserved ? '#B45309' : isConfirmed ? '#15803D' : isInProgress ? '#C2410C' : isCompleted ? '#0369A1' : '#B91C1C';
+                    const arrivalBg = apt.arrivalStatus === 'OnTime' ? '#DCFCE7' : apt.arrivalStatus === 'Early' ? '#DBEAFE' : apt.arrivalStatus === 'Late' ? '#FEE2E2' : '#F1F5F9';
+                    const arrivalColor = apt.arrivalStatus === 'OnTime' ? '#166534' : apt.arrivalStatus === 'Early' ? '#1E40AF' : apt.arrivalStatus === 'Late' ? '#991B1B' : '#64748B';
+                    const queueBg = apt.queueStatus === 'InConsultation' ? '#FEF08A' : apt.queueStatus === 'Waiting' ? '#E0F2FE' : apt.queueStatus === 'Completed' ? '#DCFCE7' : '#F1F5F9';
+                    const queueColor = apt.queueStatus === 'InConsultation' ? '#854D0E' : apt.queueStatus === 'Waiting' ? '#0369A1' : apt.queueStatus === 'Completed' ? '#166534' : '#64748B';
+
+                    return (
+                      <tr key={apt.id} style={{ borderBottom: '1px solid #F1F5F9', backgroundColor: isInProgress ? '#FEFCE8' : isCheckedIn ? '#F0FDFA' : '#FFFFFF' }}>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{ backgroundColor: '#E0F2F1', color: '#004D40', padding: '3px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '12px' }}>#{String(apt.queueNumber).padStart(2, '0')}</span>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#1E293B', fontSize: '12px' }}>{apt.appointmentNumber}</div>
+                          <div style={{ fontSize: '11px', color: '#64748B' }}>{apt.appointmentDate} • {apt.timeSlot}</div>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#004D40', fontSize: '12px' }}>{apt.doctorName}</div>
+                          <div style={{ fontSize: '11px', color: '#64748B' }}>{apt.specialization}</div>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#1E293B', fontSize: '12px' }}>{apt.patientName}</div>
+                          <div style={{ fontSize: '11px', color: '#64748B' }}>NIC: {apt.patientNic} | {apt.patientPhone}</div>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <div style={{ fontWeight: '700', color: '#004D40', fontSize: '12px' }}>LKR {apt.totalAmount?.toLocaleString()}</div>
+                          <span style={{ fontSize: '10px', fontWeight: '800', padding: '1px 6px', borderRadius: '4px', backgroundColor: apt.bookingType === 'Reservation' ? '#FEF9C3' : '#E0F2FE', color: apt.bookingType === 'Reservation' ? '#854D0E' : '#0369A1' }}>
+                            {apt.bookingType || 'Online'} • {apt.paymentStatus}
+                          </span>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{ backgroundColor: arrivalBg, color: arrivalColor, fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '10px' }}>{apt.arrivalStatus || 'Pending'}</span>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{ backgroundColor: queueBg, color: queueColor, fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '10px' }}>{apt.queueStatus || 'NotCheckedIn'}</span>
+                        </td>
+                        <td style={{ padding: '11px 14px' }}>
+                          <span style={{ backgroundColor: badgeBg, color: badgeColor, fontSize: '11px', fontWeight: '800', padding: '3px 8px', borderRadius: '12px' }}>{apt.status}</span>
+                        </td>
+                        <td style={{ padding: '11px 14px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                            {(!apt.checkedInAt || apt.arrivalStatus === 'Pending') && !isCompleted && !isCancelled && (
+                              <button onClick={() => { setPreviewApt(apt); window.scrollTo({ top: 220, behavior: 'smooth' }); }} disabled={actionLoading}
+                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #00796B', backgroundColor: '#E0F2F1', color: '#004D40', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <UserCheck size={12} /> Check-In
+                              </button>
+                            )}
+                            <button onClick={() => setSelectedQrApt(apt)} title="Verify QR" style={{ padding: '5px', borderRadius: '4px', border: '1px solid #CFD8DC', backgroundColor: '#FFFFFF', cursor: 'pointer', color: '#00796B' }}><QrCode size={13} /></button>
+                            {isInProgress && (
+                              <button onClick={() => handleStatusChange(apt.id, 'Completed')} disabled={actionLoading} style={{ padding: '4px 8px', borderRadius: '4px', border: 'none', backgroundColor: '#15803D', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>Complete</button>
+                            )}
+                            {!isCompleted && !isCancelled && (
+                              <button onClick={() => handleStatusChange(apt.id, 'NoShow')} disabled={actionLoading} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>No-Show</button>
+                            )}
+                            <button onClick={() => handleDelete(apt.id)} disabled={actionLoading} title="Delete" style={{ padding: '4px', borderRadius: '4px', border: 'none', backgroundColor: '#FEE2E2', color: '#DC2626', cursor: 'pointer' }}><Trash2 size={13} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
 
@@ -994,10 +1561,21 @@ const DoctorAppointmentsAdmin = () => {
 
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={() => {
-                  handleCheckIn(selectedQrApt.id, selectedQrApt.qrToken);
-                  setSelectedQrApt(null);
+                onClick={async () => {
+                  try {
+                    setActionLoading(true);
+                    const res = await checkInAppointment(selectedQrApt.id, selectedQrApt.qrToken);
+                    showToast(`Patient ${res.data.patientName} checked in! Arrival: ${res.data.arrivalStatus}`, 'success');
+                    setPreviewApt(res.data);
+                    setSelectedQrApt(null);
+                    fetchData();
+                  } catch (err) {
+                    showToast(err.response?.data?.message || 'Check-in failed', 'error');
+                  } finally {
+                    setActionLoading(false);
+                  }
                 }}
+                disabled={actionLoading}
                 style={{
                   flex: 1,
                   padding: '9px',
