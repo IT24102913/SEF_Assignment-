@@ -161,7 +161,9 @@ public class PharmacyOrderService : IPharmacyOrderService
         }
 
         string effectiveEmail = request.CustomerEmail?.Trim().ToLowerInvariant() ?? "";
-        if (!string.IsNullOrWhiteSpace(effectiveEmail))
+        bool isDummyEmail = string.IsNullOrWhiteSpace(effectiveEmail) || effectiveEmail.Contains("healthbridge.lk");
+
+        if (!isDummyEmail)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == effectiveEmail);
             if (user != null)
@@ -182,7 +184,7 @@ public class PharmacyOrderService : IPharmacyOrderService
                 {
                     throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
                 }
-                if (!string.IsNullOrWhiteSpace(user.Email))
+                if (!string.IsNullOrWhiteSpace(user.Email) && !user.Email.Contains("healthbridge.lk"))
                 {
                     effectiveEmail = user.Email.Trim().ToLowerInvariant();
                 }
