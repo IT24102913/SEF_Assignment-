@@ -100,10 +100,22 @@ export default function BookingTrackingModal({ booking, relatedBookings = [], on
       rank: 5,
     },
     {
-      title: 'Doctor Verified & Report Ready',
-      subtitle: 'Results confirmed by pathologist and uploaded to your portal',
-      icon: FileText,
+      title: 'Testing Completed • In Review',
+      subtitle: 'Results uploaded and undergoing pathologist review',
+      icon: Clock,
       rank: 7,
+    },
+    {
+      title: 'Report Delivered',
+      subtitle: 'Official report signed & released to patient digital portal',
+      icon: FileText,
+      rank: 8,
+    },
+    {
+      title: 'Order Completed',
+      subtitle: 'Diagnostic order finalized & archived in health record',
+      icon: CheckCircle2,
+      rank: 9,
     }
   );
 
@@ -294,10 +306,10 @@ export default function BookingTrackingModal({ booking, relatedBookings = [], on
 
         {/* Footer Actions */}
         <div style={styles.footer}>
-          {allBookings.some(b => b.resultFileUrl) ? (
+          {allBookings.some(b => b.resultFileUrl && ['ReportDelivered', 'Completed'].includes(b.status)) ? (
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               {allBookings.map((b, idx) => {
-                if (!b.resultFileUrl) return null;
+                if (!b.resultFileUrl || !['ReportDelivered', 'Completed'].includes(b.status)) return null;
                 return (
                   <button 
                     key={b.id || idx}

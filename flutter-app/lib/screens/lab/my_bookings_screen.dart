@@ -120,19 +120,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   }
 
   List<LabBooking> get _activeBookings => _bookings.where((b) =>
-    b.status == 'Confirmed' ||
-    b.status == 'SampleCollected' ||
-    b.status == 'TestingInProgress' ||
-    b.status == 'ResultVerification' ||
-    b.status == 'PendingLabApproval' ||
-    b.status == 'PendingPrescriptionUpload' ||
-    b.status == 'PendingAIVerification'
+    b.status != 'Completed' &&
+    b.status != 'Cancelled' &&
+    b.status != 'Rejected'
   ).toList();
 
   List<LabBooking> get _resultsBookings => _bookings.where((b) =>
-    b.status == 'ResultsReady' ||
-    b.status == 'ReportDelivered' ||
-    b.status == 'Completed' ||
+    (b.status == 'ReportDelivered' || b.status == 'Completed') &&
     (b.resultFileUrl != null && b.resultFileUrl!.trim().isNotEmpty)
   ).toList();
 
@@ -391,18 +385,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       );
     } else {
       // For 'ALL' tab: intelligently render card based on booking state
-      final isReportReady = booking.status == 'ResultsReady' ||
-          booking.status == 'ReportDelivered' ||
+      final isReportDelivered = (booking.status == 'ReportDelivered') &&
           (booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty);
       final isFinished = booking.status == 'Completed' || booking.status == 'Cancelled' || booking.status == 'Rejected';
 
-      if (isReportReady && !isFinished) {
-        return _ReportDocumentCard(
+      if (isFinished) {
+        return _HistoryRecordCard(
           booking: booking,
           onDownload: (url) => _downloadReport(context, url),
         );
-      } else if (isFinished) {
-        return _HistoryRecordCard(
+      } else if (isReportDelivered) {
+        return _ReportDocumentCard(
           booking: booking,
           onDownload: (url) => _downloadReport(context, url),
         );
@@ -613,9 +606,11 @@ class _ActiveBookingCard extends StatelessWidget {
       case 'ResultVerification':
         return 'Diagnostic Assays Completed • Verifying Results';
       case 'ResultsReady':
+        return 'Specimen Analysis Complete • Awaiting Delivery';
       case 'ReportDelivered':
+        return 'Official Report Delivered • Ready for Download';
       case 'Completed':
-        return 'Results Ready & Completed • Report Available';
+        return 'Diagnostic Order Completed & Archived';
       default:
         return 'In Progress';
     }
@@ -632,7 +627,7 @@ class _ActiveBookingCard extends StatelessWidget {
     final isPaid = allBookings.every((b) => b.paymentStatus == 'PaidOnline' || b.paymentStatus == 'PaidAtCounter');
     final isCounterSelected = allBookings.any((b) => b.paymentMethod == 'CashOnArrival') && !isPaid;
     final isConfirmed = allBookings.any((b) => b.status == 'Confirmed') || booking.status == 'Confirmed';
-    final showPaymentSection = isPaid || isConfirmed || allBookings.any((b) => b.status == 'SampleCollected' || b.status == 'TestingInProgress');
+    final showPaymentSection = isPaid || isConfirmed || allBookings.any((b) => b.status == 'SampleCollected' || b.status == 'TestingInProgress' || b.status == 'ResultsReady' || b.status == 'ReportDelivered');
     final hasRestricted = allBookings.any((b) =>
         b.labTest?.isRestricted == true ||
         (b.prescriptionImageUrl != null && b.prescriptionImageUrl!.isNotEmpty));
@@ -1098,6 +1093,26 @@ class _ActiveBookingCard extends StatelessWidget {
             ],
 
             const SizedBox(height: 14),
+
+            // If report is delivered, give immediate download button on active card
+            if (booking.status == 'ReportDelivered' && booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty) ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _MyBookingsScreenState._downloadReport(context, booking.resultFileUrl!),
+                  icon: const Icon(Icons.picture_as_pdf, size: 16),
+                  label: const Text('Download Delivered Report PDF'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF059669),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
 
             // Actions: Primary Live Specimen Tracker + Cancel
             Row(

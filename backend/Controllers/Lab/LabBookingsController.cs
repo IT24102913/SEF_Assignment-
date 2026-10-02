@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HealthBridge.Api.Agents;
 using HealthBridge.Api.Agents.Lab;
 using HealthBridge.Api.Data;
@@ -212,7 +213,9 @@ public class LabBookingsController : ControllerBase
     [HttpPut("/api/lab/admin/bookings/{id}/status")]
     public async Task<IActionResult> UpdateBookingStatus(Guid id, [FromQuery] BookingStatus newStatus)
     {
-        var booking = await _db.LabBookings.FindAsync(id);
+        var booking = await _db.LabBookings
+            .Include(b => b.LabTest)
+            .FirstOrDefaultAsync(b => b.Id == id);
         if (booking == null) return NotFound();
 
         // If transitioning to Rejected or Cancelled from an active status, free up the slot
@@ -230,12 +233,50 @@ public class LabBookingsController : ControllerBase
         booking.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        // Send generic status update email
-        await _emailService.SendStatusUpdateAsync(
-            booking.PatientEmail, 
-            booking.PatientName, 
-            booking.LabTest?.Name ?? "Lab Test", 
-            newStatus.ToString());
+        if (newStatus == BookingStatus.ReportDelivered)
+        {
+            try
+            {
+                await _emailService.SendResultsReadyAsync(
+                    booking.PatientEmail, 
+                    booking.PatientName, 
+                    booking.LabTest?.Name ?? "Laboratory Diagnostic Test");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not send report delivered email to {Email}", booking.PatientEmail);
+            }
+        }
+        else if (newStatus == BookingStatus.Completed)
+        {
+            try
+            {
+                await _emailService.SendOrderCompletedAsync(
+                    booking.PatientEmail, 
+                    booking.PatientName, 
+                    booking.LabTest?.Name ?? "Laboratory Diagnostic Test",
+                    booking.ResultFileUrl);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not send order completed email to {Email}", booking.PatientEmail);
+            }
+        }
+        else
+        {
+            try
+            {
+                await _emailService.SendStatusUpdateAsync(
+                    booking.PatientEmail, 
+                    booking.PatientName, 
+                    booking.LabTest?.Name ?? "Lab Test", 
+                    newStatus.ToString());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not send status update email to {Email}", booking.PatientEmail);
+            }
+        }
 
         return Ok(MapToDto(booking));
     }
@@ -260,48 +301,126 @@ public class LabBookingsController : ControllerBase
         }));
     }
 
-    private static LabBookingResponse MapToDto(LabBooking b) => new()
+    private static LabBookingResponse MapToDto(LabBooking b)
     {
-        Id = b.Id,
-        PatientId = b.PatientId,
-        PatientName = b.PatientName,
-        PatientEmail = b.PatientEmail,
-        LabTest = b.LabTest == null ? null : new LabTestResponse
+        var dto = new LabBookingResponse
         {
-            Id = b.LabTest.Id,
-            Name = b.LabTest.Name,
-            Description = b.LabTest.Description,
-            Price = b.LabTest.Price,
-            IsRestricted = b.LabTest.IsRestricted,
-            TurnaroundDays = b.LabTest.TurnaroundDays,
-            Category = b.LabTest.Category,
-            IsActive = b.LabTest.IsActive
-        },
-        BookingDate = b.BookingDate,
-        TimeSlot = b.TimeSlot,
-        Status = b.Status.ToString(),
-        PrescriptionImageUrl = b.PrescriptionImageUrl,
-        AIVerification = b.AIVerification.ToString(),
-        AIVerificationNotes = b.AIVerificationNotes,
-        AIConfidenceScore = b.AIConfidenceScore,
-        AIExtractedDoctorName = b.AIExtractedDoctorName,
-        AIPrescriptionDate = b.AIPrescriptionDate,
-        TechnicianNotes = b.TechnicianNotes,
-        ResultFileUrl = b.ResultFileUrl,
-        ResultsUploadedAt = b.ResultsUploadedAt,
-        QueueToken = b.QueueToken,
-        PriorityTier = b.PriorityTier,
-        EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
-        EstimatedWaitMinutes = b.EstimatedWaitMinutes,
-        AssignedChairNo = b.AssignedChairNo,
-        AgentWorkflowStateJson = b.AgentWorkflowStateJson,
-        PaymentStatus = b.PaymentStatus.ToString(),
-        PaymentMethod = b.PaymentMethod,
-        ReceiptNumber = b.ReceiptNumber,
-        AmountPaid = b.AmountPaid,
-        PaidAt = b.PaidAt,
-        CreatedAt = b.CreatedAt,
-        UpdatedAt = b.UpdatedAt
-    };
+            Id = b.Id,
+            PatientId = b.PatientId,
+            PatientName = b.PatientName,
+            PatientEmail = b.PatientEmail,
+            LabTest = b.LabTest == null ? null : new LabTestResponse
+            {
+                Id = b.LabTest.Id,
+                Name = b.LabTest.Name,
+                Description = b.LabTest.Description,
+                Price = b.LabTest.Price,
+                IsRestricted = b.LabTest.IsRestricted,
+                TurnaroundDays = b.LabTest.TurnaroundDays,
+                Category = b.LabTest.Category,
+                IsActive = b.LabTest.IsActive
+            },
+            BookingDate = b.BookingDate,
+            TimeSlot = b.TimeSlot,
+            Status = b.Status.ToString(),
+            PrescriptionImageUrl = b.PrescriptionImageUrl,
+            AIVerification = b.AIVerification.ToString(),
+            AIVerificationNotes = b.AIVerificationNotes,
+            AIConfidenceScore = b.AIConfidenceScore,
+            AIExtractedDoctorName = b.AIExtractedDoctorName,
+            AIPrescriptionDate = b.AIPrescriptionDate,
+            TechnicianNotes = b.TechnicianNotes,
+            ResultFileUrl = (b.Status == BookingStatus.ReportDelivered || b.Status == BookingStatus.Completed)
+                ? b.ResultFileUrl 
+                : null,
+            ResultsUploadedAt = b.ResultsUploadedAt,
+            QueueToken = b.QueueToken,
+            PriorityTier = b.PriorityTier,
+            EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,
+            EstimatedWaitMinutes = b.EstimatedWaitMinutes,
+            AssignedChairNo = b.AssignedChairNo,
+            AgentWorkflowStateJson = b.AgentWorkflowStateJson,
+            PaymentStatus = b.PaymentStatus.ToString(),
+            PaymentMethod = b.PaymentMethod,
+            ReceiptNumber = b.ReceiptNumber,
+            AmountPaid = b.AmountPaid,
+            PaidAt = b.PaidAt,
+            CreatedAt = b.CreatedAt,
+            UpdatedAt = b.UpdatedAt
+        };
+
+        PopulateAIFieldsFromWorkflow(b, dto);
+        return dto;
+    }
+
+    private static void PopulateAIFieldsFromWorkflow(LabBooking b, LabBookingResponse dto)
+    {
+        if (string.IsNullOrWhiteSpace(b.AgentWorkflowStateJson)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(b.AgentWorkflowStateJson);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("stepLogs", out var logs) && logs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var step in logs.EnumerateArray())
+                {
+                    var agent = step.TryGetProperty("agentName", out var ag) ? ag.GetString() : "";
+                    if (agent == "PrescriptionVerificationAgent" && step.TryGetProperty("details", out var det))
+                    {
+                        if (det.TryGetProperty("detectedPatientName", out var dpn))
+                            dto.AIExtractedPatientName = dpn.GetString();
+
+                        if (det.TryGetProperty("patientNameMatch", out var pnm))
+                        {
+                            dto.AIPatientNameMismatch = !pnm.GetBoolean();
+                        }
+                        if (det.TryGetProperty("patientNameMismatchReason", out var pnmr))
+                            dto.AIPatientNameMismatchReason = pnmr.GetString();
+
+                        if (det.TryGetProperty("matchFound", out var mf))
+                        {
+                            dto.AITestMismatch = !mf.GetBoolean();
+                        }
+
+                        if (det.TryGetProperty("extractedInvestigations", out var invArr) && invArr.ValueKind == JsonValueKind.Array)
+                        {
+                            dto.AIExtractedInvestigations = invArr.EnumerateArray()
+                                .Select(x => x.GetString() ?? "")
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .ToList();
+                        }
+
+                        if (det.TryGetProperty("isPrescriptionExpired", out var ipe))
+                            dto.AIPrescriptionExpired = ipe.GetBoolean();
+
+                        if (det.TryGetProperty("prescriptionDateValid", out var pdv))
+                            dto.AIPrescriptionDateValid = pdv.GetBoolean();
+
+                        if (det.TryGetProperty("prescriptionDateReason", out var pdr))
+                            dto.AIPrescriptionDateReason = pdr.GetString();
+
+                        if (det.TryGetProperty("documentClassification", out var dc))
+                            dto.AIDocumentClassification = dc.GetString();
+
+                        if (det.TryGetProperty("documentTypeDescription", out var dtd))
+                            dto.AIDocumentTypeDescription = dtd.GetString();
+
+                        if (det.TryGetProperty("isValidMedicalPrescription", out var ivmp))
+                            dto.AIIsValidPrescription = ivmp.GetBoolean();
+
+                        if (det.TryGetProperty("flagReasons", out var frArr) && frArr.ValueKind == JsonValueKind.Array)
+                        {
+                            dto.AIFlagReasons = frArr.EnumerateArray()
+                                .Select(x => x.GetString() ?? "")
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .ToList();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        catch { /* ignore parsing errors */ }
+    }
 }
 

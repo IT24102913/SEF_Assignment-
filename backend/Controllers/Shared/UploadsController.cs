@@ -13,10 +13,12 @@ namespace HealthBridge.Api.Controllers;
 public class UploadsController : ControllerBase
 {
     private readonly IWebHostEnvironment _env;
+    private readonly IConfiguration _config;
 
-    public UploadsController(IWebHostEnvironment env)
+    public UploadsController(IWebHostEnvironment env, IConfiguration config)
     {
         _env = env;
+        _config = config;
     }
 
     [HttpPost]
@@ -39,8 +41,42 @@ public class UploadsController : ControllerBase
             await file.CopyToAsync(fileStream);
         }
 
-        var baseUrl = $"{Request.Scheme}://{Request.Host}";
-        var fullUrl = $"{baseUrl}/uploads/{uniqueFileName}";
+        var publicBase = _config["PublicBaseUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(publicBase))
+        {
+            var hostStr = Request.Host.Value;
+            if (hostStr.Contains("localhost", StringComparison.OrdinalIgnoreCase) || hostStr.Contains("127.0.0.1"))
+            {
+                var localIp = GetLocalIpAddress();
+                publicBase = $"{Request.Scheme}://{localIp}:5126";
+            }
+            else
+            {
+                publicBase = $"{Request.Scheme}://{Request.Host}";
+            }
+        }
+
+        var fullUrl = $"{publicBase}/uploads/{uniqueFileName}";
         return Ok(new { fileUrl = fullUrl, relativePath = $"/uploads/{uniqueFileName}", url = fullUrl });
+    }
+
+    private static string GetLocalIpAddress()
+    {
+        try
+        {
+            using var socket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork, 
+                System.Net.Sockets.SocketType.Dgram, 0);
+            socket.Connect("8.8.8.8", 65530);
+            var endPoint = socket.LocalEndPoint as System.Net.IPEndPoint;
+            if (endPoint != null)
+            {
+                return endPoint.Address.ToString();
+            }
+        }
+        catch
+        {
+        }
+        return "192.168.1.5";
     }
 }

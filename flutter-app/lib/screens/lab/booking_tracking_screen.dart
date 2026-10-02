@@ -91,10 +91,22 @@ class BookingTrackingScreen extends StatelessWidget {
           'rank': 5
         },
         {
-          'title': 'Results Ready',
-          'subtitle': 'Official diagnostic report signed & ready for download',
-          'icon': Icons.task_alt,
+          'title': 'Results in Review',
+          'subtitle': 'Specimen analyzed • Undergoing final pathologist authorization',
+          'icon': Icons.flaky_outlined,
           'rank': 7
+        },
+        {
+          'title': 'Report Delivered',
+          'subtitle': 'Official diagnostic report signed & delivered to patient',
+          'icon': Icons.mark_email_read_outlined,
+          'rank': 8
+        },
+        {
+          'title': 'Order Completed',
+          'subtitle': 'Diagnostic order completed and archived in medical record',
+          'icon': Icons.task_alt,
+          'rank': 9
         },
       ];
     } else {
@@ -124,10 +136,22 @@ class BookingTrackingScreen extends StatelessWidget {
           'rank': 5
         },
         {
-          'title': 'Results Ready & Completed',
-          'subtitle': 'Official diagnostic report signed & ready for download',
-          'icon': Icons.task_alt,
+          'title': 'Results in Review',
+          'subtitle': 'Specimen analyzed • Undergoing clinical authorization',
+          'icon': Icons.flaky_outlined,
           'rank': 7
+        },
+        {
+          'title': 'Report Delivered',
+          'subtitle': 'Official diagnostic report signed & delivered to patient',
+          'icon': Icons.mark_email_read_outlined,
+          'rank': 8
+        },
+        {
+          'title': 'Order Completed',
+          'subtitle': 'Diagnostic order completed and archived in medical record',
+          'icon': Icons.task_alt,
+          'rank': 9
         },
       ];
     }
@@ -162,9 +186,7 @@ class BookingTrackingScreen extends StatelessWidget {
                           ),
                         ),
                         StatusBadge(
-                          status: (booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty && currentRank < 7)
-                              ? 'ResultsReady'
-                              : booking.status,
+                          status: booking.status,
                         ),
                       ],
                     ),
@@ -352,24 +374,11 @@ class BookingTrackingScreen extends StatelessWidget {
               ),
             ],
 
-            // Diagnostic PDF Report Download Banner if results uploaded
-            if ((booking.resultFileUrl != null && booking.resultFileUrl!.isNotEmpty) ||
-                booking.status == 'ResultsReady' ||
-                booking.status == 'ReportDelivered' ||
-                booking.status == 'Completed') ...[
+            // Diagnostic PDF Report Download Banner only when delivered or completed
+            if ((booking.status == 'ReportDelivered' || booking.status == 'Completed') &&
+                booking.resultFileUrl != null && booking.resultFileUrl!.isNotEmpty) ...[
               GestureDetector(
-                onTap: () {
-                  if (booking.resultFileUrl != null && booking.resultFileUrl!.isNotEmpty) {
-                    _downloadReport(context, booking.resultFileUrl!);
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Report file is being compiled by the lab. Please check back shortly.'),
-                        backgroundColor: kWarning,
-                      ),
-                    );
-                  }
-                },
+                onTap: () => _downloadReport(context, booking.resultFileUrl!),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 20),
                   padding: const EdgeInsets.all(16),
@@ -396,20 +405,18 @@ class BookingTrackingScreen extends StatelessWidget {
                         child: const Icon(Icons.picture_as_pdf, color: Color(0xFF059669), size: 26),
                       ),
                       const SizedBox(width: 14),
-                      Expanded(
+                      const Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Official Test Report PDF',
                               style: TextStyle(color: Color(0xFF065F46), fontWeight: FontWeight.w800, fontSize: 14),
                             ),
-                            const SizedBox(height: 2),
+                            SizedBox(height: 2),
                             Text(
-                              booking.resultFileUrl != null && booking.resultFileUrl!.isNotEmpty
-                                  ? 'Tap to view and download full report'
-                                  : 'Document verified & uploaded by pathologist',
-                              style: const TextStyle(color: Color(0xFF047857), fontSize: 12, fontWeight: FontWeight.w600),
+                              'Tap to view and download full verified report',
+                              style: TextStyle(color: Color(0xFF047857), fontSize: 12, fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -422,14 +429,57 @@ class BookingTrackingScreen extends StatelessWidget {
                         ),
                         child: const Row(
                           children: [
-                            Icon(Icons.download, color: Colors.white, size: 14),
+                            Icon(Icons.download, color: Colors.white, size: 16),
                             SizedBox(width: 4),
-                            Text('Download', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12)),
+                            Text(
+                              'Download',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12.5),
+                            ),
                           ],
                         ),
                       ),
                     ],
                   ),
+                ),
+              ),
+            ] else if (booking.status == 'ResultsReady') ...[
+              // Informational card when results uploaded by staff but not yet delivered
+              Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFBBF7D0), width: 1.5),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDCFCE7),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.flaky_outlined, color: Color(0xFF16A34A), size: 24),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Analysis Complete • In Clinical Review',
+                            style: TextStyle(color: Color(0xFF166534), fontWeight: FontWeight.w800, fontSize: 13.5),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            'Diagnostic findings have been recorded. Report will be released to your app once authorized by lab staff.',
+                            style: TextStyle(color: Color(0xFF15803D), fontSize: 12, height: 1.3),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -450,10 +500,8 @@ class BookingTrackingScreen extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final stage = stages[index];
                   final stageRank = stage['rank'] as int;
-                  final hasReport = (booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty);
-                  final isReadyOrFinished = currentRank >= 7 || hasReport;
-                  final isCompleted = !isFailed && (currentRank > stageRank || (stageRank == 7 && isReadyOrFinished));
-                  final isActive = !isFailed && (currentRank == stageRank && !(stageRank == 7 && isReadyOrFinished));
+                  final isCompleted = !isFailed && (currentRank >= 9 ? currentRank >= stageRank : currentRank > stageRank);
+                  final isActive = !isFailed && (currentRank < 9 && currentRank == stageRank);
                   final isLast = index == stages.length - 1;
 
                   return _TimelineNode(

@@ -77,16 +77,29 @@ class _BookingScreenState extends State<BookingScreen> {
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: source,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 70,
+        maxWidth: 2560,
+        maxHeight: 2560,
+        imageQuality: 95,
       );
       if (picked != null) {
-        setState(() => _selectedImage = File(picked.path));
-        final bytes = await _selectedImage!.readAsBytes();
-        setState(() {
-          _prescriptionImageUrl = 'data:image/jpeg;base64,${base64Encode(bytes)}';
-        });
+        final file = File(picked.path);
+        setState(() => _selectedImage = file);
+
+        // Upload to server immediately to store high-res permanent file
+        final uploadedUrl = await LabApiService.uploadImageFile(file);
+        if (uploadedUrl != null && mounted) {
+          setState(() {
+            _prescriptionImageUrl = uploadedUrl;
+          });
+        } else {
+          // Fallback to high-res base64
+          final bytes = await file.readAsBytes();
+          if (mounted) {
+            setState(() {
+              _prescriptionImageUrl = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+            });
+          }
+        }
       }
     } catch (e) {
       _showError('Failed to pick image: $e');

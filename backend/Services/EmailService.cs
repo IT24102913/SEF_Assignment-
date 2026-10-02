@@ -13,6 +13,7 @@ public interface IEmailService
     Task SendPrescriptionRejectedAsync(string toEmail, string patientName, string testName, string reason);
     Task SendResultsReadyAsync(string toEmail, string patientName, string testName);
     Task SendStatusUpdateAsync(string toEmail, string patientName, string testName, string newStatus);
+    Task SendOrderCompletedAsync(string toEmail, string patientName, string testName, string? reportUrl = null);
     Task SendSalesReportAsync(string toEmail, string note, decimal totalRevenue, int totalOrders, string reportDate, List<PharmacyOrderReportItemDto>? items);
     Task SendPharmacyOrderNotificationAsync(string toEmail, string patientName, string orderNumber, string status, decimal totalAmount, string? paymentMethod, string? deliveryAddress, List<PharmacyOrderItemResponse>? items, string? adminNote = null);
 }
@@ -211,6 +212,95 @@ public class EmailService : IEmailService
             <p style='color: #888; font-size: 12px;'>HealthCare Lab System | This is an automated email.</p>
         </div>";
         await SendEmailAsync(toEmail, patientName, subject, html);
+    }
+
+    public async Task SendOrderCompletedAsync(string toEmail, string patientName, string testName, string? reportUrl = null)
+    {
+        var subject = $"✅ Diagnostic Order Completed: {testName} - HealthBridge Laboratory";
+        var resolvedUrl = ResolveReportUrl(reportUrl);
+        var buttonHtml = !string.IsNullOrWhiteSpace(resolvedUrl) ? $@"
+            <div style='text-align: center; margin: 24px 0;'>
+                <a href='{resolvedUrl}' target='_blank' style='display: inline-block; background: #059669; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;'>
+                    📄 Download Official PDF Report
+                </a>
+            </div>" : "";
+
+        var html = $@"
+        <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0;'>
+            <div style='text-align: center; margin-bottom: 20px;'>
+                <div style='display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 50%; background: #dcfce7; color: #15803d; font-size: 24px;'>✓</div>
+                <h2 style='color: #065f46; margin: 12px 0 4px 0; font-size: 20px;'>Diagnostic Order Completed</h2>
+                <p style='color: #64748b; font-size: 13px; margin: 0;'>HealthBridge Diagnostic & Pathology Services</p>
+            </div>
+            <div style='background: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 16px;'>
+                <p style='margin-top: 0; color: #1e293b; font-size: 15px;'>Dear <strong>{patientName}</strong>,</p>
+                <p style='color: #334155; line-height: 1.6; font-size: 14px;'>
+                    Your diagnostic test order for <strong>{testName}</strong> has been marked as <strong>Completed</strong> and finalized by our laboratory clinical team.
+                </p>
+                <p style='color: #334155; line-height: 1.6; font-size: 14px;'>
+                    Your official diagnostic laboratory findings are verified and safely archived in your electronic medical records.
+                </p>
+                {buttonHtml}
+                <div style='background: #f1f5f9; padding: 12px 14px; border-radius: 8px; font-size: 12.5px; color: #475569;'>
+                    📱 <strong>Patient App Access:</strong> You can view and download all past and present verified lab reports anytime directly from the HealthBridge Patient App under <em>Laboratory &gt; Test Reports</em>.
+                </div>
+            </div>
+            <p style='color: #94a3b8; font-size: 11px; text-align: center; margin: 0;'>
+                Medix Clinical Healthcare System • Automated Medical Notification
+            </p>
+        </div>";
+
+        await SendEmailAsync(toEmail, patientName, subject, html);
+    }
+
+    private string? ResolveReportUrl(string? reportUrl)
+    {
+        if (string.IsNullOrWhiteSpace(reportUrl)) return null;
+
+        var url = reportUrl.Trim();
+        var publicHost = _config["PublicBaseUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(publicHost))
+        {
+            var localIp = GetLocalIpAddress();
+            publicHost = $"http://{localIp}:5126";
+        }
+
+        if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{publicHost}{url}";
+        }
+
+        if (url.Contains("localhost:5126", StringComparison.OrdinalIgnoreCase) || 
+            url.Contains("127.0.0.1:5126", StringComparison.OrdinalIgnoreCase))
+        {
+            return url
+                .Replace("http://localhost:5126", publicHost, StringComparison.OrdinalIgnoreCase)
+                .Replace("https://localhost:5126", publicHost, StringComparison.OrdinalIgnoreCase)
+                .Replace("http://127.0.0.1:5126", publicHost, StringComparison.OrdinalIgnoreCase)
+                .Replace("https://127.0.0.1:5126", publicHost, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return url;
+    }
+
+    private static string GetLocalIpAddress()
+    {
+        try
+        {
+            using var socket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork, 
+                System.Net.Sockets.SocketType.Dgram, 0);
+            socket.Connect("8.8.8.8", 65530);
+            var endPoint = socket.LocalEndPoint as System.Net.IPEndPoint;
+            if (endPoint != null)
+            {
+                return endPoint.Address.ToString();
+            }
+        }
+        catch
+        {
+        }
+        return "192.168.1.5";
     }
 
     public async Task SendSalesReportAsync(string toEmail, string note, decimal totalRevenue, int totalOrders, string reportDate, List<PharmacyOrderReportItemDto>? items)

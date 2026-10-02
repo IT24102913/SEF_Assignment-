@@ -115,7 +115,19 @@ public class LabAgentOrchestrator
                     rxResult.MatchFound,
                     rxResult.DoctorName,
                     rxResult.PrescriptionDate,
+                    rxResult.PrescriptionDateValid,
+                    rxResult.IsPrescriptionExpired,
+                    rxResult.PrescriptionDateReason,
+                    rxResult.DetectedPatientName,
+                    rxResult.PatientNameMatch,
+                    rxResult.PatientNameMismatchReason,
                     rxResult.ExtractedInvestigations,
+                    rxResult.DocumentClassification,
+                    rxResult.DocumentTypeDescription,
+                    rxResult.IsValidMedicalPrescription,
+                    rxResult.IsForgeryOrTrainingSample,
+                    rxResult.SecurityFlags,
+                    rxResult.FlagReasons,
                     rxResult.Notes
                 }
             });
@@ -200,22 +212,27 @@ public class LabAgentOrchestrator
         // =========================================================================
         // Multi-Agent State Synthesis & Human-in-the-Loop Decision
         // =========================================================================
-        var isOcrValid = rxResult.Success && rxResult.Confidence >= 0.7 && rxResult.MatchFound;
+        var isOcrValid = rxResult.Success && rxResult.Confidence >= 0.7 && rxResult.MatchFound && rxResult.PatientNameMatch && !rxResult.IsPrescriptionExpired;
         state.OverallConfidence = Math.Min(rxResult.Confidence, queueSafetyResult.Confidence);
 
         if (booking.LabTest.IsRestricted && !isOcrValid)
         {
             state.Recommendation = "FLAGGED";
             booking.AIVerification = AIVerificationResult.Flagged;
+            var flagSummary = rxResult.FlagReasons.Any()
+                ? string.Join(" • ", rxResult.FlagReasons)
+                : (string.IsNullOrEmpty(rxResult.StatusMessage) ? "Verification requirements not met" : rxResult.StatusMessage);
+            booking.AIVerificationNotes = $"FLAGGED: {flagSummary}";
         }
         else
         {
             state.Recommendation = "PRE_APPROVED";
             booking.AIVerification = booking.LabTest.IsRestricted ? AIVerificationResult.PreApproved : AIVerificationResult.NotRequired;
+            booking.AIVerificationNotes = $"VERIFIED: {rxResult.StatusMessage}";
         }
 
+        state.AuditSummary = $"[Queue {booking.QueueToken}, Chair #{booking.AssignedChairNo}] {booking.AIVerificationNotes} | {queueSafetyResult.StatusMessage}";
         booking.AIConfidenceScore = state.OverallConfidence;
-        booking.AIVerificationNotes = $"[Token {booking.QueueToken}] Chair #{booking.AssignedChairNo} | {queueSafetyResult.StatusMessage}";
         booking.Status = booking.LabTest.IsRestricted ? BookingStatus.PendingLabApproval : BookingStatus.Confirmed;
         booking.AgentWorkflowStateJson = JsonSerializer.Serialize(state, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         booking.UpdatedAt = DateTime.UtcNow;
