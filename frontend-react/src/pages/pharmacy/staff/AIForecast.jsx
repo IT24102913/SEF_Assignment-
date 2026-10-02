@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { getDashboardPath } from '../../../utils/navigation';
 import { api } from '../../../api/authApi';
 import forecastImg from '../../../assets/analytics_forecast.jpg';
 import logoImage from '../../../assets/mediz.png';
@@ -513,13 +514,25 @@ const AIForecast = () => {
                         <button onClick={() => navigate('/admin/pharmacy')} style={s.backBtn}>
                             <ArrowLeft size={16} /> Pharmacy Suite
                         </button>
-                        <div style={s.logo} onClick={() => navigate('/admin/pharmacy')}>
+                        <Link
+                            to={getDashboardPath(user)}
+                            style={{
+                                ...s.logo,
+                                textDecoration: 'none',
+                                color: 'inherit',
+                                transition: 'opacity 0.2s ease'
+                            }}
+                            className="cursor-pointer"
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                            title="Return to Dashboard"
+                        >
                             <img src={logoImage} alt="Health Bridge" style={s.logoImg} />
                             <div>
                                 <h1 style={s.logoTitle}>AI DEMAND FORECASTING</h1>
                                 <p style={s.logoSubtitle}>Predictive Inventory & Sales Forecasting Agent</p>
                             </div>
-                        </div>
+                        </Link>
                     </div>
                     <div style={s.headerActions}>
                         <button

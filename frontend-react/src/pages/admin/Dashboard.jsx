@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import heroImage from '../../assets/z.png';
 import logoImage from '../../assets/mediz.png';
@@ -93,13 +93,18 @@ const Dashboard = () => {
             {/* Top Navigation Header */}
             <header style={styles.header}>
                 <div style={styles.headerTop}>
-                    <div style={styles.logo} onClick={() => navigate('/admin/dashboard')}>
+                    <Link
+                        to="/admin/dashboard"
+                        className="cursor-pointer hover:opacity-90 transition-opacity"
+                        style={{ ...styles.logo, textDecoration: 'none', transition: 'all 0.2s ease' }}
+                        title="Return to Main Admin Dashboard"
+                    >
                         <img src={logoImage} alt="Health Bridge Logo" style={styles.logoImg} />
                         <div>
                             <h1 style={styles.logoTitle}>HEALTH BRIDGE</h1>
                             <p style={styles.logoSubtitle}>Clinical & Enterprise Medical Suite</p>
                         </div>
-                    </div>
+                    </Link>
 
                     <div style={styles.headerActions}>
                         <div style={styles.statusPill}>
@@ -292,13 +297,18 @@ const Dashboard = () => {
             <footer style={styles.footer}>
                 <div style={styles.footerContent}>
                     <div style={styles.footerBrand}>
-                        <div style={styles.footerLogo}>
+                        <Link
+                            to="/admin/dashboard"
+                            className="cursor-pointer hover:opacity-90 transition-opacity"
+                            style={{ ...styles.footerLogo, textDecoration: 'none', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                            title="Return to Main Admin Dashboard"
+                        >
                             <img src={logoImage} alt="Health Bridge" style={{ height: '36px' }} />
                             <div>
                                 <h4 style={styles.footerTitle}>HEALTH BRIDGE</h4>
                                 <p style={styles.footerSubtitle}>Clinical Sanctuary & Hospital Management</p>
                             </div>
-                        </div>
+                        </Link>
                         <p style={styles.footerBio}>
                             Pioneering healthcare delivery, automated diagnostics, and smart pharmacy distribution with high clinical standards.
                         </p>

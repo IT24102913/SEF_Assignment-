@@ -50,12 +50,13 @@ import HealthPassport from './pages/emr/patient/HealthPassport';
 import AIClinicalAdvisor from './pages/emr/patient/AIClinicalAdvisor';
 import EmrStaffPortal from './pages/emr/staff/StaffPortal';
 import NotificationsCenter from './pages/emr/NotificationsCenter';
+import { getDashboardPath } from './utils/navigation';
 
 const RoleRedirect = () => {
     const { user } = useAuth();
 
     if (!user) return <Navigate to="/login" replace />;
-    return <Navigate to={`/${user.role.toLowerCase()}/dashboard`} replace />;
+    return <Navigate to={getDashboardPath(user)} replace />;
 };
 
 function App() {
@@ -74,6 +75,7 @@ function App() {
                     {/* Public Route */}
                     <Route path="/login" element={<Login />} />
                     <Route path="/" element={<RoleRedirect />} />
+                    <Route path="/dashboard" element={<RoleRedirect />} />
 
                     {/* ============================================ */}
                     {/* ADMIN ROUTES */}
