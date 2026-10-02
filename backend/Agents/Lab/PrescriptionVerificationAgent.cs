@@ -125,7 +125,8 @@ DOCUMENT CATEGORIES:
 5. SUSPICIOUS_FORGERY: Fake prescription, invalid training dataset image with watermarks (""TRAINING DATA"", ""DO NOT USE"", ""FORGERY"", ""DOSAGE ERROR"", ""SIG MISMATCH"", ""DUPLICATE""), future dates, or tampered medical credentials.
 
 RULES & SECURITY FORGERY CHECKS:
-- If the image contains text like ""TRAINING DATA"", ""DO NOT USE"", ""FORGERY"", ""DOSAGE ERROR"", ""SIG MISMATCH"", ""DUPLICATE"", or red marker annotations pointing out errors, mark documentClassification as ""SUSPICIOUS_FORGERY"", set isForgeryOrTrainingSample to true, set isValidMedicalPrescription to false, set matchFound to false, set confidence to 0.05.
+- MULTI-TEST PRESCRIPTIONS & TEST SELECTION: Doctors routinely prescribe multiple tests on a single prescription slip (for example: ""Liver Function Test (LFT)"" AND ""X-Ray - Chest (PA View)""). The patient may choose to book only ONE of these tests. If the REQUESTED INVESTIGATION / TEST NAME is present in ANY of the prescribed tests on the slip (or matches via clinical synonyms/abbreviations), you MUST set ""matchFound"" to true. Never set matchFound to false just because there are other additional tests on the slip that the patient did not choose!
+- If the image contains text like ""TRAINING DATA"", ""DO NOT USE"", ""FORGERY"", ""DOSAGE ERROR"", ""SIG MISMATCH"", ""DUPLICATE"", or is marked as a sample/demo not valid for clinical use, mark documentClassification as ""SUSPICIOUS_FORGERY"", set isForgeryOrTrainingSample to true, set isValidMedicalPrescription to false, and set confidence to 0.05. However, still accurately extract all tests in ""extractedTests"", and still truthfully set ""matchFound"" to true if the requested test appears on the slip.
 - If the image is an anime character poster (e.g. Naruto), photo, artwork, or graphic, mark documentClassification as ""NON_MEDICAL_IMAGE"", set isValidMedicalPrescription to false, set matchFound to false, set confidence to 0.0.
 - If the image is a school homework assignment, code listing, or non-medical document, mark documentClassification as ""NON_PRESCRIPTION_DOCUMENT"", set isValidMedicalPrescription to false, set matchFound to false, set confidence to 0.0.
 - If the image is a valid doctor handwritten or computer printed prescription, mark documentClassification accordingly, set isValidMedicalPrescription to true, set isForgeryOrTrainingSample to false.
@@ -325,7 +326,6 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             if (isForgery || docClassification == "SUSPICIOUS_FORGERY")
             {
                 flagReasons.Add("Document flagged as suspicious forgery or training dataset watermark");
-                matchFound = false;
                 confidence = Math.Min(confidence, 0.05);
             }
             if (docClassification == "NON_MEDICAL_IMAGE")
@@ -343,7 +343,7 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             if (!matchFound)
             {
                 var slipList = extractedTests.Any() ? string.Join(", ", extractedTests) : "None detected";
-                flagReasons.Add($"Requested test '{input.TestName}' was not found on prescription slip (detected: {slipList})");
+                flagReasons.Add(investigationReason ?? $"Requested test '{input.TestName}' was not found on prescription slip (detected: {slipList})");
             }
             if (!nameMatch)
             {
