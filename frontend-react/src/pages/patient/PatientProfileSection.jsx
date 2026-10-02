@@ -1,20 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/authApi';
+import { useAuth } from '../../context/AuthContext';
 import {
     User, Mail, Phone, MapPin, Shield, KeyRound,
     CheckCircle2, AlertTriangle, Lock, FileText, Calendar
 } from 'lucide-react';
 
-const PatientProfileSection = ({ user, showToast }) => {
+const PatientProfileSection = ({ user: initialUser, showToast }) => {
+    const { user } = useAuth();
+    const currentUser = user || initialUser;
+
     const [profileData, setProfileData] = useState({
-        fullName: user?.fullName || '',
-        email: user?.email || '',
-        phoneNumber: user?.phoneNumber || '',
-        address: user?.address || '',
-        city: user?.city || '',
-        nicNumber: user?.nicNumber || '200114589210',
-        gender: user?.gender || 'Male',
-        dateOfBirth: user?.dateOfBirth ? user.dateOfBirth.split('T')[0] : '1998-05-14'
+        fullName: currentUser?.fullName || '',
+        email: currentUser?.email || '',
+        phoneNumber: currentUser?.phoneNumber || '',
+        address: currentUser?.address || '',
+        city: currentUser?.city || '',
+        nicNumber: currentUser?.nicNumber || '200114589210',
+        gender: currentUser?.gender || 'Male',
+        dateOfBirth: currentUser?.dateOfBirth ? currentUser.dateOfBirth.split('T')[0] : '1998-05-14'
     });
 
     const [passwordData, setPasswordData] = useState({

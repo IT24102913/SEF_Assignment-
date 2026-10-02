@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { login as apiLogin, logout as apiLogout } from '../api/authApi';
+import { login as apiLogin, logout as apiLogout, api } from '../api/authApi';
 
 const AuthContext = createContext();
 
@@ -8,14 +8,14 @@ export const AuthProvider = ({ children }) => {
     const [token, setToken] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    // ✅ CHANGED: localStorage → sessionStorage
     useEffect(() => {
         const storedToken = sessionStorage.getItem('token');
         const storedUser = sessionStorage.getItem('user');
 
         if (storedToken && storedUser) {
             setToken(storedToken);
-            setUser(JSON.parse(storedUser));
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
         }
         setLoading(false);
     }, []);
@@ -33,13 +33,12 @@ export const AuthProvider = ({ children }) => {
         apiLogout();
         setToken(null);
         setUser(null);
-        // ✅ CHANGED: Clear sessionStorage on logout
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('user');
     };
 
     return (
-        <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+        <AuthContext.Provider value={{ user, token, loading, login, logout, setUser }}>
             {children}
         </AuthContext.Provider>
     );
