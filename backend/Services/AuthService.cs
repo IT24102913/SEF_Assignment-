@@ -14,12 +14,14 @@ public class AuthService : IAuthService
     private readonly ApplicationDbContext _context;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
     private readonly IConfiguration _configuration;
+    private readonly IEmailSender _emailSender;
 
-    public AuthService(ApplicationDbContext context, IJwtTokenGenerator jwtTokenGenerator, IConfiguration configuration)
+    public AuthService(ApplicationDbContext context, IJwtTokenGenerator jwtTokenGenerator, IConfiguration configuration, IEmailSender emailSender)
     {
         _context = context;
         _jwtTokenGenerator = jwtTokenGenerator;
         _configuration = configuration;
+        _emailSender = emailSender;
     }
 
     public async Task<UserResponse> RegisterPatientAsync(RegisterRequest request)
@@ -47,6 +49,7 @@ public class AuthService : IAuthService
 
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
 
+        var verificationToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         var user = new User
         {
             FullName = request.FullName.Trim(),
@@ -54,6 +57,10 @@ public class AuthService : IAuthService
             PasswordHash = passwordHash,
             Role = UserRole.Patient,
             IsActive = true,
+            IsEmailVerified = true,
+            EmailVerificationToken = verificationToken,
+            EmailVerificationTokenExpiresAt = DateTime.UtcNow.AddHours(24),
+            NicNumber = normalizedNic,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -206,13 +213,55 @@ public class AuthService : IAuthService
         };
     }
 
+    public async Task<bool> VerifyEmailAsync(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return false;
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.EmailVerificationToken == token.Trim());
+        if (user == null) return false;
+
+        if (user.EmailVerificationTokenExpiresAt.HasValue && user.EmailVerificationTokenExpiresAt.Value < DateTime.UtcNow)
+        {
+            throw new InvalidOperationException("Verification token has expired. Please request a new verification link.");
+        }
+
+        user.IsEmailVerified = true;
+        user.EmailVerificationToken = null;
+        user.EmailVerificationTokenExpiresAt = null;
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> ResendVerificationEmailAsync(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return false;
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == email.Trim().ToLower());
+        if (user == null) return false;
+
+        if (user.IsEmailVerified) return true;
+
+        user.EmailVerificationToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        user.EmailVerificationTokenExpiresAt = DateTime.UtcNow.AddHours(24);
+        await _context.SaveChangesAsync();
+
+        var baseUrl = _configuration["AppUrl"] ?? "http://localhost:5173";
+        var verificationUrl = $"{baseUrl}/verify-email?token={user.EmailVerificationToken}";
+
+        var sent = await _emailSender.SendVerificationEmailAsync(user.Email, user.FullName, user.EmailVerificationToken, verificationUrl);
+        return sent;
+    }
+
     private async Task<UserResponse> MapToUserResponseAsync(User user)
     {
         string? patientCode = null;
+        PatientProfile? profile = null;
+
         if (user.Role == UserRole.Patient)
         {
             var p = await _context.Patients.FirstOrDefaultAsync(x => x.UserId == user.Id || x.Email.ToLower() == user.Email.ToLower());
             patientCode = p?.PatientCode;
+            profile = await _context.PatientProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id);
         }
 
         return new UserResponse
@@ -224,7 +273,10 @@ public class AuthService : IAuthService
             PatientCode = patientCode,
             IsPharmacyBlocked = user.IsPharmacyBlocked,
             BlockReason = user.BlockReason,
-            ProfileImage = user.ProfileImage
+            ProfileImage = user.ProfileImage,
+            NicNumber = profile?.NicNumber ?? user.NicNumber,
+            PhoneNumber = profile?.PhoneNumber,
+            IsEmailVerified = user.IsEmailVerified
         };
     }
 }
