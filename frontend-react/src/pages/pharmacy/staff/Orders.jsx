@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { getDashboardPath } from '../../../utils/navigation';
 import { api, getErrorMessage } from '../../../api/authApi';
 import logoImage from '../../../assets/mediz.png';
 import {
@@ -531,13 +532,25 @@ const Orders = () => {
                         <button onClick={() => navigate('/admin/pharmacy')} style={styles.backBtn}>
                             <ArrowLeft size={16} /> Pharmacy Hub
                         </button>
-                        <div style={styles.logo}>
+                        <Link
+                            to={getDashboardPath(user)}
+                            style={{
+                                ...styles.logo,
+                                textDecoration: 'none',
+                                color: 'inherit',
+                                transition: 'opacity 0.2s ease'
+                            }}
+                            className="cursor-pointer"
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                            title="Return to Dashboard"
+                        >
                             <img src={logoImage} alt="Health Bridge" style={styles.logoImg} />
                             <div>
                                 <h1 style={styles.logoTitle}>PRESCRIPTION &amp; ORDER VERIFICATION</h1>
                                 <p style={styles.logoSubtitle}>Admin Verification Portal &amp; Pharmacy Fulfillment</p>
                             </div>
-                        </div>
+                        </Link>
                     </div>
                 </div>
             </header>

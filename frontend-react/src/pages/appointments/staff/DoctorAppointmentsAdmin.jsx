@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { getDashboardPath } from '../../../utils/navigation';
 import {
   getAllAppointments, updateAppointmentStatus, deleteAppointment, getAppointmentStats,
   checkInAppointment, lookupAppointmentByQr, searchAppointmentsForDesk, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession
@@ -332,15 +333,31 @@ const DoctorAppointmentsAdmin = () => {
           >
             <ArrowLeft size={14} /> Back
           </button>
-          <img src={logoImage} alt="Logo" style={{ height: '36px' }} />
-          <div>
-            <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
-              Doctor Channeling Operations Desk
-            </h1>
-            <p style={{ margin: 0, fontSize: '11px', color: '#78909C' }}>
-              Real-time queues, desk check-in verification, and session management
-            </p>
-          </div>
+          <Link
+            to={getDashboardPath(user)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              textDecoration: 'none',
+              cursor: 'pointer',
+              transition: 'opacity 0.2s ease'
+            }}
+            className="cursor-pointer"
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            title="Return to Main Dashboard"
+          >
+            <img src={logoImage} alt="Health Bridge" style={{ height: '36px' }} />
+            <div>
+              <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
+                Doctor Channeling Operations Desk
+              </h1>
+              <p style={{ margin: 0, fontSize: '11px', color: '#78909C' }}>
+                Real-time queues, desk check-in verification, and session management
+              </p>
+            </div>
+          </Link>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

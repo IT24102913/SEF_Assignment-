@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { getDashboardPath } from '../../../utils/navigation';
 import {
   getDoctors, getDoctorQueue, updateAppointmentStatus,
   getDoctorSessions, getSessionQueue, callNextPatient
@@ -314,8 +315,22 @@ const DoctorDashboard = () => {
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <img src={logoImage} alt="Logo" style={{ height: '36px' }} />
+        <Link
+          to={getDashboardPath(user)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'opacity 0.2s ease'
+          }}
+          className="cursor-pointer"
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+          title="Return to Dashboard"
+        >
+          <img src={logoImage} alt="Health Bridge" style={{ height: '36px' }} />
           <div>
             <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
               Doctor Consultation Portal
@@ -324,7 +339,7 @@ const DoctorDashboard = () => {
               Real-time patient queue, clinical notes, and session workflow
             </p>
           </div>
-        </div>
+        </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           {/* Doctor Switcher */}

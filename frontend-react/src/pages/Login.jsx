@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { register as apiRegister } from '../api/authApi';
 import loginBg from '../assets/hut.png';
@@ -368,9 +368,11 @@ const Login = () => {
                 <div style={s.card} className="animate-slide-up">
                     {/* Logo */}
                     <div style={s.logoSection}>
-                        <img src={logoImg} alt="Medi Bridge Logo" style={s.logo} />
-                        <h1 style={s.brand}>{tab === 'signin' ? 'Welcome Back' : 'Create Account'}</h1>
-                        <span style={s.subtitle}>Health Bridge Pharmacy Portal</span>
+                        <Link to="/dashboard" style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }} className="hover:opacity-90 transition-opacity" title="Health Bridge Portal">
+                            <img src={logoImg} alt="Health Bridge Logo" style={s.logo} />
+                            <h1 style={s.brand}>{tab === 'signin' ? 'Welcome Back' : 'Create Account'}</h1>
+                            <span style={s.subtitle}>Health Bridge Pharmacy Portal</span>
+                        </Link>
                     </div>
 
                     {/* Tabs */}

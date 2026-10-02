@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { getDashboardPath } from '../../utils/navigation';
 import { getAllBookings } from '../../api/labApi';
 import { 
   Activity, Clock, ClipboardList, TestTube, 
@@ -104,7 +105,18 @@ export default function LabHeader() {
           
           <div style={styles.divider} />
 
-          <div style={styles.branding} onClick={() => navigate('/laboratory/dashboard')}>
+          <Link
+            to={getDashboardPath(user)}
+            className="cursor-pointer"
+            style={{
+              ...styles.branding,
+              textDecoration: 'none',
+              transition: 'opacity 0.2s ease, transform 0.2s ease'
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(0.99)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; }}
+            title="Return to Main Dashboard"
+          >
             <img src={logoImage} alt="Health Bridge" style={styles.logoImg} />
             <div>
               <div style={styles.portalTitle}>
@@ -112,7 +124,7 @@ export default function LabHeader() {
               </div>
               <div style={styles.portalSubtitle}>HEALTH BRIDGE PATHOLOGY & IMAGING</div>
             </div>
-          </div>
+          </Link>
         </div>
 
         <div style={styles.rightSection}>
