@@ -253,9 +253,11 @@ export default function PendingApprovals() {
 
       <div className="card animate-slide-up">
         {loading ? <div className="spinner" /> : groupedAppointments.length === 0 ? (
-          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px' }}>
-            <img src={emptyImg} alt="All Clear" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 20, boxShadow: 'var(--shadow)' }} />
-            <p style={{ fontSize: 18, fontWeight: 600, marginTop: 24, color: 'var(--primary-dark)' }}>All clear!</p>
+          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px', textAlign: 'center' }}>
+            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(34,197,94,0.1), rgba(16,185,129,0.15))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: '#10b981' }}>
+              <CheckCircle size={44} />
+            </div>
+            <p style={{ fontSize: 18, fontWeight: 600, marginTop: 20, color: 'var(--primary-dark)' }}>All clear!</p>
             <p className="text-muted">No pending bookings to review.</p>
           </div>
         ) : (
