@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PatientSelector from './PatientSelector';
 import { emrStore } from '../../../data/mockEmrStore';
-import { Stethoscope, FilePlus, Save, Plus, Trash2 } from 'lucide-react';
+import { Stethoscope, FilePlus, Save, Plus, Trash2, ShieldAlert, FileText, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../context/AuthContext';
 
@@ -21,6 +21,46 @@ export default function ConsultantPortal({ staffSession }) {
   const [medicines, setMedicines] = useState([
     { name: '', dosage: '', duration: '' }
   ]);
+  const [patientNotes, setPatientNotes] = useState([]);
+
+  const loadPatientNotes = () => {
+    if (selectedPatient) {
+      const notes = emrStore.getConsultations(selectedPatient.id) || [];
+      setPatientNotes(notes);
+    } else {
+      setPatientNotes([]);
+    }
+  };
+
+  useEffect(() => {
+    loadPatientNotes();
+    const unsub = emrStore.subscribe(loadPatientNotes);
+    return unsub;
+  }, [selectedPatient]);
+
+  const handleRequestPermission = (note = null) => {
+    const targetTitle = note?.diagnosis || 'Consultation Note';
+    emrStore.addStaffNotification({
+      type: 'Consultation Note',
+      role: 'Doctor',
+      requesterName: doctorName.trim() || staffSession?.staffId || user?.fullName || 'DOC-01 (Consultant)',
+      targetId: note?.id || 'CN-GEN',
+      targetTitle,
+      patientId: note?.patientId || selectedPatient?.id || 'PAT-1004',
+      patientName: note?.patientName || selectedPatient?.name || 'Patient',
+      actionRequested: 'Edit / Delete Permission',
+      reason: `Doctor requested permission to modify or retract consultation record for "${targetTitle}".`,
+    });
+
+    toast(`Edit/Delete restricted for Doctor. Permission request sent to Super Admin for "${targetTitle}".`, {
+      icon: '🛡️',
+      style: {
+        borderRadius: '10px',
+        background: '#1e293b',
+        color: '#fff',
+      }
+    });
+  };
 
   const handleAddMedicine = () => {
     setMedicines([...medicines, { name: '', dosage: '', duration: '' }]);
@@ -418,6 +458,119 @@ export default function ConsultantPortal({ staffSession }) {
           fontSize: '0.95rem'
         }}>
           Select a patient above to start writing consultation notes.
+        </div>
+      )}
+
+      {/* Existing Consultation Notes for this Patient */}
+      {selectedPatient && patientNotes.length > 0 && (
+        <div style={{
+          marginTop: '28px',
+          backgroundColor: '#ffffff',
+          border: '1.5px solid #e2e8f0',
+          borderRadius: '16px',
+          padding: '24px',
+          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.02)'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+            borderBottom: '1px solid #f1f5f9',
+            paddingBottom: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FileText size={20} color="#0d7c6b" />
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                Consultation Notes for {selectedPatient.name} ({patientNotes.length})
+              </h3>
+            </div>
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              Specialist consultation history for this patient
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {patientNotes.map((note) => (
+              <div
+                key={note.id}
+                style={{
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '12px',
+                  padding: '16px 20px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '12px'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 800, fontSize: '0.98rem', color: '#0f172a' }}>
+                      {note.diagnosis || 'Clinical Consultation'}
+                    </span>
+                    <span style={{
+                      fontSize: '0.76rem',
+                      backgroundColor: '#e6f5f2',
+                      color: '#0d7c6b',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '8px',
+                      border: '1px solid #a8d5ce'
+                    }}>
+                      Dr. {note.doctorName}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: '0.82rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Calendar size={13} /> Date: <strong>{note.date}</strong>
+                    {note.doctorDesignation && <span>• {note.doctorDesignation}</span>}
+                  </div>
+
+                  {note.notes && (
+                    <div style={{
+                      fontSize: '0.82rem',
+                      color: '#475569',
+                      marginTop: '6px',
+                      fontStyle: 'italic',
+                      backgroundColor: '#ffffff',
+                      padding: '6px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid #e2e8f0'
+                    }}>
+                      "{note.notes.length > 120 ? note.notes.slice(0, 120) + '...' : note.notes}"
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleRequestPermission(note)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      backgroundColor: '#fff7ed',
+                      border: '1.5px solid #fed7aa',
+                      borderRadius: '8px',
+                      color: '#ea580c',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s'
+                    }}
+                    title="Request permission from Super Admin to edit or delete this consultation note"
+                  >
+                    <ShieldAlert size={15} /> Request Edit / Delete Permission
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

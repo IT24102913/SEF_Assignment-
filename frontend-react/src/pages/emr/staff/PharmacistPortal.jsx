@@ -157,6 +157,18 @@ export default function PharmacistPortal({ staffSession }) {
         requestedBy: pharmacistIdentifier
       });
 
+      emrStore.addStaffNotification({
+        type: 'Prescription',
+        role: 'Pharmacist',
+        requesterName: pharmacistIdentifier,
+        targetId: selectedMedForAuth.id,
+        targetTitle: selectedMedForAuth.medication,
+        patientId: selectedMedForAuth.patientId || selectedPatient?.id || 'PAT-1004',
+        patientName: selectedMedForAuth.patientName || selectedPatient?.name || 'Patient',
+        actionRequested: `${authType} Permission`,
+        reason: authReason.trim(),
+      });
+
       toast.success(
         `Authorization request submitted! Admin can now review and ${
           authType === 'Delete' ? 'permanently delete' : 'edit'
