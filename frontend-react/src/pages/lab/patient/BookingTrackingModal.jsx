@@ -131,7 +131,7 @@ export default function BookingTrackingModal({ booking, relatedBookings = [], on
             <div>
               <h2 style={styles.title}>Live Test Tracking</h2>
               <div style={styles.subtitle}>
-                Token <span style={styles.tokenBadge}>#{booking.tokenNumber || 'LAB'}</span> • {isMulti ? `Combined Appointment (${allBookings.length} Tests)` : (booking.labTest?.name || 'Diagnostic Test')}
+                Token <span style={styles.tokenBadge}>#{booking.queueToken || booking.tokenNumber || booking.receiptNumber || 'LAB'}</span> • {isMulti ? `Combined Appointment (${allBookings.length} Tests)` : (booking.labTest?.name || 'Diagnostic Test')}
               </div>
             </div>
           </div>
@@ -345,7 +345,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1000,
+    zIndex: 10000,
     padding: '20px',
   },
   modal: {

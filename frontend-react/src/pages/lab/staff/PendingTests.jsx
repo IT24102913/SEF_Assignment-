@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { 
-  getAllBookings, 
+  getActiveQueue, 
   markCollected, 
   updateBookingStatus, 
   uploadResult, 
@@ -41,7 +41,6 @@ import {
   Lock,
   CheckSquare
 } from 'lucide-react';
-import emptyImg from '../../../assets/lab_empty_microscope.jpg';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -90,18 +89,9 @@ export default function PendingTests() {
 
   const load = (showSpinner = false) => {
     if (showSpinner) setLoading(true);
-    getAllBookings('')
+    getActiveQueue()
       .then(r => {
-        const all = r.data || [];
-        // Only active tests that are confirmed/approved or progressing through the laboratory pipeline
-        const pendingQueue = all.filter(b => 
-          b.status === 'Confirmed' ||
-          b.status === 'SampleCollected' ||
-          b.status === 'TestingInProgress' ||
-          b.status === 'ResultVerification' ||
-          b.status === 'ResultsReady' ||
-          b.status === 'ReportDelivered'
-        );
+        const pendingQueue = r.data || [];
         setBookings(pendingQueue);
       })
       .catch(() => {})
@@ -110,7 +100,7 @@ export default function PendingTests() {
 
   useEffect(() => { 
     load(true);
-    const interval = setInterval(() => load(false), 4000);
+    const interval = setInterval(() => load(false), 20000);
     const handleUpdate = () => load(false);
     window.addEventListener('lab-booking-updated', handleUpdate);
     return () => {
@@ -464,9 +454,11 @@ export default function PendingTests() {
         <div className="spinner" />
       ) : consolidatedTests.length === 0 ? (
         <div className="card">
-          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px' }}>
-            <img src={emptyImg} alt="No Pending Tests" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 20, boxShadow: 'var(--shadow)' }} />
-            <p style={{ fontSize: 18, fontWeight: 700, marginTop: 24, color: 'var(--primary-dark)' }}>No active tests in this stage</p>
+          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#CCFBF1', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <FlaskConical size={36} color="#0D9488" />
+            </div>
+            <p style={{ fontSize: 18, fontWeight: 700, margin: '8px 0 4px', color: 'var(--primary-dark)' }}>No active tests in this stage</p>
             <p className="text-muted">All active diagnostic tests and specimen processing queues are clear.</p>
           </div>
         </div>

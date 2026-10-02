@@ -45,6 +45,9 @@ class _LabHubScreenState extends State<LabHubScreen> {
       final userId = (user != null && user.userId.isNotEmpty)
           ? user.userId
           : (AuthState.userId ?? '');
+      final userEmail = (user != null && user.email.isNotEmpty)
+          ? user.email
+          : (AuthState.email?.isNotEmpty == true ? AuthState.email! : '');
 
       if (mounted) {
         setState(() {
@@ -53,7 +56,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
         });
       }
 
-      if (!loggedIn || userId.isEmpty) {
+      if (!loggedIn || (userId.isEmpty && userEmail.isEmpty)) {
         if (mounted) {
           setState(() {
             _loading = false;
@@ -67,8 +70,8 @@ class _LabHubScreenState extends State<LabHubScreen> {
         return;
       }
 
-      final bookings = await LabApiService.getMyBookings(userId)
-          .timeout(const Duration(seconds: 5), onTimeout: () => []);
+      final bookings = await LabApiService.getMyBookings(userId, email: userEmail)
+          .timeout(const Duration(seconds: 15), onTimeout: () => []);
       if (mounted) {
         setState(() {
           _recentBookings = bookings;

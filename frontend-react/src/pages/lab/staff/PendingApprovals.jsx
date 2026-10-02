@@ -1,9 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
-import { getAllBookings, approveBooking, rejectBooking } from '../../../api/labApi';
+import { getPendingBookings, approveBooking, rejectBooking } from '../../../api/labApi';
 import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
 import { CheckCircle, XCircle, Eye, Brain, X, AlertTriangle, Clock, Layers } from 'lucide-react';
-import emptyImg from '../../../assets/lab_empty_microscope.jpg';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -137,14 +136,9 @@ export default function PendingApprovals() {
 
   const load = (showSpinner = false) => {
     if (showSpinner) setLoading(true);
-    getAllBookings('')
+    getPendingBookings()
       .then(r => {
-        const all = r.data || [];
-        const pending = all.filter(b => 
-          b.status === 'PendingLabApproval' ||
-          b.status === 'PendingPrescriptionUpload' ||
-          b.status === 'PendingAIVerification'
-        );
+        const pending = r.data || [];
         setBookings(pending);
       })
       .catch(() => {})
@@ -153,7 +147,7 @@ export default function PendingApprovals() {
 
   useEffect(() => { 
     load(true);
-    const interval = setInterval(() => load(false), 4000);
+    const interval = setInterval(() => load(false), 20000);
     const handleUpdate = () => load(false);
     window.addEventListener('lab-booking-updated', handleUpdate);
     return () => {

@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getStats, getAllBookings } from '../../../api/labApi';
+import { getStats } from '../../../api/labApi';
 import LabLayout from '../../../components/layout/LabLayout';
 import { ClipboardList, CheckCircle, XCircle, FlaskConical, TestTube, Brain, Clock, Activity, Sparkles, ArrowRight } from 'lucide-react';
-import labHeroBanner from '../../../assets/lab_hero_banner.jpg';
-import labAiAnalysis from '../../../assets/lab_ai_analysis.jpg';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -13,29 +11,26 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   const loadData = () => {
-    Promise.all([
-      getStats().catch(() => ({ data: null })),
-      getAllBookings('').catch(() => ({ data: [] }))
-    ]).then(([statsRes, bookingsRes]) => {
-      setStats(statsRes.data);
-      const all = bookingsRes.data || [];
-      const queueCount = all.filter(b => 
-        b.status === 'Confirmed' ||
-        b.status === 'SampleCollected' ||
-        b.status === 'TestingInProgress' ||
-        b.status === 'ResultVerification' ||
-        b.status === 'ResultsReady' ||
-        b.status === 'ReportDelivered'
-      ).length;
-      setPendingTestsCount(queueCount);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    getStats()
+      .then((res) => {
+        if (res?.data) {
+          setStats(res.data);
+          setPendingTestsCount(res.data.pendingTestsCount ?? 0);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   };
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 8000);
-    return () => clearInterval(interval);
+    const interval = setInterval(loadData, 25000);
+    const handleUpdate = () => loadData();
+    window.addEventListener('lab-booking-updated', handleUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('lab-booking-updated', handleUpdate);
+    };
   }, []);
 
   if (loading) {
@@ -62,9 +57,9 @@ export default function Dashboard() {
       <div 
         className="lab-hero-banner animate-slide-up" 
         style={{ 
-          backgroundImage: `linear-gradient(to right, rgba(6, 78, 59, 0.94), rgba(5, 150, 105, 0.78)), url(${labHeroBanner})`, 
-          backgroundSize: 'cover', 
-          backgroundPosition: 'center' 
+          background: 'linear-gradient(135deg, #064E3B 0%, #065F46 50%, #0D9488 100%)',
+          boxShadow: '0 12px 28px rgba(6, 78, 59, 0.25)',
+          borderRadius: 20
         }}
       >
         <div className="lab-hero-banner-content">
