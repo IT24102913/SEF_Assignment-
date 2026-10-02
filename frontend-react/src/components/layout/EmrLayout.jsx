@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutGrid,
   ShieldCheck,
@@ -40,8 +40,20 @@ const T = {
 
 export default function EmrLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef(null);
+
+  // Explicitly remove footer from requested EMR sub-pages
+  const noFooterPaths = [
+    '/emr/consultation-notes',
+    '/emr/lab-reports',
+    '/emr/pharmacy',
+    '/emr/channeling-history',
+    '/emr/ai-insights',
+    '/emr/ai-advisor'
+  ];
+  const hideFooter = noFooterPaths.some(path => location.pathname.startsWith(path));
 
   // Support both Medix sessionStorage and EMR localStorage
   const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
@@ -386,7 +398,7 @@ export default function EmrLayout() {
         {/* Page Content */}
         <main className="emr-content">
           <Outlet />
-          <EmrFooter />
+          {!hideFooter && <EmrFooter />}
         </main>
       </div>
     </div>

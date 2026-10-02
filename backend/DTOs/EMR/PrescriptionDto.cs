@@ -15,6 +15,15 @@ public class PrescriptionDto
     public string Status { get; set; } = "Active";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+
+    // Authorization request fields
+    public bool HasAuthorizationRequest { get; set; }
+    public string AuthorizationStatus { get; set; } = string.Empty;
+    public string AuthorizationRequestedBy { get; set; } = string.Empty;
+    public string AuthorizationRequestReason { get; set; } = string.Empty;
+    public string AuthorizationAction { get; set; } = string.Empty;
+    public string AdminNote { get; set; } = string.Empty;
+    public DateTime? AuthorizationRequestedAt { get; set; }
 }
 
 public class CreatePrescriptionDto
@@ -51,3 +60,38 @@ public class CreatePrescriptionItemDto
     public string Status { get; set; } = "Active";
 }
 
+/// <summary>Payload when a staff member requests edit/delete permission from Admin</summary>
+public class RequestPrescriptionAuthorizationDto
+{
+    public string RequestedBy { get; set; } = string.Empty;   // e.g. "PHARM-01"
+    public string Role { get; set; } = string.Empty;           // Pharmacist, Doctor, etc.
+    public string Action { get; set; } = string.Empty;         // "Edit" or "Delete"
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>Payload when Admin approves and deletes a prescription</summary>
+public class ApprovePrescriptionDeleteDto
+{
+    public string Action { get; set; } = "ApproveDelete";
+    public string AdminNote { get; set; } = string.Empty;
+}
+
+/// <summary>Payload when Admin rejects a permission request</summary>
+public class RejectPrescriptionAuthorizationDto
+{
+    public string Action { get; set; } = "Reject";
+    public string AdminNote { get; set; } = string.Empty;
+}
+
+/// <summary>Summarized pending authorization for Admin notification panel</summary>
+public class PrescriptionAuthorizationSummaryDto
+{
+    public Guid Id { get; set; }
+    public string PatientCode { get; set; } = string.Empty;
+    public string MedicationName { get; set; } = string.Empty;
+    public string AuthorizationRequestedBy { get; set; } = string.Empty;
+    public string AuthorizationAction { get; set; } = string.Empty;
+    public string AuthorizationRequestReason { get; set; } = string.Empty;
+    public DateTime? AuthorizationRequestedAt { get; set; }
+    public string AuthorizationStatus { get; set; } = string.Empty;
+}

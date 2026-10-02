@@ -5,10 +5,11 @@ const API_BASE = `${API_BASE_URL}/emr`;
 // Helper: get auth token from storage
 function getToken() {
   try {
-    const raw = localStorage.getItem('hb_token') || sessionStorage.getItem('token') || localStorage.getItem('token') || '';
+    const raw = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
     return raw;
   } catch { return ''; }
 }
+
 
 function authHeaders() {
   const token = getToken();

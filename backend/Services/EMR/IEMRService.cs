@@ -35,6 +35,13 @@ public interface IEMRService
     Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto);
     Task<bool> DeletePrescriptionAsync(Guid id);
 
+    // Prescription authorization workflow (staff request edit/delete → admin approve/reject)
+    Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto);
+    Task<IEnumerable<PrescriptionAuthorizationSummaryDto>> GetPendingPrescriptionAuthorizationsAsync();
+    Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string adminNote);
+    Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string adminNote);
+
+
     // Channeling Appointments
     Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null);
     Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto);

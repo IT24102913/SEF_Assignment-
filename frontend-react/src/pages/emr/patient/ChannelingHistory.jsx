@@ -432,12 +432,10 @@ export default function ChannelingHistory() {
               key={apt.id} 
               style={{
                 backgroundColor: '#ffffff',
-                border: apt.category?.toLowerCase() === 'ongoing' ? '1.5px solid #10b981' : '1px solid #e2e8f0',
+                border: apt.category?.toLowerCase() === 'ongoing' ? '2px solid #10b981' : '1.5px solid #cbd5e1',
                 borderRadius: '16px',
-                padding: '24px',
-                boxShadow: apt.category?.toLowerCase() === 'ongoing' 
-                  ? '0 4px 12px rgba(16, 185, 129, 0.1)' 
-                  : '0 1px 3px rgba(0,0,0,0.02)',
+                padding: '24px 26px',
+                boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)',
                 transition: 'transform 0.15s ease, box-shadow 0.15s ease'
               }}
             >
@@ -445,32 +443,32 @@ export default function ChannelingHistory() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                    <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
                       {apt.doctor}
                     </h3>
                     {apt.queueNumber && (
                       <span style={{
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '2px',
-                        backgroundColor: '#f1f5f9',
-                        color: '#0f766e',
-                        border: '1px solid #cbd5e1',
+                        gap: '4px',
+                        backgroundColor: '#ecfdf5',
+                        color: '#065f46',
+                        border: '1.5px solid #6ee7b7',
                         borderRadius: '6px',
-                        padding: '2px 8px',
-                        fontSize: '0.78rem',
-                        fontWeight: 700
+                        padding: '2px 10px',
+                        fontSize: '0.8rem',
+                        fontWeight: 800
                       }}>
-                        <Hash size={12} /> Queue #{apt.queueNumber}
+                        <Hash size={13} /> Queue #{apt.queueNumber}
                       </span>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '0.9rem', color: '#0d7c6b', fontWeight: 600 }}>
+                    <span style={{ fontSize: '0.92rem', color: '#0d7c6b', fontWeight: 700 }}>
                       {apt.specialty}
                     </span>
-                    <span style={{ color: '#cbd5e1' }}>•</span>
-                    <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                    <span style={{ color: '#94a3b8' }}>•</span>
+                    <span style={{ fontSize: '0.82rem', color: '#475569', fontFamily: 'monospace', fontWeight: 600 }}>
                       Ref: {apt.appointmentCode}
                     </span>
                   </div>
@@ -486,8 +484,10 @@ export default function ChannelingHistory() {
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                 gap: '14px',
-                paddingTop: '16px',
-                borderTop: '1px solid #f1f5f9'
+                padding: '16px 20px',
+                backgroundColor: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '12px'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#334155', fontSize: '0.88rem' }}>
                   <Calendar size={17} color="#0d7c6b" />

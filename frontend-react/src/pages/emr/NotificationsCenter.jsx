@@ -237,10 +237,10 @@ export default function NotificationsCenter() {
                 key={n.id}
                 style={{
                   backgroundColor: '#ffffff',
-                  border: isUnread ? '1.5px solid #cce8e3' : '1px solid #e2e8f0',
+                  border: isUnread ? '2px solid #0d7c6b' : '1.5px solid #cbd5e1',
                   borderRadius: '14px',
                   padding: '18px 22px',
-                  boxShadow: isUnread ? '0 3px 12px -2px rgba(9,94,81,0.06)' : '0 1px 4px rgba(0,0,0,0.02)',
+                  boxShadow: isUnread ? '0 4px 16px -2px rgba(9,94,81,0.12)' : '0 4px 14px -2px rgba(15,23,42,0.06)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',

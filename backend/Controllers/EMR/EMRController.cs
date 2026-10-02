@@ -1,8 +1,13 @@
 using HealthBridge.Api.Agents.EMR;
+using HealthBridge.Api.Authentication;
+using HealthBridge.Api.Data;
+using HealthBridge.Api.DTOs.Auth;
 using HealthBridge.Api.DTOs.EMR;
+using HealthBridge.Api.Models;
 using HealthBridge.Api.Services.EMR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace HealthBridge.Api.Controllers.EMR;
@@ -15,12 +20,21 @@ public class EMRController : ControllerBase
     private readonly IEMRService _emrService;
     private readonly ILogger<EMRController> _logger;
     private readonly EMRClinicalInsightAgent _aiAgent;
+    private readonly ApplicationDbContext _context;
+    private readonly IJwtTokenGenerator _jwtTokenGenerator;
 
-    public EMRController(IEMRService emrService, ILogger<EMRController> logger, EMRClinicalInsightAgent aiAgent)
+    public EMRController(
+        IEMRService emrService, 
+        ILogger<EMRController> logger, 
+        EMRClinicalInsightAgent aiAgent,
+        ApplicationDbContext context,
+        IJwtTokenGenerator jwtTokenGenerator)
     {
         _emrService = emrService;
         _logger = logger;
         _aiAgent = aiAgent;
+        _context = context;
+        _jwtTokenGenerator = jwtTokenGenerator;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -376,6 +390,66 @@ public class EMRController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // PRESCRIPTION AUTHORIZATION WORKFLOW (Staff → Admin Edit/Delete Requests)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Staff member requests edit/delete permission from Admin for a specific prescription.
+    /// Pharmacist, Doctor, or Laboratorian submits this before performing sensitive operations.
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/request-authorization")]
+    public async Task<ActionResult<PrescriptionDto>> RequestPrescriptionAuthorization(Guid id, [FromBody] RequestPrescriptionAuthorizationDto dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Action))
+            return BadRequest(new { message = "Action (Edit or Delete) and Reason are required." });
+
+        var updated = await _emrService.RequestPrescriptionAuthorizationAsync(id, dto);
+        if (updated == null)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// Admin retrieves all prescriptions with pending edit/delete authorization requests.
+    /// Used by the Admin Notification Panel to list incoming staff permission requests.
+    /// </summary>
+    [HttpGet("prescriptions/authorizations/pending")]
+    public async Task<ActionResult<IEnumerable<PrescriptionAuthorizationSummaryDto>>> GetPendingPrescriptionAuthorizations()
+    {
+        var pending = await _emrService.GetPendingPrescriptionAuthorizationsAsync();
+        return Ok(pending);
+    }
+
+    /// <summary>
+    /// Admin approves a pending delete request and permanently removes the prescription.
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/approve-delete")]
+    public async Task<IActionResult> ApproveAndDeletePrescription(Guid id, [FromBody] ApprovePrescriptionDeleteDto dto)
+    {
+        var deleted = await _emrService.ApproveAndDeletePrescriptionAsync(id, dto?.AdminNote ?? string.Empty);
+        if (!deleted)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(new { message = "Prescription approved and deleted successfully.", prescriptionId = id });
+    }
+
+    /// <summary>
+    /// Admin rejects a pending edit/delete permission request. The prescription remains unchanged.
+    /// </summary>
+    [HttpPost("prescriptions/{id:guid}/reject-authorization")]
+    public async Task<ActionResult<PrescriptionDto>> RejectPrescriptionAuthorization(Guid id, [FromBody] RejectPrescriptionAuthorizationDto dto)
+    {
+        var updated = await _emrService.RejectPrescriptionAuthorizationAsync(id, dto?.AdminNote ?? string.Empty);
+        if (updated == null)
+            return NotFound(new { message = $"Prescription {id} not found." });
+
+        return Ok(updated);
+    }
+
+
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // BUSINESS-SPECIFIC OPERATION: CLINICAL SUMMARY & HEALTH PASSPORT
     // ═══════════════════════════════════════════════════════════════════════════
 
@@ -503,5 +577,117 @@ public class EMRController : ControllerBase
             _logger.LogError(ex, "[EMR AI] Failed to answer question");
             return StatusCode(500, new { message = "AI query failed. Please try again later.", detail = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Staff authentication with role verification for EMR portals (Consultant, Laboratorian, Pharmacist, Admin)
+    /// </summary>
+    [HttpPost("staff/login")]
+    [AllowAnonymous]
+    public async Task<ActionResult<StaffLoginResponseDto>> StaffLogin([FromBody] EmrStaffLoginDto dto)
+    {
+        if (dto == null || string.IsNullOrWhiteSpace(dto.StaffIdOrEmail) || string.IsNullOrWhiteSpace(dto.Password))
+        {
+            return BadRequest(new { message = "Staff ID or Email and password are required." });
+        }
+
+        var identifier = dto.StaffIdOrEmail.Trim();
+        var normalizedEmail = identifier.ToLowerInvariant();
+
+        // 1. Try finding user directly by email
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
+
+        // 2. If not found by email, handle staff aliases (e.g. DOC-01, LAB-01, PHARM-01, ADMIN-01)
+        if (user == null)
+        {
+            var upper = identifier.ToUpperInvariant();
+            if (upper == "DOC-01" || upper == "DOC-1" || upper == "DOCTOR")
+            {
+                user = await _context.Users.FirstOrDefaultAsync(u => u.Email == "doctor@gmail.com" || u.Role == UserRole.Doctor);
+            }
+            else if (upper == "LAB-01" || upper == "LAB-1" || upper == "LAB")
+            {
+                user = await _context.Users.FirstOrDefaultAsync(u => u.Email == "lab@gmail.com" || u.Role == UserRole.Laboratory);
+            }
+            else if (upper == "PHARM-01" || upper == "PHARM-1" || upper == "PHARMACIST")
+            {
+                user = await _context.Users.FirstOrDefaultAsync(u => u.Email == "pharmacist@gmail.com" || u.Email == "pharmacist@medix.com" || u.Role == UserRole.Pharmacist);
+            }
+            else if (upper == "ADMIN-01" || upper == "ADMIN-1" || upper == "ADMIN")
+            {
+                user = await _context.Users.FirstOrDefaultAsync(u => u.Email == "admin@healthbridge.com" || u.Email == "nirwan@gmail.com" || u.Role == UserRole.Admin);
+            }
+        }
+
+        if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
+        {
+            return Unauthorized(new { message = "Invalid Staff ID/Email or password." });
+        }
+
+        if (!user.IsActive)
+        {
+            return Unauthorized(new { message = "Your staff account has been deactivated. Please contact hospital administration." });
+        }
+
+        // 3. Role verification against requested portal
+        var target = (dto.TargetRole ?? string.Empty).Trim().ToLowerInvariant();
+        bool isAuthorized = false;
+
+        // Admin has universal staff clearance
+        if (user.Role == UserRole.Admin)
+        {
+            isAuthorized = true;
+        }
+        else if (target == "consultant" || target == "doctor")
+        {
+            isAuthorized = (user.Role == UserRole.Doctor);
+        }
+        else if (target == "laboratorian" || target == "lab" || target == "laboratory")
+        {
+            isAuthorized = (user.Role == UserRole.Laboratory);
+        }
+        else if (target == "pharmacist" || target == "pharmacy")
+        {
+            isAuthorized = (user.Role == UserRole.Pharmacist);
+        }
+        else if (target == "admin")
+        {
+            isAuthorized = (user.Role == UserRole.Admin);
+        }
+
+        if (!isAuthorized)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                message = $"Access Denied: Your account role is '{user.Role}', but '{dto.TargetRole}' portal requires {dto.TargetRole} or Admin authorization."
+            });
+        }
+
+        var token = _jwtTokenGenerator.GenerateToken(user);
+
+        // Derive clean display staffId
+        string staffId = identifier;
+        if (identifier.Contains("@"))
+        {
+            if (user.Role == UserRole.Doctor) staffId = "DOC-01";
+            else if (user.Role == UserRole.Laboratory) staffId = "LAB-01";
+            else if (user.Role == UserRole.Pharmacist) staffId = "PHARM-01";
+            else if (user.Role == UserRole.Admin) staffId = "ADMIN-01";
+            else staffId = user.FullName;
+        }
+
+        return Ok(new StaffLoginResponseDto
+        {
+            Token = token,
+            Role = user.Role,
+            StaffId = staffId,
+            User = new UserResponse
+            {
+                Id = user.Id,
+                FullName = user.FullName,
+                Email = user.Email,
+                Role = user.Role
+            }
+        });
     }
 }

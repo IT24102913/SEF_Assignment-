@@ -62,12 +62,12 @@ public class EMRService : IEMRService
 
                 // Auto-create EMR patient for this registered user
                 var profile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
-                var patientCount = await _db.Patients.CountAsync();
+                var newCode = await GenerateNextPatientCodeAsync();
                 patient = new Patient
                 {
                     Id = Guid.NewGuid(),
                     UserId = user.Id,
-                    PatientCode = $"PAT-{1000 + patientCount + 1}",
+                    PatientCode = newCode,
                     FullName = user.FullName,
                     Email = user.Email,
                     ContactPhone = profile?.PhoneNumber ?? "",
@@ -77,7 +77,16 @@ public class EMRService : IEMRService
                     UpdatedAt = DateTime.UtcNow
                 };
                 _db.Patients.Add(patient);
-                await _db.SaveChangesAsync();
+                try
+                {
+                    await _db.SaveChangesAsync();
+                }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+                {
+                    // Concurrent insert collision — try fetching the record that was just created
+                    patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == user.Email.ToLower());
+                }
+
             }
         }
         return patient == null ? null : MapPatientToDto(patient);
@@ -489,6 +498,79 @@ public class EMRService : IEMRService
         return true;
     }
 
+    // ─── Prescription Authorization Workflow ──────────────────────────────────
+
+    /// <summary>Staff submits a request to admin for edit/delete permission on a prescription</summary>
+    public async Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return null;
+
+        rx.HasAuthorizationRequest = true;
+        rx.AuthorizationStatus = "Pending";
+        rx.AuthorizationRequestedBy = dto.RequestedBy;
+        rx.AuthorizationRequestReason = dto.Reason;
+        rx.AuthorizationAction = dto.Action;
+        rx.AdminNote = string.Empty;
+        rx.AuthorizationRequestedAt = DateTime.UtcNow;
+        rx.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Authorization request submitted for prescription {Id} by {By} — Action: {Action}", id, dto.RequestedBy, dto.Action);
+        return MapPrescriptionToDto(rx);
+    }
+
+    /// <summary>Returns all prescriptions with a pending authorization request for admin review</summary>
+    public async Task<IEnumerable<PrescriptionAuthorizationSummaryDto>> GetPendingPrescriptionAuthorizationsAsync()
+    {
+        var pending = await _db.Prescriptions
+            .Where(p => p.HasAuthorizationRequest && p.AuthorizationStatus == "Pending")
+            .OrderByDescending(p => p.AuthorizationRequestedAt)
+            .ToListAsync();
+
+        return pending.Select(p => new PrescriptionAuthorizationSummaryDto
+        {
+            Id = p.Id,
+            PatientCode = p.PatientCode,
+            MedicationName = p.MedicationName,
+            AuthorizationRequestedBy = p.AuthorizationRequestedBy,
+            AuthorizationAction = p.AuthorizationAction,
+            AuthorizationRequestReason = p.AuthorizationRequestReason,
+            AuthorizationRequestedAt = p.AuthorizationRequestedAt,
+            AuthorizationStatus = p.AuthorizationStatus
+        });
+    }
+
+    /// <summary>Admin approves the delete request — deletes the prescription from the database</summary>
+    public async Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string adminNote)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return false;
+
+        _db.Prescriptions.Remove(rx);
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Admin approved delete for prescription {Id} — Note: {Note}", id, adminNote);
+        return true;
+    }
+
+    /// <summary>Admin rejects the edit/delete permission request</summary>
+    public async Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string adminNote)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return null;
+
+        rx.HasAuthorizationRequest = false;
+        rx.AuthorizationStatus = "Rejected";
+        rx.AdminNote = adminNote;
+        rx.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Admin rejected authorization for prescription {Id} — Note: {Note}", id, adminNote);
+        return MapPrescriptionToDto(rx);
+    }
+
+
+
     // ─── Business-Specific Operation: Clinical Health Summary & Safety Checks ──
 
     public async Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId)
@@ -728,9 +810,17 @@ public class EMRService : IEMRService
 
     private async Task<string> GenerateNextPatientCodeAsync()
     {
-        var count = await _db.Patients.CountAsync();
-        return $"PAT-{1000 + count + 1}";
+        // Use MAX of existing numeric suffixes to avoid duplicate codes even after deletions
+        var allCodes = await _db.Patients.Select(p => p.PatientCode).ToListAsync();
+        int maxNum = 1000;
+        foreach (var code in allCodes)
+        {
+            if (code.StartsWith("PAT-") && int.TryParse(code.Substring(4), out var num))
+                maxNum = Math.Max(maxNum, num);
+        }
+        return $"PAT-{maxNum + 1}";
     }
+
 
     private static PatientDto MapPatientToDto(Patient p) => new()
     {
@@ -800,8 +890,16 @@ public class EMRService : IEMRService
         PrescribedDoctor = p.PrescribedDoctor,
         Status = p.Status,
         CreatedAt = p.CreatedAt,
-        UpdatedAt = p.UpdatedAt
+        UpdatedAt = p.UpdatedAt,
+        HasAuthorizationRequest = p.HasAuthorizationRequest,
+        AuthorizationStatus = p.AuthorizationStatus,
+        AuthorizationRequestedBy = p.AuthorizationRequestedBy,
+        AuthorizationRequestReason = p.AuthorizationRequestReason,
+        AuthorizationAction = p.AuthorizationAction,
+        AdminNote = p.AdminNote,
+        AuthorizationRequestedAt = p.AuthorizationRequestedAt
     };
+
 
     public async Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role)
     {
