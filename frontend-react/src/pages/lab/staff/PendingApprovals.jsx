@@ -34,9 +34,29 @@ function AIBadge({ ai, score, status, nameMismatch, dateExpired, dateInvalid, te
   return <span className="badge badge-pending">Pending AI</span>;
 }
 
+const isMatchingInvestigation = (reqName, extractedList) => {
+  if (!reqName || !extractedList || !extractedList.length) return false;
+  const cleanReq = reqName.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+  const reqTokens = cleanReq.split(/\s+/).filter(w => w.length > 2);
+  return extractedList.some(item => {
+    const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+    if (cleanItem.includes(cleanReq) || cleanReq.includes(cleanItem)) return true;
+    return reqTokens.some(tok => cleanItem.includes(tok));
+  });
+};
+
 const groupPendingBookings = (rawList) => {
   const groups = [];
-  for (const b of rawList) {
+  for (const rawB of rawList) {
+    const isMismatch = Boolean(rawB.aiTestMismatch && !isMatchingInvestigation(rawB.labTest?.name, rawB.aiExtractedInvestigations));
+    const filteredFlags = isMismatch
+      ? (rawB.aiFlagReasons || [])
+      : (rawB.aiFlagReasons || []).filter(r => !r.toLowerCase().includes('was not found on prescription slip'));
+    const b = {
+      ...rawB,
+      aiTestMismatch: isMismatch,
+      aiFlagReasons: filteredFlags
+    };
     const bCreated = new Date(b.createdAt || Date.now()).getTime();
     let matched = null;
     for (const g of groups) {
@@ -599,11 +619,21 @@ export default function PendingApprovals() {
                 } catch {}
               }
 
+              if (testMismatch && isMatchingInvestigation(selected.labTest?.name, extractedTests)) {
+                testMismatch = false;
+              }
+              if (!testMismatch && flagReasons.length) {
+                flagReasons = flagReasons.filter(r => !r.toLowerCase().includes('was not found on prescription slip'));
+              }
+
               // Fallback for flag reasons from notes if not yet parsed
               if (!flagReasons.length && selected.aiVerification === 'Flagged' && selected.aiVerificationNotes) {
                 const cleanNotes = selected.aiVerificationNotes.replace(/^FLAGGED:\s*/i, '').trim();
                 if (cleanNotes) {
                   flagReasons = cleanNotes.split(/\s*•\s*|\s*\|\s*/).filter(Boolean);
+                  if (!testMismatch) {
+                    flagReasons = flagReasons.filter(r => !r.toLowerCase().includes('was not found on prescription slip'));
+                  }
                 }
               }
 
