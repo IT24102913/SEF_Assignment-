@@ -154,9 +154,9 @@ class StatusBadge extends StatelessWidget {
       'Rejected': [kDanger, '❌ Rejected'],
       'SampleCollected': [const Color(0xFF3B82F6), '🧪 Specimen Taken'],
       'TestingInProgress': [const Color(0xFF8B5CF6), '🔬 In Analysis'],
-      'ResultsReady': [const Color(0xFF10B981), '📄 Report Ready'],
-      'ReportDelivered': [kSuccess, '📬 Delivered'],
-      'Completed': [kSuccess, '✓ Completed'],
+      'ResultsReady': [const Color(0xFF0D9488), '🔬 In Final Review'],
+      'ReportDelivered': [const Color(0xFF10B981), '📬 Report Delivered'],
+      'Completed': [const Color(0xFF059669), '✓ Completed'],
       'Cancelled': [kDanger, '✗ Cancelled'],
     };
     final entry = map[status] ?? [kTextMuted, status];

@@ -76,7 +76,7 @@ export default function UploadResults() {
       }
 
       await uploadResult(b.id, TECHNICIAN_ID, finalFileUrl);
-      toast.success(`Results uploaded & email sent to ${b.patientEmail}!`);
+      toast.success(`Results uploaded to system! Click Deliver below to release to ${b.patientEmail}`);
       setSelectedFiles(prev => { const n = { ...prev }; delete n[b.id]; return n; });
       load();
     } catch (err) { 
@@ -90,7 +90,7 @@ export default function UploadResults() {
   const handleDeliverReport = async (id, patientEmail) => {
     try {
       await updateBookingStatus(id, 'ReportDelivered');
-      toast.success(`Report marked as Delivered to ${patientEmail}`);
+      toast.success(`Report delivered & notification email sent to ${patientEmail}`);
       load();
     } catch {
       toast.error('Failed to update status');
@@ -260,7 +260,7 @@ export default function UploadResults() {
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                        <span className="text-muted text-sm">Emails report to patient</span>
+                        <span className="text-muted text-sm">Internal clinical upload • Released on Deliver</span>
                         <button 
                           type="button" 
                           className="btn btn-ghost btn-sm" 
@@ -303,7 +303,7 @@ export default function UploadResults() {
                       disabled={uploadingId === b.id}
                     >
                       <Upload size={16} /> 
-                      {uploadingId === b.id ? 'Uploading PDF...' : b.status === 'ResultsReady' ? 'Upload & Update Report' : 'Upload PDF & Notify Patient'}
+                      {uploadingId === b.id ? 'Uploading PDF...' : b.status === 'ResultsReady' ? 'Upload & Replace Report' : 'Upload Diagnostic PDF'}
                     </button>
 
                     {b.status === 'ResultsReady' && (

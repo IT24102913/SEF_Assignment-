@@ -270,7 +270,7 @@ export default function PendingTests() {
       }
 
       await uploadResult(b.id, TECHNICIAN_ID, finalFileUrl);
-      toast.success(`Report uploaded & email notification delivered to ${b.patientEmail}!`);
+      toast.success(`PDF report uploaded for ${b.patientName}. Click Deliver below to send to patient!`);
       setSelectedFiles(prev => { const n = { ...prev }; delete n[b.id]; return n; });
       window.dispatchEvent(new Event('lab-booking-updated'));
       load();

@@ -25,6 +25,19 @@ public class LabBookingResponse
     public int EstimatedWaitMinutes { get; set; }
     public int AssignedChairNo { get; set; }
     public string? AgentWorkflowStateJson { get; set; }
+    public string? AIExtractedPatientName { get; set; }
+    public bool? AIPatientNameMismatch { get; set; }
+    public string? AIPatientNameMismatchReason { get; set; }
+    public bool? AITestMismatch { get; set; }
+    public string? AITestMismatchReason { get; set; }
+    public List<string>? AIExtractedInvestigations { get; set; }
+    public bool? AIPrescriptionExpired { get; set; }
+    public bool? AIPrescriptionDateValid { get; set; }
+    public string? AIPrescriptionDateReason { get; set; }
+    public List<string>? AIFlagReasons { get; set; }
+    public string? AIDocumentClassification { get; set; }
+    public string? AIDocumentTypeDescription { get; set; }
+    public bool? AIIsValidPrescription { get; set; }
     public string PaymentStatus { get; set; } = "Unpaid";
     public string? PaymentMethod { get; set; }
     public string? ReceiptNumber { get; set; }

@@ -79,14 +79,12 @@ class _LabHubScreenState extends State<LabHubScreen> {
             b.status == 'PendingAIVerification'
           ).length;
           _activeCount = bookings.where((b) => 
-            b.status == 'Confirmed' || 
-            b.status == 'SampleCollected' || 
-            b.status == 'TestingInProgress'
+            b.status != 'Completed' && 
+            b.status != 'Cancelled' && 
+            b.status != 'Rejected'
           ).length;
           _resultsReadyCount = bookings.where((b) => 
-            b.status == 'ResultsReady' || 
-            b.status == 'ReportDelivered' || 
-            b.status == 'Completed' ||
+            (b.status == 'ReportDelivered' || b.status == 'Completed') &&
             (b.resultFileUrl != null && b.resultFileUrl!.isNotEmpty)
           ).length;
           _loading = false;

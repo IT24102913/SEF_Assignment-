@@ -47,10 +47,10 @@ class ApiConfig {
   /// - 'http://192.168.91.48:5126' -> Physical Android phone on the same Wi-Fi
   static String get localHost {
     if (kIsWeb) return 'http://localhost:5126';
-    return 'http://127.0.0.1:5126';
+    return 'http://192.168.1.5:5126';
   }
 
-  static String _activeHost = kIsWeb ? 'http://localhost:5126' : (useLocalBackend ? 'http://127.0.0.1:5126' : productionHost);
+  static String _activeHost = kIsWeb ? 'http://localhost:5126' : (useLocalBackend ? 'http://192.168.1.5:5126' : productionHost);
 
   static String get activeHost => _activeHost;
 
@@ -58,7 +58,7 @@ class ApiConfig {
     if (kIsWeb) {
       return [
         'http://localhost:5126',
-        'http://127.0.0.1:5126',
+        'http://192.168.1.5:5126',
         if (!useLocalBackend) productionHost,
       ];
     }
@@ -66,7 +66,7 @@ class ApiConfig {
       return [productionHost];
     }
     return [
-      'http://127.0.0.1:5126',
+      'http://192.168.1.5:5126',
       'http://localhost:5126',
       'http://10.35.16.140:5126',
       'http://10.0.2.2:5126',
@@ -93,7 +93,7 @@ class ApiConfig {
         }
       } catch (_) {}
     }
-    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://127.0.0.1:5126';
+    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://192.168.1.5:5126';
     return '$_activeHost/api';
   }
 }

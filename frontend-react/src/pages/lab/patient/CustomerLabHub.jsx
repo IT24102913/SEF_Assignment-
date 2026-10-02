@@ -84,14 +84,12 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                     b.status === 'PendingPayment'
                 ).length;
                 const active = myBookings.filter(b =>
-                    b.status === 'Confirmed' ||
-                    b.status === 'SampleCollected' ||
-                    b.status === 'TestingInProgress'
+                    b.status !== 'Completed' &&
+                    b.status !== 'Cancelled' &&
+                    b.status !== 'Rejected'
                 ).length;
                 const reportsReady = myBookings.filter(b =>
-                    b.status === 'ResultsReady' ||
-                    b.status === 'ReportDelivered' ||
-                    b.status === 'Completed' ||
+                    (b.status === 'ReportDelivered' || b.status === 'Completed') &&
                     (b.resultFileUrl && b.resultFileUrl.length > 0)
                 ).length;
 

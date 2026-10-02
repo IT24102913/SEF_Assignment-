@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../utils/config.dart';
 
@@ -167,6 +168,23 @@ class LabApiService {
       return LabBooking.fromJson(jsonDecode(res.body));
     }
     throw Exception(res.body);
+  }
+
+  /// Upload prescription image file to server at full high-resolution
+  static Future<String?> uploadImageFile(File file) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final req = http.MultipartRequest('POST', Uri.parse('$host/api/uploads'));
+        req.files.add(await http.MultipartFile.fromPath('file', file.path));
+        final stream = await req.send().timeout(const Duration(seconds: 20));
+        final res = await http.Response.fromStream(stream);
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          final data = jsonDecode(res.body);
+          return data['fileUrl']?.toString() ?? data['relativePath']?.toString();
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 
   static Future<LabBooking> uploadPrescription(String bookingId, String imageUrl) async {

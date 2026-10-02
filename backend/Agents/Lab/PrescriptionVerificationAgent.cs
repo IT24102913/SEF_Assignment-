@@ -27,6 +27,14 @@ public class PrescriptionVerificationOutput
     public DateOnly? PrescriptionDate { get; set; }
     public List<string> ExtractedInvestigations { get; set; } = new();
 
+    public string? DetectedPatientName { get; set; }
+    public bool PatientNameMatch { get; set; } = true;
+    public string? PatientNameMismatchReason { get; set; }
+
+    public bool PrescriptionDateValid { get; set; } = true;
+    public bool IsPrescriptionExpired { get; set; } = false;
+    public string? PrescriptionDateReason { get; set; }
+
     // 5-Stage Document Classification & Authenticity Properties
     public string DocumentClassification { get; set; } = "UNKNOWN"; 
     // HANDWRITTEN_PRESCRIPTION | COMPUTER_PRINTED_PRESCRIPTION | NON_MEDICAL_IMAGE | NON_PRESCRIPTION_DOCUMENT | SUSPICIOUS_FORGERY
@@ -35,6 +43,7 @@ public class PrescriptionVerificationOutput
     public bool IsForgeryOrTrainingSample { get; set; }
     public List<string> SecurityFlags { get; set; } = new();
 
+    public List<string> FlagReasons { get; set; } = new();
     public string StatusMessage { get; set; } = string.Empty;
     public string Notes { get; set; } = string.Empty;
     public string AuditLog { get; set; } = string.Empty;
@@ -154,7 +163,7 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
                             {
                                 inline_data = new
                                 {
-                                    mime_type = "image/jpeg",
+                                    mime_type = GetMimeType(input.PrescriptionImageUrl),
                                     data = base64Data
                                 }
                             }
@@ -164,26 +173,31 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
                 generationConfig = new
                 {
                     temperature = 0.1,
-                    maxOutputTokens = 1024
+                    maxOutputTokens = 8192,
+                    responseMimeType = "application/json"
                 }
             };
 
             var jsonPayload = JsonSerializer.Serialize(requestBody);
-            var configuredModel = _config["Gemini:Model"] ?? "gemini-1.5-flash";
+            var configuredModel = _config["Gemini:Model"] ?? "gemini-3.5-flash";
+
+            var candidateModels = new[]
+            {
+                configuredModel,
+                "gemini-3.5-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-3.8-flash"
+            }.Where(m => !string.IsNullOrWhiteSpace(m)).Distinct().ToArray();
 
             var endpointsList = new List<string>();
-            if (!string.IsNullOrWhiteSpace(apiKey) && apiKey.StartsWith("ya29."))
+            foreach (var m in candidateModels)
             {
-                endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/{configuredModel}:generateContent");
-                endpointsList.Add("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent");
-                endpointsList.Add("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent");
-                endpointsList.Add("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent");
+                if (!string.IsNullOrWhiteSpace(apiKey) && apiKey.StartsWith("ya29."))
+                {
+                    endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent");
+                }
+                endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={apiKey}");
             }
-
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/{configuredModel}:generateContent?key={apiKey}");
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={apiKey}");
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={apiKey}");
-            endpointsList.Add($"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={apiKey}");
 
             var endpoints = endpointsList.Distinct().ToArray();
             HttpResponseMessage? response = null;
@@ -207,6 +221,7 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
                 responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode) break;
+                _logger.LogWarning("[{Agent}] Model endpoint {Endpoint} failed with {StatusCode}: {Body}", AgentName, ep.Split('?')[0], response.StatusCode, responseBody.Length > 200 ? responseBody[..200] : responseBody);
             }
 
             if (response == null || !response.IsSuccessStatusCode)
@@ -216,16 +231,44 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             }
 
             var geminiDoc = JsonSerializer.Deserialize<JsonElement>(responseBody);
-            var rawText = geminiDoc
-                .GetProperty("candidates")[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString() ?? "";
+            var sb = new StringBuilder();
+            if (geminiDoc.TryGetProperty("candidates", out var candidates) &&
+                candidates.GetArrayLength() > 0 &&
+                candidates[0].TryGetProperty("content", out var content) &&
+                content.TryGetProperty("parts", out var parts))
+            {
+                foreach (var part in parts.EnumerateArray())
+                {
+                    if (part.TryGetProperty("text", out var t))
+                    {
+                        sb.Append(t.GetString());
+                    }
+                }
+            }
+            var rawText = sb.ToString();
+            _logger.LogInformation("[{Agent}] Gemini Vision returned text length {Length}: {Preview}", AgentName, rawText.Length, rawText.Length > 200 ? rawText[..200] : rawText);
 
             var cleanedJson = CleanJsonText(rawText);
-            using var ocrDoc = JsonDocument.Parse(cleanedJson);
-            var root = ocrDoc.RootElement;
+            JsonDocument? ocrDoc = null;
+            try
+            {
+                var jsonOptions = new JsonDocumentOptions
+                {
+                    CommentHandling = JsonCommentHandling.Skip,
+                    AllowTrailingCommas = true
+                };
+                ocrDoc = JsonDocument.Parse(cleanedJson, jsonOptions);
+            }
+            catch (JsonException jex)
+            {
+                _logger.LogWarning("[{Agent}] Vision OCR returned non-JSON text ({Error}). Fallback engaged. Raw: {Raw}",
+                    AgentName, jex.Message, rawText.Length > 200 ? rawText.Substring(0, 200) : rawText);
+                return BuildFallback(input.TestName, "AI response could not be parsed as structured JSON. Queued for technician inspection.");
+            }
+
+            using (ocrDoc)
+            {
+                var root = ocrDoc.RootElement;
 
             var docClassification = root.TryGetProperty("documentClassification", out var dc) ? dc.GetString() ?? "UNKNOWN" : "UNKNOWN";
             var docDesc = root.TryGetProperty("documentTypeDescription", out var dd) ? dd.GetString() ?? "" : "";
@@ -249,11 +292,13 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             {
                 foreach (var t in testsArr.EnumerateArray())
                 {
-                    if (t.GetString() is string ts) extractedTests.Add(ts);
+                    if (t.GetString() is string ts && !string.IsNullOrWhiteSpace(ts)) extractedTests.Add(ts.Trim());
                 }
             }
 
             var doctorName = root.TryGetProperty("doctorName", out var doc) ? doc.GetString() : "Not Detected";
+            var detectedPatientName = root.TryGetProperty("patientName", out var pn) ? pn.GetString() : null;
+
             var prescriptionDateStr = root.TryGetProperty("prescriptionDate", out var pdate) ? pdate.GetString() : null;
             DateOnly? parsedPrescriptionDate = null;
             if (DateOnly.TryParse(prescriptionDateStr, out var parsedDate))
@@ -263,55 +308,95 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
 
             var notes = root.TryGetProperty("notes", out var n) ? n.GetString() : "Gemini Vision OCR analysis complete.";
 
-            string statusMessage;
+            // 1. Evaluate Investigation Match using synonyms dictionary
+            var (investigationMatch, investigationReason) = EvaluateInvestigationMatch(input.TestName, extractedTests, matchFound);
+            matchFound = investigationMatch;
+
+            // 2. Evaluate Patient Name Match
+            var (nameMatch, resolvedPatientName, nameReason) = EvaluatePatientNameMatch(input.PatientName, detectedPatientName);
+
+            // 3. Evaluate Prescription Date Validity & Expiry
+            var (dateValid, dateExpired, dateReason) = EvaluatePrescriptionDate(parsedPrescriptionDate);
+
+            // 4. Collect Flag Reasons
+            var flagReasons = new List<string>();
             if (isForgery || docClassification == "SUSPICIOUS_FORGERY")
             {
-                statusMessage = "SECURITY REJECTION: Document identified as fake/forgery or annotated training dataset ('TRAINING DATA - DO NOT USE').";
+                flagReasons.Add("Document flagged as suspicious forgery or training dataset watermark");
                 matchFound = false;
                 confidence = Math.Min(confidence, 0.05);
             }
-            else if (docClassification == "NON_MEDICAL_IMAGE")
+            if (docClassification == "NON_MEDICAL_IMAGE")
             {
-                statusMessage = "REJECTED: Uploaded file is a non-medical graphic/photo (e.g. anime poster or picture). No prescription header found.";
+                flagReasons.Add("Uploaded image is a non-medical picture/graphic (no prescription content)");
                 matchFound = false;
                 confidence = 0.0;
             }
-            else if (docClassification == "NON_PRESCRIPTION_DOCUMENT")
+            if (docClassification == "NON_PRESCRIPTION_DOCUMENT")
             {
-                statusMessage = "REJECTED: Uploaded file is a non-medical text document (e.g. homework code sheet). No valid doctor prescription found.";
+                flagReasons.Add("Uploaded file is non-medical text/homework/code (not a doctor's prescription)");
                 matchFound = false;
                 confidence = 0.0;
             }
-            else if (isValidRx && matchFound)
+            if (!matchFound)
             {
-                statusMessage = $"Prescription verified ({docClassification.Replace('_', ' ')}). Doctor: {doctorName}.";
+                var slipList = extractedTests.Any() ? string.Join(", ", extractedTests) : "None detected";
+                flagReasons.Add($"Requested test '{input.TestName}' was not found on prescription slip (detected: {slipList})");
             }
-            else if (isValidRx && !matchFound)
+            if (!nameMatch)
             {
-                statusMessage = $"Valid prescription detected ({docClassification.Replace('_', ' ')}), but requested item '{input.TestName}' was not found on the prescription.";
+                flagReasons.Add(nameReason ?? $"Patient name on slip ('{resolvedPatientName}') does not match registered profile name '{input.PatientName}'");
+            }
+            if (dateExpired)
+            {
+                flagReasons.Add(dateReason ?? "Prescription is older than 90 days (expired)");
+            }
+            else if (!dateValid && parsedPrescriptionDate.HasValue)
+            {
+                flagReasons.Add(dateReason ?? "Prescription date is invalid or in the future");
+            }
+            if (string.IsNullOrWhiteSpace(doctorName) || doctorName.Equals("Not Detected", StringComparison.OrdinalIgnoreCase) || doctorName.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                flagReasons.Add("Doctor name/signature was not clearly identified on the prescription slip");
+            }
+
+            var isFullyVerified = isValidRx && matchFound && nameMatch && dateValid && !dateExpired && !isForgery && docClassification != "NON_MEDICAL_IMAGE" && docClassification != "NON_PRESCRIPTION_DOCUMENT" && docClassification != "SUSPICIOUS_FORGERY";
+
+            string statusMessage;
+            if (flagReasons.Any())
+            {
+                statusMessage = $"Flagged for technician review: {string.Join(" • ", flagReasons)}";
             }
             else
             {
-                statusMessage = notes;
+                statusMessage = $"Prescription verified ({docClassification.Replace('_', ' ')}). Doctor: {doctorName}. Test '{input.TestName}' confirmed on slip.";
             }
 
             return new PrescriptionVerificationOutput
             {
-                Success = true,
+                Success = isFullyVerified,
                 Confidence = confidence,
                 MatchFound = matchFound,
                 DoctorName = doctorName,
                 PrescriptionDate = parsedPrescriptionDate,
                 ExtractedInvestigations = extractedTests,
+                DetectedPatientName = resolvedPatientName,
+                PatientNameMatch = nameMatch,
+                PatientNameMismatchReason = nameReason,
+                PrescriptionDateValid = dateValid,
+                IsPrescriptionExpired = dateExpired,
+                PrescriptionDateReason = dateReason,
                 DocumentClassification = docClassification,
                 DocumentTypeDescription = string.IsNullOrWhiteSpace(docDesc) ? docClassification.Replace('_', ' ') : docDesc,
                 IsValidMedicalPrescription = isValidRx,
                 IsForgeryOrTrainingSample = isForgery,
                 SecurityFlags = flags,
+                FlagReasons = flagReasons,
                 StatusMessage = statusMessage,
                 Notes = notes,
-                AuditLog = $"Processed at {DateTime.UtcNow:O} by {AgentName} (Classification: {docClassification}, Match: {matchFound})"
+                AuditLog = $"Processed at {DateTime.UtcNow:O} by {AgentName} (Classification: {docClassification}, Match: {matchFound}, NameMatch: {nameMatch})"
             };
+            }
         }
         catch (Exception ex)
         {
@@ -328,27 +413,54 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             return commaIdx >= 0 ? imageUrl.Substring(commaIdx + 1) : imageUrl;
         }
 
-        if (Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        Uri? uri = null;
+        string relativePath;
+        if (Uri.TryCreate(imageUrl, UriKind.Absolute, out uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
         {
-            var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
-            return Convert.ToBase64String(bytes);
+            relativePath = uri.AbsolutePath.TrimStart('/', '\\');
+        }
+        else
+        {
+            relativePath = imageUrl.TrimStart('/', '\\');
         }
 
-        var relativePath = imageUrl.TrimStart('/', '\\');
-        var localPath = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), relativePath);
-        if (File.Exists(localPath))
+        if (!string.IsNullOrEmpty(relativePath))
         {
-            var bytes = await File.ReadAllBytesAsync(localPath);
+            var localPath = Path.Combine(_env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"), relativePath);
+            if (File.Exists(localPath))
+            {
+                var bytes = await File.ReadAllBytesAsync(localPath);
+                return Convert.ToBase64String(bytes);
+            }
+        }
+
+        if (uri != null && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
             return Convert.ToBase64String(bytes);
         }
 
         return null;
     }
 
+    private static string GetMimeType(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return "image/jpeg";
+        if (url.StartsWith("data:image/png", StringComparison.OrdinalIgnoreCase) || url.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            return "image/png";
+        if (url.StartsWith("data:image/webp", StringComparison.OrdinalIgnoreCase) || url.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+            return "image/webp";
+        if (url.StartsWith("data:image/gif", StringComparison.OrdinalIgnoreCase) || url.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+            return "image/gif";
+        return "image/jpeg";
+    }
+
     private static string CleanJsonText(string text)
     {
+        if (string.IsNullOrWhiteSpace(text)) return "{}";
+
         var trimmed = text.Trim();
-        if (trimmed.StartsWith("```json"))
+        if (trimmed.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
             trimmed = trimmed.Substring(7);
         else if (trimmed.StartsWith("```"))
             trimmed = trimmed.Substring(3);
@@ -356,7 +468,16 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
         if (trimmed.EndsWith("```"))
             trimmed = trimmed.Substring(0, trimmed.Length - 3);
 
-        return trimmed.Trim();
+        trimmed = trimmed.Trim();
+
+        int firstBrace = trimmed.IndexOf('{');
+        int lastBrace = trimmed.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+        {
+            return trimmed.Substring(firstBrace, lastBrace - firstBrace + 1).Trim();
+        }
+
+        return "{}";
     }
 
     private PrescriptionVerificationOutput BuildFallback(string testName, string reason)
@@ -370,13 +491,150 @@ Respond STRICTLY in pure JSON format without any markdown code fences or backtic
             DoctorName = "Pending Inspection",
             PrescriptionDate = null,
             ExtractedInvestigations = new List<string>(),
+            DetectedPatientName = "Pending Inspection",
+            PatientNameMatch = false,
+            PatientNameMismatchReason = reason,
+            PrescriptionDateValid = false,
+            IsPrescriptionExpired = false,
             DocumentClassification = "PENDING_INSPECTION",
             DocumentTypeDescription = "Queued for Pathologist Review",
             IsValidMedicalPrescription = false,
             IsForgeryOrTrainingSample = false,
+            FlagReasons = new List<string> { $"Manual inspection required: {reason}" },
             StatusMessage = $"Prescription image queued for manual inspection by Lab Technician. ({reason})",
             Notes = reason,
             AuditLog = $"Processed at {DateTime.UtcNow:O} by {AgentName} (Human-in-the-Loop Fallback)"
         };
+    }
+
+    public static (bool IsMatch, string FinalName, string? Reason) EvaluatePatientNameMatch(
+        string profileName,
+        string? detectedName,
+        bool? geminiReportedMatch = null,
+        string? geminiReason = null)
+    {
+        if (string.IsNullOrWhiteSpace(detectedName) ||
+            detectedName.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ||
+            detectedName.Equals("Not Detected", StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, "Unreadable / Not Detected", "No readable patient name was identified on the uploaded prescription slip.");
+        }
+
+        if (geminiReportedMatch == false)
+        {
+            return (false, detectedName, geminiReason ?? $"Detected patient name '{detectedName}' does not match account name '{profileName}'.");
+        }
+
+        if (geminiReportedMatch == true)
+        {
+            return (true, detectedName, null);
+        }
+
+        var cleanProfile = profileName.Replace("Mr.", "").Replace("Mrs.", "").Replace("Ms.", "").Replace("Dr.", "").Trim().ToLower();
+        var cleanDetected = detectedName.Replace("Mr.", "").Replace("Mrs.", "").Replace("Ms.", "").Replace("Dr.", "").Trim().ToLower();
+
+        if (cleanProfile == cleanDetected || cleanDetected.Contains(cleanProfile) || cleanProfile.Contains(cleanDetected))
+        {
+            return (true, detectedName, null);
+        }
+
+        return (false, detectedName, $"Detected patient name '{detectedName}' does not match registered profile name '{profileName}'.");
+    }
+
+    public static (bool IsValid, bool IsExpired, string? Reason) EvaluatePrescriptionDate(
+        DateOnly? prescriptionDate,
+        bool? aiReportedDateValid = null,
+        bool? aiReportedExpired = null,
+        string? aiReportedReason = null,
+        DateOnly? referenceDate = null,
+        int validityDays = 90)
+    {
+        if (!prescriptionDate.HasValue)
+        {
+            return (false, false, "Prescription date was not detected or unreadable on the uploaded document.");
+        }
+
+        var today = referenceDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var date = prescriptionDate.Value;
+
+        if (date > today)
+        {
+            return (false, false, $"Prescription contains an invalid future date ({date:yyyy-MM-dd}). Potential forgery or misread.");
+        }
+
+        var ageInDays = today.DayNumber - date.DayNumber;
+        if (ageInDays > validityDays)
+        {
+            return (false, true, $"Prescription has expired ({date:yyyy-MM-dd}). Clinical guidelines require a valid prescription within the last {validityDays} days.");
+        }
+
+        if (aiReportedExpired == true)
+        {
+            return (false, true, aiReportedReason ?? "Prescription reported as expired by clinical validation.");
+        }
+
+        if (aiReportedDateValid == false)
+        {
+            return (false, false, aiReportedReason ?? "Prescription date validation failed.");
+        }
+
+        return (true, false, null);
+    }
+
+    public static (bool IsMatch, string? Reason) EvaluateInvestigationMatch(
+        string requestedTest,
+        IEnumerable<string> prescribedTests,
+        bool? geminiReportedMatch = null)
+    {
+        if (geminiReportedMatch == true)
+        {
+            return (true, null);
+        }
+
+        var testsList = prescribedTests?.ToList() ?? new List<string>();
+        if (!testsList.Any())
+        {
+            return (false, $"No medical investigations matching requested test '{requestedTest}' were detected on the prescription.");
+        }
+
+        var synonyms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Full Blood Count", new[] { "FBC", "CBC", "Complete Blood Count", "Full Blood Examination", "FBE", "Blood Picture" } },
+            { "Fasting Blood Sugar", new[] { "FBS", "Fasting Blood Glucose", "FBG", "Blood Sugar", "Fasting Glucose" } },
+            { "Liver Function Test", new[] { "LFT", "Liver Panel", "Hepatic Function" } },
+            { "HIV 1/2 Antibody Screening", new[] { "HIV", "HIV ELISA", "HIV Rapid", "HIV 1/2", "HIV Screen", "HIV Antibody" } },
+            { "Lipid Profile", new[] { "Lipid Panel", "Lipids", "Cholesterol Panel", "Fasting Lipids" } },
+            { "Serum Creatinine", new[] { "Creatinine", "Renal Function", "RFT", "Kidney Function", "KFT" } },
+            { "Urine Full Report", new[] { "UFR", "Urine Analysis", "Urinalysis", "Routine Urine" } },
+            { "Thyroid Stimulating Hormone", new[] { "TSH", "Thyroid Profile", "TFT" } }
+        };
+
+        var reqClean = requestedTest.Trim().ToLower();
+
+        foreach (var p in testsList)
+        {
+            var pClean = p.Trim().ToLower();
+            if (pClean.Contains(reqClean) || reqClean.Contains(pClean))
+            {
+                return (true, null);
+            }
+
+            foreach (var kvp in synonyms)
+            {
+                bool reqMatchesKey = reqClean.Contains(kvp.Key.ToLower()) || kvp.Key.ToLower().Contains(reqClean);
+                bool reqMatchesSynonym = kvp.Value.Any(s => reqClean.Contains(s.ToLower()) || s.ToLower().Contains(reqClean));
+
+                if (reqMatchesKey || reqMatchesSynonym)
+                {
+                    if (pClean.Contains(kvp.Key.ToLower()) || kvp.Key.ToLower().Contains(pClean) ||
+                        kvp.Value.Any(s => pClean.Contains(s.ToLower()) || s.ToLower().Contains(pClean)))
+                    {
+                        return (true, null);
+                    }
+                }
+            }
+        }
+
+        return (false, $"Prescription investigations ({string.Join(", ", testsList)}) do not include requested test '{requestedTest}'.");
     }
 }
