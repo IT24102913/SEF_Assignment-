@@ -107,7 +107,12 @@ public class AppointmentSearchResultDto
 
 public class DelaySessionRequest
 {
-    public DateTime ExpectedStartTime { get; set; }
+    public string? ExpectedStartTime { get; set; }
+    public string? Reason { get; set; }
+}
+
+public class CancelSessionRequest
+{
     public string? Reason { get; set; }
 }
 

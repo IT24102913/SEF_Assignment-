@@ -1126,8 +1126,12 @@ public class AppointmentService : IAppointmentService
         var nextApt = await _context.DoctorAppointments
             .Include(a => a.Doctor)
             .Include(a => a.DoctorSession)
-            .Where(a => a.DoctorSessionId == sessionId && a.QueueStatus == QueueStatus.Waiting)
-            .OrderBy(a => a.QueueNumber)
+            .Where(a => a.DoctorSessionId == sessionId &&
+                       (a.QueueStatus == QueueStatus.Waiting || a.QueueStatus == QueueStatus.NotCheckedIn) &&
+                       a.Status != AppointmentStatus.Cancelled &&
+                       a.Status != AppointmentStatus.Completed)
+            .OrderBy(a => a.QueueStatus == QueueStatus.Waiting ? 0 : 1)
+            .ThenBy(a => a.QueueNumber)
             .FirstOrDefaultAsync();
 
         if (nextApt == null)
