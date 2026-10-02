@@ -160,9 +160,12 @@ public class PharmacyOrderService : IPharmacyOrderService
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(request.CustomerEmail))
+        string effectiveEmail = request.CustomerEmail?.Trim().ToLowerInvariant() ?? "";
+        bool isDummyEmail = string.IsNullOrWhiteSpace(effectiveEmail) || effectiveEmail.Contains("healthbridge.lk");
+
+        if (!isDummyEmail)
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == request.CustomerEmail.Trim().ToLower());
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == effectiveEmail);
             if (user != null)
             {
                 if (!patientId.HasValue) patientId = user.Id;
@@ -175,9 +178,16 @@ public class PharmacyOrderService : IPharmacyOrderService
         else if (patientId.HasValue)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == patientId.Value);
-            if (user != null && user.IsPharmacyBlocked)
+            if (user != null)
             {
-                throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
+                if (user.IsPharmacyBlocked)
+                {
+                    throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
+                }
+                if (!string.IsNullOrWhiteSpace(user.Email) && !user.Email.Contains("healthbridge.lk"))
+                {
+                    effectiveEmail = user.Email.Trim().ToLowerInvariant();
+                }
             }
         }
 
@@ -190,7 +200,7 @@ public class PharmacyOrderService : IPharmacyOrderService
             OrderNumber = orderNumber,
             PatientId = patientId,
             CustomerName = request.CustomerName.Trim(),
-            CustomerEmail = request.CustomerEmail.Trim().ToLowerInvariant(),
+            CustomerEmail = effectiveEmail,
             CustomerPhone = request.CustomerPhone?.Trim(),
             DeliveryAddress = request.DeliveryAddress?.Trim(),
             PaymentMethod = request.PaymentMethod,
@@ -265,28 +275,25 @@ public class PharmacyOrderService : IPharmacyOrderService
         });
 
         // ── Send instant order confirmation email notification to patient ─────
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
-                await emailSvc.SendPharmacyOrderNotificationAsync(
-                    savedOrderResponse.CustomerEmail,
-                    savedOrderResponse.CustomerName,
-                    savedOrderResponse.OrderNumber,
-                    savedOrderResponse.Status,
-                    savedOrderResponse.TotalAmount,
-                    savedOrderResponse.PaymentMethod,
-                    savedOrderResponse.DeliveryAddress,
-                    savedOrderResponse.Items
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[PharmacyOrderService] Failed to send order placed email to {Email}", savedOrderResponse.CustomerEmail);
-            }
-        });
+            _logger.LogInformation("[PharmacyOrderService] Sending order confirmation email to '{Email}' for Order #{OrderNumber}", savedOrderResponse.CustomerEmail, savedOrderResponse.OrderNumber);
+            await _emailService.SendPharmacyOrderNotificationAsync(
+                savedOrderResponse.CustomerEmail,
+                savedOrderResponse.CustomerName,
+                savedOrderResponse.OrderNumber,
+                savedOrderResponse.Status,
+                savedOrderResponse.TotalAmount,
+                savedOrderResponse.PaymentMethod,
+                savedOrderResponse.DeliveryAddress,
+                savedOrderResponse.Items
+            );
+            _logger.LogInformation("[PharmacyOrderService] ✅ Order confirmation email sent successfully for Order #{OrderNumber}", savedOrderResponse.OrderNumber);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[PharmacyOrderService] ❌ Failed to send order placed email to '{Email}' for Order #{OrderNumber}", savedOrderResponse.CustomerEmail, savedOrderResponse.OrderNumber);
+        }
 
         return savedOrderResponse;
     }
@@ -350,29 +357,26 @@ public class PharmacyOrderService : IPharmacyOrderService
         var response = MapToPharmacyOrderResponse(order);
 
         // ── Send order status update email notification to patient ───────────
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
-                await emailSvc.SendPharmacyOrderNotificationAsync(
-                    response.CustomerEmail,
-                    response.CustomerName,
-                    response.OrderNumber,
-                    response.Status,
-                    response.TotalAmount,
-                    response.PaymentMethod,
-                    response.DeliveryAddress,
-                    response.Items,
-                    response.AdminNote
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[PharmacyOrderService] Failed to send status update email to {Email}", response.CustomerEmail);
-            }
-        });
+            _logger.LogInformation("[PharmacyOrderService] Sending status update email to '{Email}' for Order #{OrderNumber} Status={Status}", response.CustomerEmail, response.OrderNumber, response.Status);
+            await _emailService.SendPharmacyOrderNotificationAsync(
+                response.CustomerEmail,
+                response.CustomerName,
+                response.OrderNumber,
+                response.Status,
+                response.TotalAmount,
+                response.PaymentMethod,
+                response.DeliveryAddress,
+                response.Items,
+                response.AdminNote
+            );
+            _logger.LogInformation("[PharmacyOrderService] ✅ Order status update email sent successfully for Order #{OrderNumber}", response.OrderNumber);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[PharmacyOrderService] ❌ Failed to send status update email to '{Email}' for Order #{OrderNumber}", response.CustomerEmail, response.OrderNumber);
+        }
 
         return response;
     }
