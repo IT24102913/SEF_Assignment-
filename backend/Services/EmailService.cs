@@ -22,42 +22,85 @@ public class EmailService : IEmailService
 {
     private readonly IConfiguration _config;
     private readonly ILogger<EmailService> _logger;
+    private readonly HttpClient _httpClient;
 
-    public EmailService(IConfiguration config, ILogger<EmailService> logger)
+    public EmailService(IConfiguration config, ILogger<EmailService> logger, IHttpClientFactory? httpClientFactory = null)
     {
         _config = config;
         _logger = logger;
+        _httpClient = httpClientFactory?.CreateClient() ?? new HttpClient();
     }
 
     private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
     {
-        var smtpServer = _config["Brevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer") ?? "smtp.gmail.com";
-        var smtpPortStr = _config["Brevo:SmtpPort"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPort");
-        var smtpPort = !string.IsNullOrEmpty(smtpPortStr) && int.TryParse(smtpPortStr, out int p) ? p : 587;
-        var smtpUser = _config["Brevo:SmtpUser"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpUser") ?? "Healthbridgeyourpharmacy@gmail.com";
-        var smtpPass = _config["Brevo:SmtpPass"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPass") ?? "yquswsakkintccqc";
-        var fromEmail = _config["Brevo:FromEmail"] ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") ?? "Healthbridgeyourpharmacy@gmail.com";
-        var fromName = _config["Brevo:FromName"] ?? Environment.GetEnvironmentVariable("Brevo__FromName") ?? "Health Bridge Pharmacy";
+        var fromEmail = _config["Brevo:FromEmail"] ?? "diniruga@gmail.com";
+        var fromName = _config["Brevo:FromName"] ?? "Health Bridge Pvt - Lab System";
+        var apiKey = _config["Brevo:ApiKey"];
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(fromName, fromEmail));
-        message.To.Add(new MailboxAddress(toName, toEmail));
-        message.Subject = subject;
+        _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
 
-        var bodyBuilder = new BodyBuilder { HtmlBody = htmlContent };
-        message.Body = bodyBuilder.ToMessageBody();
+        // 1. Try Brevo HTTPS REST API first (Cloud/Railway safe — ports 587/465 are blocked by Railway firewall)
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            try
+            {
+                var payload = new
+                {
+                    sender = new { name = fromName, email = fromEmail },
+                    to = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
+                    subject = subject,
+                    htmlContent = htmlContent
+                };
 
+                using var requestMsg = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+                requestMsg.Headers.Add("api-key", apiKey);
+                requestMsg.Headers.Add("Accept", "application/json");
+                requestMsg.Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var response = await _httpClient.SendAsync(requestMsg, cts.Token);
+                var responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo HTTP REST API", toEmail);
+                    return;
+                }
+                else
+                {
+                    _logger.LogWarning("[Email] ⚠️ Brevo HTTP REST API returned {StatusCode}: {Body}. Trying SMTP fallback...", response.StatusCode, responseBody);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Email] ⚠️ Brevo HTTP REST API exception: {Message}. Trying SMTP fallback...", ex.Message);
+            }
+        }
+
+        // 2. SMTP fallback (for local development or environments where port 587 is open)
         try
         {
-            _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
-            
+            var smtpServer = _config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com";
+            var smtpPort = int.Parse(_config["Brevo:SmtpPort"] ?? "587");
+            var smtpUser = _config["Brevo:SmtpUser"];
+            var smtpPass = _config["Brevo:SmtpPass"];
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(fromName, fromEmail));
+            message.To.Add(new MailboxAddress(toName, toEmail));
+            message.Subject = subject;
+
+            var bodyBuilder = new BodyBuilder { HtmlBody = htmlContent };
+            message.Body = bodyBuilder.ToMessageBody();
+
             using var client = new SmtpClient();
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.Auto);
-            await client.AuthenticateAsync(smtpUser, smtpPass);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
-            
-            _logger.LogInformation("[Email] ✅ Email sent successfully to {Email}", toEmail);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls, cts.Token);
+            await client.AuthenticateAsync(smtpUser ?? string.Empty, smtpPass ?? string.Empty, cts.Token);
+            await client.SendAsync(message, cts.Token);
+            await client.DisconnectAsync(true, cts.Token);
+
+            _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo SMTP", toEmail);
         }
         catch (Exception ex)
         {
