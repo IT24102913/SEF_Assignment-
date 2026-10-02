@@ -16,5 +16,16 @@ public class Prescription
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    // ── Authorization Request Fields (Edit/Delete permission workflow) ─────────
+    /// <summary>Whether a staff member has submitted an edit/delete permission request</summary>
+    public bool HasAuthorizationRequest { get; set; } = false;
+    /// <summary>Pending | Approved | Rejected</summary>
+    public string AuthorizationStatus { get; set; } = string.Empty;
+    public string AuthorizationRequestedBy { get; set; } = string.Empty;
+    public string AuthorizationRequestReason { get; set; } = string.Empty;
+    public string AuthorizationAction { get; set; } = string.Empty; // Edit | Delete
+    public string AdminNote { get; set; } = string.Empty;
+    public DateTime? AuthorizationRequestedAt { get; set; }
+
     public Patient? Patient { get; set; }
 }

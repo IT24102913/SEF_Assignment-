@@ -17,6 +17,18 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"CardPrice\" numeric(18,2) DEFAULT 0;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Medicines\" ADD COLUMN IF NOT EXISTS \"AdditionalImagesJson\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Patients\" ADD COLUMN IF NOT EXISTS \"UserId\" integer;");
+            // Prescription authorization workflow columns
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"HasAuthorizationRequest\" boolean NOT NULL DEFAULT false;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationStatus\" text NOT NULL DEFAULT '';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedBy\" text NOT NULL DEFAULT '';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestReason\" text NOT NULL DEFAULT '';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationAction\" text NOT NULL DEFAULT '';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AdminNote\" text NOT NULL DEFAULT '';");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedAt\" timestamp with time zone;");
+            // Users table access control columns
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"IsPharmacyBlocked\" boolean DEFAULT false;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"BlockReason\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"ProfileImage\" text;");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
             await context.Database.ExecuteSqlRawAsync(@"
@@ -47,13 +59,19 @@ public static class DbInitializer
                 CREATE INDEX IF NOT EXISTS ""IX_DoctorSchedules_DoctorId"" ON ""DoctorSchedules"" (""DoctorId"");
             ");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DbInitializer] Initial schema notice: {ex.Message}");
+        }
 
         try
         {
             await context.Database.MigrateAsync();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DbInitializer] Migration notice: {ex.Message}");
+        }
 
         // 1. Seed Initial Admin Accounts if none exist
         if (!await context.Users.AnyAsync(u => u.Email == "nirwan@gmail.com"))

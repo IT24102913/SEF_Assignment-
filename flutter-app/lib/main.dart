@@ -10,9 +10,12 @@ import 'screens/lab/my_bookings_screen.dart';
 import 'screens/emr/customer_main_container.dart';
 import 'screens/doctor/doctor_search_screen.dart';
 import 'screens/doctor/my_appointments_screen.dart';
+import 'utils/config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Pre-warm the backend connection so first page navigation is instant
+  ApiConfig.getWorkingBaseUrl().catchError((_) {});
   runApp(const HealthBridgeApp());
 }
 
@@ -85,9 +88,9 @@ class _HomePageState extends State<HomePage> {
         AuthState.name = user.name;
         AuthState.email = user.email;
         AuthState.role = user.role;
-        if (user.userId.isNotEmpty) {
-          AuthState.patientCode = 'PAT-${user.userId}';
-        }
+        AuthState.patientCode = (user.patientCode != null && user.patientCode!.isNotEmpty)
+            ? user.patientCode
+            : (user.userId.isNotEmpty ? 'PAT-${user.userId}' : null);
       });
     }
   }

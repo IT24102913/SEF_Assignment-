@@ -11,7 +11,6 @@ public class PatientDto
     public string BloodGroup { get; set; } = string.Empty;
     public string ContactPhone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public string? NicNumber { get; set; }
     public string Address { get; set; } = string.Empty;
     public string EmergencyContactName { get; set; } = string.Empty;
     public string EmergencyContactPhone { get; set; } = string.Empty;
@@ -30,7 +29,6 @@ public class CreatePatientDto
     public string BloodGroup { get; set; } = "Unknown";
     public string ContactPhone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public string? NicNumber { get; set; }
     public string Address { get; set; } = string.Empty;
     public string EmergencyContactName { get; set; } = string.Empty;
     public string EmergencyContactPhone { get; set; } = string.Empty;
@@ -46,7 +44,6 @@ public class UpdatePatientDto
     public string? BloodGroup { get; set; }
     public string ContactPhone { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
-    public string? NicNumber { get; set; }
     public string Address { get; set; } = string.Empty;
     public string EmergencyContactName { get; set; } = string.Empty;
     public string EmergencyContactPhone { get; set; } = string.Empty;

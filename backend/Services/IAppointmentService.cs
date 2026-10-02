@@ -17,7 +17,6 @@ public interface IAppointmentService
     Task<AppointmentDto> UpdateStatusAsync(int appointmentId, string status, string? notes);
     Task<DoctorStatsDto> GetStatsAsync();
     Task<bool> DeleteAppointmentAsync(int appointmentId);
-
     // Phase 2 Workflow Operations
     Task<AppointmentDto?> GetByQrTokenAsync(string qrToken);
     Task<AppointmentDto> CheckInAsync(int appointmentId, string? qrToken, int? checkedInByUserId);
@@ -32,4 +31,3 @@ public interface IAppointmentService
     Task<List<DoctorScheduleDto>> GetDoctorSchedulesAsync(int doctorId);
     Task<List<DoctorScheduleDto>> UpdateDoctorSchedulesAsync(int doctorId, List<DoctorScheduleDto> schedules);
 }
-

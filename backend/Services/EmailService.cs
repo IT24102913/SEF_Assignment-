@@ -1,5 +1,6 @@
 using MailKit.Net.Smtp;
 using MimeKit;
+using HealthBridge.Api.DTOs.Pharmacy;
 
 namespace HealthBridge.Api.Services;
 
@@ -12,47 +13,94 @@ public interface IEmailService
     Task SendPrescriptionRejectedAsync(string toEmail, string patientName, string testName, string reason);
     Task SendResultsReadyAsync(string toEmail, string patientName, string testName);
     Task SendStatusUpdateAsync(string toEmail, string patientName, string testName, string newStatus);
+    Task SendOrderCompletedAsync(string toEmail, string patientName, string testName, string? reportUrl = null);
     Task SendBookingCancelledAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, string? queueToken = null);
+    Task SendSalesReportAsync(string toEmail, string note, decimal totalRevenue, int totalOrders, string reportDate, List<PharmacyOrderReportItemDto>? items);
+    Task SendPharmacyOrderNotificationAsync(string toEmail, string patientName, string orderNumber, string status, decimal totalAmount, string? paymentMethod, string? deliveryAddress, List<PharmacyOrderItemResponse>? items, string? adminNote = null);
 }
 
 public class EmailService : IEmailService
 {
     private readonly IConfiguration _config;
     private readonly ILogger<EmailService> _logger;
+    private readonly HttpClient _httpClient;
 
-    public EmailService(IConfiguration config, ILogger<EmailService> logger)
+    public EmailService(IConfiguration config, ILogger<EmailService> logger, IHttpClientFactory? httpClientFactory = null)
     {
         _config = config;
         _logger = logger;
+        _httpClient = httpClientFactory?.CreateClient() ?? new HttpClient();
     }
 
     private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
     {
-        var smtpServer = _config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com";
-        var smtpPort = int.Parse(_config["Brevo:SmtpPort"] ?? "587");
-        var smtpUser = _config["Brevo:SmtpUser"];
-        var smtpPass = _config["Brevo:SmtpPass"];
-        var fromEmail = _config["Brevo:FromEmail"] ?? "noreply@labsystem.com";
-        var fromName = _config["Brevo:FromName"] ?? "HealthCare Lab System";
+        var fromEmail = _config["Brevo:FromEmail"] ?? "diniruga@gmail.com";
+        var fromName = _config["Brevo:FromName"] ?? "Health Bridge Pvt - Lab System";
+        var apiKey = _config["Brevo:ApiKey"];
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(fromName, fromEmail));
-        message.To.Add(new MailboxAddress(toName, toEmail));
-        message.Subject = subject;
+        _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
 
-        var bodyBuilder = new BodyBuilder { HtmlBody = htmlContent };
-        message.Body = bodyBuilder.ToMessageBody();
+        // 1. Try Brevo HTTPS REST API first (Cloud/Railway safe — ports 587/465 are blocked by Railway firewall)
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            try
+            {
+                var payload = new
+                {
+                    sender = new { name = fromName, email = fromEmail },
+                    to = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
+                    subject = subject,
+                    htmlContent = htmlContent
+                };
 
+                using var requestMsg = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+                requestMsg.Headers.Add("api-key", apiKey);
+                requestMsg.Headers.Add("Accept", "application/json");
+                requestMsg.Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var response = await _httpClient.SendAsync(requestMsg, cts.Token);
+                var responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo HTTP REST API", toEmail);
+                    return;
+                }
+                else
+                {
+                    _logger.LogWarning("[Email] ⚠️ Brevo HTTP REST API returned {StatusCode}: {Body}. Trying SMTP fallback...", response.StatusCode, responseBody);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Email] ⚠️ Brevo HTTP REST API exception: {Message}. Trying SMTP fallback...", ex.Message);
+            }
+        }
+
+        // 2. SMTP fallback (for local development or environments where port 587 is open)
         try
         {
-            _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
-            
+            var smtpServer = _config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com";
+            var smtpPort = int.Parse(_config["Brevo:SmtpPort"] ?? "587");
+            var smtpUser = _config["Brevo:SmtpUser"];
+            var smtpPass = _config["Brevo:SmtpPass"];
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(fromName, fromEmail));
+            message.To.Add(new MailboxAddress(toName, toEmail));
+            message.Subject = subject;
+
+            var bodyBuilder = new BodyBuilder { HtmlBody = htmlContent };
+            message.Body = bodyBuilder.ToMessageBody();
+
             using var client = new SmtpClient();
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(smtpUser, smtpPass);
-            await client.SendAsync(message);
-            await client.DisconnectAsync(true);
-            
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls, cts.Token);
+            await client.AuthenticateAsync(smtpUser ?? string.Empty, smtpPass ?? string.Empty, cts.Token);
+            await client.SendAsync(message, cts.Token);
+            await client.DisconnectAsync(true, cts.Token);
+
             _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo SMTP", toEmail);
         }
         catch (Exception ex)
@@ -229,6 +277,45 @@ public class EmailService : IEmailService
         await SendEmailAsync(toEmail, patientName, subject, html);
     }
 
+    public async Task SendOrderCompletedAsync(string toEmail, string patientName, string testName, string? reportUrl = null)
+    {
+        var subject = $"✅ Diagnostic Order Completed: {testName} - HealthBridge Laboratory";
+        var resolvedUrl = ResolveReportUrl(reportUrl);
+        var buttonHtml = !string.IsNullOrWhiteSpace(resolvedUrl) ? $@"
+            <div style='text-align: center; margin: 24px 0;'>
+                <a href='{resolvedUrl}' target='_blank' style='display: inline-block; background: #059669; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px;'>
+                    📄 Download Official PDF Report
+                </a>
+            </div>" : "";
+
+        var html = $@"
+        <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0;'>
+            <div style='text-align: center; margin-bottom: 20px;'>
+                <div style='display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 50%; background: #dcfce7; color: #15803d; font-size: 24px;'>✓</div>
+                <h2 style='color: #065f46; margin: 12px 0 4px 0; font-size: 20px;'>Diagnostic Order Completed</h2>
+                <p style='color: #64748b; font-size: 13px; margin: 0;'>HealthBridge Diagnostic & Pathology Services</p>
+            </div>
+            <div style='background: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 16px;'>
+                <p style='margin-top: 0; color: #1e293b; font-size: 15px;'>Dear <strong>{patientName}</strong>,</p>
+                <p style='color: #334155; line-height: 1.6; font-size: 14px;'>
+                    Your diagnostic test order for <strong>{testName}</strong> has been marked as <strong>Completed</strong> and finalized by our laboratory clinical team.
+                </p>
+                <p style='color: #334155; line-height: 1.6; font-size: 14px;'>
+                    Your official diagnostic laboratory findings are verified and safely archived in your electronic medical records.
+                </p>
+                {buttonHtml}
+                <div style='background: #f1f5f9; padding: 12px 14px; border-radius: 8px; font-size: 12.5px; color: #475569;'>
+                    📱 <strong>Patient App Access:</strong> You can view and download all past and present verified lab reports anytime directly from the HealthBridge Patient App under <em>Laboratory &gt; Test Reports</em>.
+                </div>
+            </div>
+            <p style='color: #94a3b8; font-size: 11px; text-align: center; margin: 0;'>
+                Medix Clinical Healthcare System • Automated Medical Notification
+            </p>
+        </div>";
+
+        await SendEmailAsync(toEmail, patientName, subject, html);
+    }
+
     public async Task SendBookingCancelledAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, string? queueToken = null)
     {
         var subject = $"❌ Appointment Cancelled: {testName}";
@@ -284,4 +371,315 @@ public class EmailService : IEmailService
 
         await SendEmailAsync(toEmail, patientName, subject, html);
     }
+
+    private string? ResolveReportUrl(string? reportUrl)
+    {
+        if (string.IsNullOrWhiteSpace(reportUrl)) return null;
+
+        var url = reportUrl.Trim();
+        var publicHost = _config["PublicBaseUrl"]?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(publicHost))
+        {
+            var localIp = GetLocalIpAddress();
+            publicHost = $"http://{localIp}:5126";
+        }
+
+        if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{publicHost}{url}";
+        }
+
+        if (url.Contains("localhost:5126", StringComparison.OrdinalIgnoreCase) || 
+            url.Contains("127.0.0.1:5126", StringComparison.OrdinalIgnoreCase))
+        {
+            return url
+                .Replace("http://localhost:5126", publicHost, StringComparison.OrdinalIgnoreCase)
+                .Replace("https://localhost:5126", publicHost, StringComparison.OrdinalIgnoreCase)
+                .Replace("http://127.0.0.1:5126", publicHost, StringComparison.OrdinalIgnoreCase)
+                .Replace("https://127.0.0.1:5126", publicHost, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return url;
+    }
+
+    private static string GetLocalIpAddress()
+    {
+        try
+        {
+            using var socket = new System.Net.Sockets.Socket(
+                System.Net.Sockets.AddressFamily.InterNetwork, 
+                System.Net.Sockets.SocketType.Dgram, 0);
+            socket.Connect("8.8.8.8", 65530);
+            var endPoint = socket.LocalEndPoint as System.Net.IPEndPoint;
+            if (endPoint != null)
+            {
+                return endPoint.Address.ToString();
+            }
+        }
+        catch
+        {
+        }
+        return "192.168.1.5";
+    }
+
+    public async Task SendSalesReportAsync(string toEmail, string note, decimal totalRevenue, int totalOrders, string reportDate, List<PharmacyOrderReportItemDto>? items)
+    {
+        var subject = $"📊 Health Bridge Pharmacy POS Sales Report - {reportDate}";
+
+        var rowsHtml = "";
+        if (items != null && items.Any())
+        {
+            foreach (var item in items)
+            {
+                rowsHtml += $@"
+                <tr style='border-bottom: 1px solid #e2e8f0;'>
+                    <td style='padding: 10px; font-weight: 700; color: #059669;'>#{item.OrderNumber}</td>
+                    <td style='padding: 10px; color: #475569;'>{item.Date}</td>
+                    <td style='padding: 10px; color: #0f172a; font-weight: 600;'>{item.CustomerName}</td>
+                    <td style='padding: 10px; font-weight: 800; color: #0f172a;'>LKR {item.TotalAmount:N2}</td>
+                    <td style='padding: 10px;'><span style='background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;'>{item.Status}</span></td>
+                </tr>";
+            }
+        }
+
+        var noteBlock = string.IsNullOrWhiteSpace(note) ? "" : $@"
+        <div style='background: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px;'>
+            <strong style='color: #15803d; font-size: 13px;'>Note from Staff:</strong>
+            <p style='margin: 4px 0 0 0; color: #166534; font-size: 13.5px;'>{note}</p>
+        </div>";
+
+        var html = $@"
+        <div style='font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; max-width: 680px; margin: auto; padding: 28px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0;'>
+            <div style='text-align: center; border-bottom: 2px dashed #059669; padding-bottom: 18px; margin-bottom: 20px;'>
+                <h2 style='margin: 0; font-size: 22px; font-weight: 900; color: #064e3b;'>🏥 HEALTH BRIDGE PHARMACY</h2>
+                <p style='margin: 4px 0 0 0; font-size: 13px; color: #475569; font-weight: 600;'>Executive POS Sales & Revenue Report • {reportDate}</p>
+            </div>
+
+            {noteBlock}
+
+            <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px;'>
+                <div style='background: #f8fafc; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0;'>
+                    <div style='font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;'>Total Orders Processed</div>
+                    <div style='font-size: 22px; font-weight: 900; color: #0f172a; margin-top: 4px;'>{totalOrders} Orders</div>
+                </div>
+                <div style='background: #ecfdf5; padding: 16px; border-radius: 12px; border: 1px solid #a7f3d0;'>
+                    <div style='font-size: 11px; color: #047857; font-weight: 700; text-transform: uppercase;'>Total Sales Volume</div>
+                    <div style='font-size: 22px; font-weight: 900; color: #059669; margin-top: 4px;'>LKR {totalRevenue:N2}</div>
+                </div>
+            </div>
+
+            <h3 style='font-size: 15px; font-weight: 800; color: #334155; margin-bottom: 12px;'>Recent Transaction Breakdown</h3>
+            <table style='width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; margin-bottom: 24px;'>
+                <thead>
+                    <tr style='background: #f1f5f9; color: #475569;'>
+                        <th style='padding: 10px;'>Order #</th>
+                        <th style='padding: 10px;'>Date</th>
+                        <th style='padding: 10px;'>Customer</th>
+                        <th style='padding: 10px;'>Total Amount</th>
+                        <th style='padding: 10px;'>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rowsHtml}
+                </tbody>
+            </table>
+
+            <div style='border-top: 1px solid #f1f5f9; padding-top: 16px; text-align: center; color: #94a3b8; font-size: 11.5px;'>
+                Health Bridge Dispensary POS Analytics • Automated Official Report
+            </div>
+        </div>";
+
+        await SendEmailAsync(toEmail, "Pharmacy Management", subject, html);
+    }
+
+    public async Task SendPharmacyOrderNotificationAsync(
+        string toEmail,
+        
+        string patientName,
+        string orderNumber,
+        string status,
+        decimal totalAmount,
+        string? paymentMethod,
+        string? deliveryAddress,
+        List<PharmacyOrderItemResponse>? items,
+        string? adminNote = null)
+    {
+        if (string.IsNullOrWhiteSpace(toEmail)) return;
+
+        string normalizedStatus = status?.Trim() ?? "PendingVerification";
+        string headerBg = "#0284C7";
+        string statusBadgeBg = "#e0f2fe";
+        string statusBadgeFg = "#0369a1";
+        string statusText = "Pending Verification";
+        string headline = "We have received your pharmacy order!";
+        string subject = $"🛒 Order Received: {orderNumber} - Health Bridge Pharmacy";
+
+        int activeStep = 1;
+
+        if (normalizedStatus.Equals("Confirmed", StringComparison.OrdinalIgnoreCase))
+        {
+            headerBg = "#059669";
+            statusBadgeBg = "#d1fae5";
+            statusBadgeFg = "#065f46";
+            statusText = "Order Confirmed & Quoted";
+            headline = "Your order has been verified and confirmed!";
+            subject = $"✅ Order Confirmed: {orderNumber} - Health Bridge Pharmacy";
+            activeStep = 2;
+        }
+        else if (normalizedStatus.Equals("Dispatched", StringComparison.OrdinalIgnoreCase) ||
+                 normalizedStatus.Equals("Shipped", StringComparison.OrdinalIgnoreCase) ||
+                 normalizedStatus.Equals("OutForDelivery", StringComparison.OrdinalIgnoreCase))
+        {
+            headerBg = "#2563EB";
+            statusBadgeBg = "#dbeafe";
+            statusBadgeFg = "#1e40af";
+            statusText = "Out for Delivery";
+            headline = "Your order is packaged and out for delivery!";
+            subject = $"🚚 Order Shipped / Out for Delivery: {orderNumber} - Health Bridge Pharmacy";
+            activeStep = 3;
+        }
+        else if (normalizedStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) ||
+                 normalizedStatus.Equals("Completed", StringComparison.OrdinalIgnoreCase))
+        {
+            headerBg = "#15803D";
+            statusBadgeBg = "#dcfce7";
+            statusBadgeFg = "#166534";
+            statusText = "Delivered";
+            headline = "Your order has been successfully delivered!";
+            subject = $"🎉 Order Delivered: {orderNumber} - Health Bridge Pharmacy";
+            activeStep = 4;
+        }
+        else if (normalizedStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase) ||
+                 normalizedStatus.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+        {
+            headerBg = "#DC2626";
+            statusBadgeBg = "#fee2e2";
+            statusBadgeFg = "#991b1b";
+            statusText = "Cancelled";
+            headline = "Your pharmacy order has been cancelled.";
+            subject = $"❌ Order Cancelled: {orderNumber} - Health Bridge Pharmacy";
+            activeStep = 0;
+        }
+
+        var step1Color = activeStep >= 1 ? "#059669" : "#cbd5e1";
+        var step2Color = activeStep >= 2 ? "#059669" : "#cbd5e1";
+        var step3Color = activeStep >= 3 ? "#059669" : "#cbd5e1";
+        var step4Color = activeStep >= 4 ? "#059669" : "#cbd5e1";
+
+        var stepperHtml = activeStep > 0 ? $@"
+        <div style='background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; margin: 20px 0; text-align: center;'>
+            <div style='font-size: 11px; font-weight: 800; color: #64748b; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 14px;'>ORDER LIVE PROGRESS</div>
+            <table style='width: 100%; border-collapse: collapse;'>
+                <tr>
+                    <td style='text-align: center; width: 25%; font-size: 12px; font-weight: 700; color: {step1Color};'>
+                        <div style='width: 28px; height: 28px; border-radius: 50%; background: {step1Color}; color: white; line-height: 28px; margin: 0 auto 6px auto; font-weight: 800;'>✓</div>
+                        Order Placed
+                    </td>
+                    <td style='text-align: center; width: 25%; font-size: 12px; font-weight: 700; color: {step2Color};'>
+                        <div style='width: 28px; height: 28px; border-radius: 50%; background: {step2Color}; color: white; line-height: 28px; margin: 0 auto 6px auto; font-weight: 800;'>{(activeStep >= 2 ? "✓" : "2")}</div>
+                        Confirmed
+                    </td>
+                    <td style='text-align: center; width: 25%; font-size: 12px; font-weight: 700; color: {step3Color};'>
+                        <div style='width: 28px; height: 28px; border-radius: 50%; background: {step3Color}; color: white; line-height: 28px; margin: 0 auto 6px auto; font-weight: 800;'>{(activeStep >= 3 ? "✓" : "3")}</div>
+                        Shipped
+                    </td>
+                    <td style='text-align: center; width: 25%; font-size: 12px; font-weight: 700; color: {step4Color};'>
+                        <div style='width: 28px; height: 28px; border-radius: 50%; background: {step4Color}; color: white; line-height: 28px; margin: 0 auto 6px auto; font-weight: 800;'>{(activeStep >= 4 ? "✓" : "4")}</div>
+                        Delivered
+                    </td>
+                </tr>
+            </table>
+        </div>" : "";
+
+        var itemsHtml = "";
+        if (items != null && items.Any())
+        {
+            foreach (var item in items)
+            {
+                itemsHtml += $@"
+                <tr style='border-bottom: 1px solid #f1f5f9;'>
+                    <td style='padding: 10px 12px; font-weight: 700; color: #1e293b;'>{item.MedicineName}</td>
+                    <td style='padding: 10px 12px; text-align: center; color: #475569;'>{item.Quantity} {item.UnitType}</td>
+                    <td style='padding: 10px 12px; text-align: right; font-weight: 800; color: #059669;'>LKR {item.Subtotal:N2}</td>
+                </tr>";
+            }
+        }
+        else
+        {
+            itemsHtml = @"
+            <tr>
+                <td colspan='3' style='padding: 12px; color: #64748b; font-style: italic; text-align: center;'>Custom Doctor Prescription Attachment Submitted (Items quoted by Pharmacist)</td>
+            </tr>";
+        }
+
+        var noteHtml = !string.IsNullOrWhiteSpace(adminNote) ? $@"
+        <div style='background: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 14px 16px; margin: 20px 0;'>
+            <strong style='color: #b45309; font-size: 13px;'>💬 Pharmacist Note:</strong>
+            <p style='margin: 4px 0 0 0; color: #92400e; font-size: 13.5px; line-height: 1.5;'>{adminNote}</p>
+        </div>" : "";
+
+        var html = $@"
+        <div style='font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; max-width: 640px; margin: auto; padding: 24px; border-radius: 16px; background: #ffffff; border: 1px solid #e2e8f0;'>
+            <div style='background: {headerBg}; color: white; padding: 22px 24px; border-radius: 12px; margin-bottom: 20px;'>
+                <h2 style='margin: 0; font-size: 20px; font-weight: 900;'>HEALTH BRIDGE PHARMACY</h2>
+                <p style='margin: 8px 0 0 0; font-size: 14px; opacity: 0.95; font-weight: 600;'>{headline}</p>
+            </div>
+
+            <div style='padding: 0 4px;'>
+                <p style='font-size: 15px; color: #1e293b; margin-top: 0;'>Dear <strong>{patientName}</strong>,</p>
+
+                <div style='display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 14px 18px; border-radius: 10px; margin-bottom: 16px;'>
+                    <div>
+                        <div style='font-size: 11px; color: #64748b; font-weight: 700; text-transform: uppercase;'>Order Reference</div>
+                        <div style='font-size: 16px; font-weight: 900; color: #0f172a; margin-top: 2px;'>{orderNumber}</div>
+                    </div>
+                    <div>
+                        <span style='background: {statusBadgeBg}; color: {statusBadgeFg}; padding: 6px 14px; border-radius: 999px; font-weight: 800; font-size: 12.5px;'>{statusText}</span>
+                    </div>
+                </div>
+
+                {stepperHtml}
+
+                {noteHtml}
+
+                <h3 style='font-size: 14px; font-weight: 800; color: #334155; margin: 20px 0 10px 0;'>Pharmaceutical Items Summary</h3>
+                <table style='width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px;'>
+                    <thead>
+                        <tr style='background: #f1f5f9; color: #475569; text-align: left;'>
+                            <th style='padding: 10px 12px; border-radius: 6px 0 0 6px;'>Medicine / Item</th>
+                            <th style='padding: 10px 12px; text-align: center;'>Qty</th>
+                            <th style='padding: 10px 12px; text-align: right; border-radius: 0 6px 6px 0;'>Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {itemsHtml}
+                    </tbody>
+                </table>
+
+                <div style='background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 16px; margin-bottom: 20px;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <span style='font-size: 13.5px; font-weight: 700; color: #065f46;'>Total Quoted Amount:</span>
+                        <span style='font-size: 20px; font-weight: 900; color: #047857;'>LKR {totalAmount:N2}</span>
+                    </div>
+                    <div style='font-size: 12px; color: #047857; margin-top: 6px;'>
+                        Payment Method: <strong>{paymentMethod ?? "Cash on Delivery"}</strong>
+                    </div>
+                    {(!string.IsNullOrWhiteSpace(deliveryAddress) ? $"<div style='font-size: 12px; color: #047857; margin-top: 4px;'>Delivery Address: <strong>{deliveryAddress}</strong></div>" : "")}
+                </div>
+
+                <p style='font-size: 13px; color: #475569; line-height: 1.5;'>
+                    You can track your order live anytime by logging into the <strong>Health Bridge Mobile App</strong> or <strong>Patient Web Portal</strong>.
+                </p>
+
+                <div style='border-top: 1px solid #f1f5f9; padding-top: 16px; margin-top: 24px; text-align: center; color: #94a3b8; font-size: 11.5px;'>
+                    Health Bridge Dispensary & Pharmacy Services • Colombo 03, Sri Lanka<br/>
+                    This is an automated order tracking notification sent to {toEmail}.
+                </div>
+            </div>
+        </div>";
+
+        await SendEmailAsync(toEmail, patientName, subject, html);
+    }
 }
+
+

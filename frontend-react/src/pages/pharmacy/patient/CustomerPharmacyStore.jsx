@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { getDisplayConfig } from '../../../utils/getDisplayConfig';
 import { api } from '../../../api/authApi';
+import PrescriptionViolationModal from '../../../components/modals/PrescriptionViolationModal';
 import {
     Search,
     ShoppingBag,
@@ -9,6 +11,9 @@ import {
     CheckCircle2,
     Clock,
     AlertCircle,
+    AlertTriangle,
+    Bell,
+    Mail,
     X,
     Plus,
     Minus,
@@ -41,9 +46,67 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [selectedDetailMed, setSelectedDetailMed] = useState(null);
     const [activeDetailImageIndex, setActiveDetailImageIndex] = useState(0);
     const [detailQty, setDetailQty] = useState(1);
+    const [outOfStockMed, setOutOfStockMed] = useState(null);
+
+    // Storage condition label map: raw key → { emoji, label }
+    const STORAGE_LABELS = {
+        'room_temp': { emoji: '🌡️', label: 'Normal Room Temp. (<25°C)', bg: '#ECFDF5', color: '#047857', border: '#A7F3D0' },
+        'normal room temperature': { emoji: '🌡️', label: 'Normal Room Temp. (<25°C)', bg: '#ECFDF5', color: '#047857', border: '#A7F3D0' },
+        'cool_dry': { emoji: '🌤️', label: 'Cool & Dry Place (<25°C)', bg: '#F0FDF4', color: '#166534', border: '#86EFAC' },
+        'cool & dry': { emoji: '🌤️', label: 'Cool & Dry Place (<25°C)', bg: '#F0FDF4', color: '#166534', border: '#86EFAC' },
+        'refrigerated': { emoji: '❄️', label: 'Refrigerated (2°C – 8°C)', bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
+        'frozen': { emoji: '🧊', label: 'Frozen (Below -18°C)', bg: '#EFF6FF', color: '#1E40AF', border: '#93C5FD' },
+        'protect_light': { emoji: '☀️', label: 'Protect from Light', bg: '#FFFBEB', color: '#92400E', border: '#FDE68A' },
+        'protect from light': { emoji: '☀️', label: 'Protect from Light', bg: '#FFFBEB', color: '#92400E', border: '#FDE68A' },
+        'protect_moist': { emoji: '💧', label: 'Protect from Moisture', bg: '#EFF6FF', color: '#1E40AF', border: '#BFDBFE' },
+        'protect_moisture': { emoji: '💧', label: 'Protect from Moisture', bg: '#EFF6FF', color: '#1E40AF', border: '#BFDBFE' },
+        'protect from moisture': { emoji: '💧', label: 'Protect from Moisture', bg: '#EFF6FF', color: '#1E40AF', border: '#BFDBFE' },
+        'keep_children': { emoji: '👶', label: 'Keep Out of Reach of Children', bg: '#FEF2F2', color: '#991B1B', border: '#FECACA' },
+        'keep_reach': { emoji: '👶', label: 'Keep Out of Reach of Children', bg: '#FEF2F2', color: '#991B1B', border: '#FECACA' },
+        'keep out of reach': { emoji: '👶', label: 'Keep Out of Reach of Children', bg: '#FEF2F2', color: '#991B1B', border: '#FECACA' },
+        'original_pack': { emoji: '📦', label: 'Store in Original Container', bg: '#F8FAFC', color: '#334155', border: '#CBD5E1' },
+        'store_original': { emoji: '📦', label: 'Store in Original Container', bg: '#F8FAFC', color: '#334155', border: '#CBD5E1' },
+        'store in original': { emoji: '📦', label: 'Store in Original Container', bg: '#F8FAFC', color: '#334155', border: '#CBD5E1' },
+        'below 30': { emoji: '🌡️', label: 'Store Below 30°C', bg: '#ECFDF5', color: '#047857', border: '#A7F3D0' },
+        'do not freeze': { emoji: '🚫', label: 'Do Not Freeze', bg: '#FEF2F2', color: '#991B1B', border: '#FECACA' },
+    };
+
+    const parseStorageChips = (raw) => {
+        if (!raw) return [{ emoji: '🌡️', label: 'Normal Room Temp. (<25°C)', bg: '#ECFDF5', color: '#047857', border: '#A7F3D0' }];
+        const parts = raw.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+        return parts.map(part => {
+            const key = part.toLowerCase();
+            for (const [k, v] of Object.entries(STORAGE_LABELS)) {
+                if (key.includes(k)) return v;
+            }
+            return { emoji: '📋', label: part, bg: '#F8FAFC', color: '#334155', border: '#CBD5E1' };
+        });
+    };
+
+    const handleOutOfStockClick = (med) => {
+        setOutOfStockMed(med);
+        // Save notification for pharmacist/admin
+        try {
+            const existing = JSON.parse(localStorage.getItem('medix_admin_alerts') || '[]');
+            const alert = {
+                id: `oos-${med.id}-${Date.now()}`,
+                type: 'OUT_OF_STOCK_REQUEST',
+                medicineName: med.name,
+                medicineId: med.id,
+                categoryName: med.categoryName,
+                patientName: user?.fullName || 'Patient',
+                patientEmail: user?.email || 'unknown@patient.lk',
+                message: `Patient "${user?.fullName || 'Patient'}" tried to order "${med.name}" but it is OUT OF STOCK. Please replenish stock urgently.`,
+                createdAt: new Date().toISOString(),
+                read: false
+            };
+            localStorage.setItem('medix_admin_alerts', JSON.stringify([alert, ...existing]));
+        } catch (_) { }
+    };
 
     // Checkout Form state
     const [customerName, setCustomerName] = useState(user?.fullName || '');
+    const [customerEmail, setCustomerEmail] = useState(user?.email || '');
     const [customerPhone, setCustomerPhone] = useState(user?.phoneNumber || '0771234567');
     const [deliveryAddress, setDeliveryAddress] = useState('No 12, Hospital Road, Colombo 03');
     const [deliveryMethod, setDeliveryMethod] = useState('HomeDelivery'); // 'HomeDelivery' | 'Pickup'
@@ -58,6 +121,66 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [customerNotes, setCustomerNotes] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const [addedCartNotification, setAddedCartNotification] = useState(null);
+
+    // Notifications & Prescription Violation Modal State
+    const [showNotifsDropdown, setShowNotifsDropdown] = useState(false);
+    const [notificationsList, setNotificationsList] = useState([]);
+    const [selectedViolationNotif, setSelectedViolationNotif] = useState(null);
+
+    const [isBlocked, setIsBlocked] = useState(() => {
+        if (user?.isPharmacyBlocked) return true;
+        try {
+            const blocked = JSON.parse(localStorage.getItem('medix_blocked_users') || '[]');
+            return user?.email ? blocked.includes(user.email) : false;
+        } catch (e) { return false; }
+    });
+
+    useEffect(() => {
+        const checkUserBlockedStatus = async () => {
+            if (!user?.email) return;
+            try {
+                const res = await api.get(`/PharmacyOrders/check-blocked/${encodeURIComponent(user.email)}`);
+                if (res.data && typeof res.data.isPharmacyBlocked === 'boolean') {
+                    setIsBlocked(res.data.isPharmacyBlocked);
+                }
+            } catch (e) { }
+        };
+        checkUserBlockedStatus();
+    }, [user]);
+
+    useEffect(() => {
+        try {
+            const raw = localStorage.getItem('medix_notifications');
+            let list = raw ? JSON.parse(raw) : [];
+            const defaultViolationNotif = {
+                id: 'notif-7862',
+                title: '⚠️ URGENT PRESCRIPTION VIOLATION WARNING: #ORD-20260923-7862',
+                message: 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.',
+                targetOrderNumber: 'ORD-20260923-7862',
+                isViolationWarning: true,
+                read: false,
+                createdAt: new Date().toISOString()
+            };
+            list = list.map(n => ({
+                ...n,
+                message: n.message ? n.message.replace(/medibridge@gmail\.com/g, 'healthbridgeyourpharmacy@gmail.com') : n.message
+            }));
+            if (!list.some(n => n.id === 'notif-7862' || n.targetOrderNumber === 'ORD-20260923-7862')) {
+                list = [defaultViolationNotif, ...list];
+            }
+            localStorage.setItem('medix_notifications', JSON.stringify(list));
+            setNotificationsList(list);
+        } catch (e) { }
+    }, [showNotifsDropdown]);
+
+    const handleNotificationClick = (n) => {
+        setShowNotifsDropdown(false);
+        if (n.isViolationWarning || n.title?.includes('VIOLATION') || n.title?.includes('WARNING')) {
+            setSelectedViolationNotif(n);
+        } else if (n.targetOrderNumber && onNavigate) {
+            onNavigate('orders');
+        }
+    };
 
     const getGalleryImages = (med) => {
         if (!med) return [];
@@ -182,31 +305,28 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         }
     };
 
-    const addToCart = (med, defaultUnitType = 'Pill') => {
+    const addToCart = (med, unitType = 'Pill', customPrice = null) => {
         const isRx = med.requiresPrescription === true || med.RequiresPrescription === true;
-        const pills = med.pillsPerCard || med.PillsPerCard || 10;
-        const uPrice = med.price || med.unitPrice || 15;
-        const cPrice = med.cardPrice || (uPrice * pills);
+        const config = getDisplayConfig(med);
+        const selectedBtn = config.buttons.find(b => b.unitType === unitType) || config.buttons[0];
+        const itemPrice = customPrice ?? selectedBtn.price ?? med.price ?? 0;
+        const displayLabel = selectedBtn ? selectedBtn.label.replace('+ ', '') : unitType;
 
         setCart(prev => {
-            const existingIndex = prev.findIndex(item => item.id === med.id);
+            const existingIndex = prev.findIndex(item => item.id === med.id && item.unitType === unitType);
             if (existingIndex > -1) {
                 if (isRx) {
                     showToastMessage(`${med.name} is already added for prescription verification quote!`, 'info');
                     return prev;
                 }
-                const existingItem = prev[existingIndex];
-                if (existingItem.unitType === defaultUnitType) {
-                    return prev.map((item, idx) => idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item);
-                }
+                return prev.map((item, idx) => idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item);
             }
 
             return [...prev, {
                 ...med,
-                price: uPrice,
-                cardPrice: cPrice,
-                pillsPerCard: pills,
-                unitType: isRx ? 'RxQuote' : defaultUnitType,
+                price: itemPrice,
+                unitType: isRx ? 'RxQuote' : unitType,
+                unitLabel: displayLabel,
                 quantity: 1,
                 requiresPrescription: isRx
             }];
@@ -214,8 +334,8 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
 
         // Trigger pop-up notification
         setAddedCartNotification({
-            name: isRx ? `${med.name} (Prescription Quote)` : `${med.name} (${defaultUnitType === 'Card' ? `1 Card of ${pills} Pills` : '1 Pill Unit'})`,
-            price: isRx ? uPrice : (defaultUnitType === 'Card' ? cPrice : uPrice),
+            name: isRx ? `${med.name} (Prescription Quote)` : `${med.name} (${displayLabel})`,
+            price: isRx ? 0 : itemPrice,
             imageUrl: med.imageUrl
         });
 
@@ -269,9 +389,9 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     };
 
     const cartSubtotal = cart.reduce((sum, item) => {
-        const itemPrice = item.unitType === 'Card'
-            ? (item.cardPrice || (item.price * (item.pillsPerCard || 10)))
-            : item.price;
+        const itemConfig = getDisplayConfig(item);
+        const selectedBtn = itemConfig.buttons.find(b => b.unitType === item.unitType) || itemConfig.buttons[0];
+        const itemPrice = selectedBtn ? selectedBtn.price : (item.price || 0);
         return sum + (itemPrice * item.quantity);
     }, 0);
 
@@ -280,6 +400,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
 
     const handlePlaceOrder = async (e) => {
         e.preventDefault();
+
+        if (isBlocked) {
+            showToastMessage('Your account is BLOCKED from pharmacy & prescription ordering due to an administrative restriction.', 'error');
+            return;
+        }
 
         if (isDirectRxOnly && !prescriptionPreview && !prescriptionFile) {
             showToastMessage('Doctor prescription photo is mandatory for prescription orders! Please upload your doctor prescription.', 'error');
@@ -316,11 +441,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             }
 
             const isRx = requiresVerification;
-            const userEmail = (user?.email && user.email.includes('@'))
+            const finalCustomerEmail = customerEmail.trim() || ((user?.email && user.email.includes('@'))
                 ? user.email
                 : (user?.username && user.username.includes('@'))
                     ? user.username
-                    : `patient+${user?.id || Date.now()}@healthbridge.lk`;
+                    : `patient+${user?.id || Date.now()}@healthbridge.lk`);
 
             const rawPid = Number(user?.id);
             const validPatientId = (Number.isInteger(rawPid) && rawPid > 0 && rawPid <= 2147483647) ? rawPid : null;
@@ -350,7 +475,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             const orderPayload = {
                 patientId: validPatientId,
                 customerName: customerName.trim() || user?.fullName || 'Patient',
-                customerEmail: userEmail,
+                customerEmail: finalCustomerEmail,
                 customerPhone: customerPhone ? customerPhone.trim() : '',
                 deliveryAddress: deliveryAddress ? deliveryAddress.trim() : '',
                 deliveryMethod: deliveryMethod, // 'HomeDelivery' or 'Pickup'
@@ -506,66 +631,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                 }
             `}</style>
 
-            {/* View Mode Mode Switcher (Web Desktop Storefront vs Mobile App View) */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justify: 'space-between',
-                backgroundColor: '#0F172A',
-                color: '#FFFFFF',
-                padding: '10px 20px',
-                borderRadius: '14px',
-                marginBottom: '20px',
-                boxShadow: '0 4px 15px rgba(15, 23, 42, 0.15)'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 800 }}>
-                    <Sparkles size={16} color="#10B981" />
-                    <span>STOREFRONT PLATFORM VIEW DISPLAY MODE</span>
-                </div>
 
-                <div style={{ display: 'flex', gap: '8px', backgroundColor: '#1E293B', padding: '4px', borderRadius: '10px' }}>
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('web')}
-                        style={{
-                            padding: '6px 14px',
-                            borderRadius: '8px',
-                            border: 'none',
-                            backgroundColor: viewMode === 'web' ? '#059669' : 'transparent',
-                            color: viewMode === 'web' ? '#FFFFFF' : '#94A3B8',
-                            fontWeight: 700,
-                            fontSize: '12px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            transition: 'all 0.2s ease'
-                        }}
-                    >
-                        🖥️ Web Desktop View
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('mobile')}
-                        style={{
-                            padding: '6px 14px',
-                            borderRadius: '8px',
-                            border: 'none',
-                            backgroundColor: viewMode === 'mobile' ? '#059669' : 'transparent',
-                            color: viewMode === 'mobile' ? '#FFFFFF' : '#94A3B8',
-                            fontWeight: 700,
-                            fontSize: '12px',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            transition: 'all 0.2s ease'
-                        }}
-                    >
-                        📱 Mobile App View
-                    </button>
-                </div>
-            </div>
 
             {/* Store Topbar Banner */}
             <div style={ps.banner}>
@@ -580,14 +646,20 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+
                     <button
                         style={{
                             ...ps.cartBtn,
                             backgroundColor: 'rgba(255, 255, 255, 0.15)',
                             color: '#FFFFFF',
-                            border: '1px solid rgba(255, 255, 255, 0.4)'
+                            border: '1px solid rgba(255, 255, 255, 0.4)',
+                            ...(isBlocked ? { opacity: 0.4, cursor: 'not-allowed' } : {})
                         }}
                         onClick={() => {
+                            if (isBlocked) {
+                                showToastMessage('🚫 Your account is BLOCKED from pharmacy & prescription ordering by administration.', 'error');
+                                return;
+                            }
                             setIsDirectRxMode(true);
                             setShowCheckoutModal(true);
                         }}
@@ -595,13 +667,53 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                         <FileCheck size={20} color="#A7F3D0" />
                         <span>Upload Prescription Order</span>
                     </button>
-                    <button style={ps.cartBtn} onClick={() => setShowCartDrawer(true)}>
+                    <button
+                        style={{
+                            ...ps.cartBtn,
+                            ...(isBlocked ? { opacity: 0.4, cursor: 'not-allowed' } : {})
+                        }}
+                        onClick={() => {
+                            if (isBlocked) {
+                                showToastMessage('🚫 Your account is BLOCKED from pharmacy & prescription ordering by administration.', 'error');
+                                return;
+                            }
+                            setShowCartDrawer(true);
+                        }}
+                    >
                         <ShoppingBag size={20} />
                         <span>View Cart ({cart.reduce((a, b) => a + b.quantity, 0)})</span>
                         <span style={ps.cartBadgeCount}>Rs. {cartTotal.toFixed(2)}</span>
                     </button>
                 </div>
             </div>
+
+            {/* Account Blocked Alert Banner */}
+            {isBlocked && (
+                <div style={{
+                    background: 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%)',
+                    borderRadius: '20px',
+                    padding: '22px 28px',
+                    color: '#FFFFFF',
+                    marginBottom: '24px',
+                    border: '2px solid #EF4444',
+                    boxShadow: '0 12px 30px rgba(239,68,68,0.35)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '20px'
+                }}>
+                    <div style={{ width: '54px', height: '54px', borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <ShieldAlert size={30} color="#FCA5A5" />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '17px', fontWeight: 900, color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            🚫 PHARMACY & PRESCRIPTION ACCESS SUSPENDED
+                        </div>
+                        <p style={{ fontSize: '13px', color: '#FECACA', margin: '4px 0 0', lineHeight: 1.5 }}>
+                            Your patient account has been blocked by administration from placing pharmacy orders or uploading prescriptions due to a safety violation. <strong>You can still access Doctor Channeling, Lab Reports, and EMR Records.</strong>
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* Toolbar & Categories */}
             <div style={ps.toolbar}>
@@ -642,7 +754,15 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             </div>
 
             {/* Products Grid */}
-            <div style={ps.grid}>
+            <div style={{
+                ...ps.grid,
+                ...(isBlocked ? {
+                    filter: 'blur(3.5px)',
+                    opacity: 0.45,
+                    pointerEvents: 'none',
+                    userSelect: 'none'
+                } : {})
+            }}>
                 {loading ? (
                     <div style={ps.loadingBox}>
                         <div className="spinner" />
@@ -667,10 +787,15 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                 className="antigravity-card"
                                 style={{
                                     ...ps.card,
-                                    border: isRx ? '1.5px solid #FCA5A5' : ps.card.border,
-                                    cursor: 'pointer'
+                                    border: med.stockQuantity <= 0 ? '1.5px solid #CBD5E1' : isRx ? '1.5px solid #FCA5A5' : ps.card.border,
+                                    cursor: 'pointer',
+                                    opacity: med.stockQuantity <= 0 ? 0.75 : 1
                                 }}
                                 onClick={() => {
+                                    if (med.stockQuantity <= 0) {
+                                        handleOutOfStockClick(med);
+                                        return;
+                                    }
                                     setSelectedDetailMed(med);
                                     setActiveDetailImageIndex(0);
                                     setDetailQty(1);
@@ -688,7 +813,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         </span>
                                     )}
 
-                                    {/* Storage condition floating badge */}
+                                    {/* Stock status floating badge */}
                                     <span style={{
                                         position: 'absolute',
                                         bottom: '8px',
@@ -698,13 +823,13 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         fontSize: '10.5px',
                                         fontWeight: 800,
                                         backdropFilter: 'blur(4px)',
-                                        backgroundColor: isRefrigerated ? 'rgba(30, 64, 175, 0.85)' : 'rgba(15, 23, 42, 0.75)',
+                                        backgroundColor: med.stockQuantity <= 0 ? 'rgba(220, 38, 38, 0.85)' : isRefrigerated ? 'rgba(30, 64, 175, 0.85)' : 'rgba(15, 23, 42, 0.75)',
                                         color: '#FFFFFF',
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '4px'
                                     }}>
-                                        {isRefrigerated ? '❄️ 2°C - 8°C' : '🌡️ Room Temp'}
+                                        {med.stockQuantity <= 0 ? '🚫 Out of Stock' : isRefrigerated ? '❄️ 2°C - 8°C' : '🌡️ Room Temp'}
                                     </span>
                                 </div>
 
@@ -718,80 +843,70 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                     <h3 style={ps.cardTitle}>{med.name}</h3>
                                     <p style={ps.cardDesc}>{med.description || 'Quality pharmaceuticals.'}</p>
 
-                                    <div style={ps.cardFooter}>
-                                        <div>
-                                            <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#059669' }}>
-                                                Rs. {med.price?.toFixed(2)} <span style={{ fontSize: '11px', fontWeight: 500, color: '#64748B' }}>/ pill</span>
-                                            </div>
-                                            <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569', marginTop: '2px' }}>
-                                                Card ({med.pillsPerCard || 10} pills): <span style={{ color: '#0F172A', fontWeight: 700 }}>Rs. {(med.cardPrice || med.price * (med.pillsPerCard || 10))?.toFixed(2)}</span>
-                                            </div>
-                                        </div>
+                                    {(() => {
+                                        const config = getDisplayConfig(med);
+                                        return (
+                                            <div style={ps.cardFooter}>
+                                                <div>
+                                                    <div style={{ fontSize: '13.5px', fontWeight: 800, color: '#059669' }}>
+                                                        {config.priceLine}
+                                                    </div>
+                                                    {config.packLine && (
+                                                        <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569', marginTop: '2px' }}>
+                                                            {config.packLine}
+                                                        </div>
+                                                    )}
+                                                </div>
 
-                                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                            {isRx ? (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setRxModalMedicine(med);
-                                                    }}
-                                                    disabled={med.stockQuantity <= 0}
-                                                    style={{
-                                                        ...ps.addBtn,
-                                                        padding: '7px 12px',
-                                                        fontSize: '11.5px',
-                                                        backgroundColor: med.stockQuantity > 0 ? '#D97706' : '#CBD5E1',
-                                                        cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '4px'
-                                                    }}
-                                                    title="Doctor Prescription Required: Tap to view details & request quote"
-                                                >
-                                                    <FileCheck size={13} /> Quote
-                                                </button>
-                                            ) : (
-                                                <>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            addToCart(med, 'Pill');
-                                                        }}
-                                                        disabled={med.stockQuantity <= 0}
-                                                        style={{
-                                                            ...ps.addBtn,
-                                                            padding: '6px 10px',
-                                                            fontSize: '11.5px',
-                                                            backgroundColor: med.stockQuantity > 0 ? '#059669' : '#CBD5E1',
-                                                            cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                                                        }}
-                                                        title="Add 1 Pill to Cart"
-                                                    >
-                                                        + Pill
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            addToCart(med, 'Card');
-                                                        }}
-                                                        disabled={med.stockQuantity <= 0}
-                                                        style={{
-                                                            ...ps.addBtn,
-                                                            padding: '6px 10px',
-                                                            fontSize: '11.5px',
-                                                            backgroundColor: med.stockQuantity > 0 ? '#047857' : '#CBD5E1',
-                                                            cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                                                        }}
-                                                        title={`Add 1 Card (${med.pillsPerCard || 10} pills) to Cart`}
-                                                    >
-                                                        + Card
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
+                                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                    {isRx ? (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setRxModalMedicine(med);
+                                                            }}
+                                                            disabled={med.stockQuantity <= 0}
+                                                            style={{
+                                                                ...ps.addBtn,
+                                                                padding: '7px 12px',
+                                                                fontSize: '11.5px',
+                                                                backgroundColor: med.stockQuantity > 0 ? '#D97706' : '#CBD5E1',
+                                                                cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px'
+                                                            }}
+                                                            title="Doctor Prescription Required: Tap to view details & request quote"
+                                                        >
+                                                            <FileCheck size={13} /> Quote
+                                                        </button>
+                                                    ) : (
+                                                        config.buttons.map(btn => (
+                                                            <button
+                                                                key={btn.unitType}
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    addToCart(med, btn.unitType, btn.price);
+                                                                }}
+                                                                disabled={med.stockQuantity <= 0}
+                                                                style={{
+                                                                    ...ps.addBtn,
+                                                                    padding: '6px 10px',
+                                                                    fontSize: '11.5px',
+                                                                    backgroundColor: med.stockQuantity > 0 ? (btn.isPack ? '#047857' : '#059669') : '#CBD5E1',
+                                                                    cursor: med.stockQuantity > 0 ? 'pointer' : 'not-allowed'
+                                                                }}
+                                                                title={`Add 1 ${btn.unitType} to Cart`}
+                                                            >
+                                                                {btn.label}
+                                                            </button>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         );
@@ -834,9 +949,9 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         {cart.map((item, idx) => {
                                             const isRx = item.requiresPrescription || item.RequiresPrescription || item.unitType === 'RxQuote';
-                                            const itemPrice = item.unitType === 'Card'
-                                                ? (item.cardPrice || item.price * (item.pillsPerCard || 10))
-                                                : item.price;
+                                            const itemConfig = getDisplayConfig(item);
+                                            const selectedBtn = itemConfig.buttons.find(b => b.unitType === item.unitType) || itemConfig.buttons[0];
+                                            const itemPrice = selectedBtn ? selectedBtn.price : (item.price || 0);
                                             const lineTotal = itemPrice * item.quantity;
 
                                             return (
@@ -852,16 +967,24 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                                 <Lock size={12} /> Pharmacist will calculate price &amp; dosage from prescription
                                                             </div>
                                                         ) : (
-                                                            /* Unit vs Card Selector for OTC items */
+                                                            /* Dynamic Unit Selector for OTC items */
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
                                                                 <span style={{ fontSize: '11px', fontWeight: 700, color: '#475569' }}>Order Unit:</span>
                                                                 <select
-                                                                    value={item.unitType || 'Pill'}
+                                                                    value={item.unitType || itemConfig.buttons[0]?.unitType || 'Pill'}
                                                                     onChange={(e) => updateUnitType(idx, e.target.value)}
                                                                     style={ps.cartDaysSelect}
                                                                 >
-                                                                    <option value="Pill">💊 1 Pill (Rs. {item.price?.toFixed(2)})</option>
-                                                                    <option value="Card">🎴 1 Card ({item.pillsPerCard || 10} Pills - Rs. {(item.cardPrice || item.price * (item.pillsPerCard || 10))?.toFixed(2)})</option>
+                                                                    {itemConfig.buttons.map(btn => (
+                                                                        <option key={btn.unitType} value={btn.unitType}>
+                                                                            {btn.label.replace('+ ', '📦 ')} (Rs. {btn.price.toFixed(2)})
+                                                                        </option>
+                                                                    ))}
+                                                                    {!itemConfig.buttons.some(b => b.unitType === item.unitType) && (
+                                                                        <option value={item.unitType}>
+                                                                            📦 1 {item.unitType} (Rs. {itemPrice.toFixed(2)})
+                                                                        </option>
+                                                                    )}
                                                                 </select>
                                                             </div>
                                                         )}
@@ -1014,6 +1137,17 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         required
                                         value={customerName}
                                         onChange={e => setCustomerName(e.target.value)}
+                                        style={ps.input}
+                                    />
+                                </div>
+                                <div style={ps.formGroup}>
+                                    <label style={ps.label}>Email Address (Order Confirmation Sent Here) *</label>
+                                    <input
+                                        type="email"
+                                        required
+                                        placeholder="e.g. nirwandulaksha@gmail.com"
+                                        value={customerEmail}
+                                        onChange={e => setCustomerEmail(e.target.value)}
                                         style={ps.input}
                                     />
                                 </div>
@@ -1520,27 +1654,31 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         <span style={ps.darazPriceLabel}>PILLS IN ONE CARD:</span>
                                         <span style={ps.darazPillsPill}>{selectedDetailMed.pillsPerCard || 10} pills in one card</span>
                                     </div>
-                                    <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <CheckCircle2 size={14} /> In stock ({selectedDetailMed.stockQuantity} available) • Express Dispatch Ready
+                                    <div style={{ fontSize: '12px', color: selectedDetailMed.stockQuantity > 0 ? '#059669' : '#DC2626', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {selectedDetailMed.stockQuantity > 0
+                                            ? <><CheckCircle2 size={14} /> In Stock • Express Dispatch Ready</>
+                                            : <><AlertCircle size={14} /> Out of Stock — Currently Unavailable</>
+                                        }
                                     </div>
                                 </div>
 
-                                {/* Storage Requirement */}
+                                {/* Storage Requirement — Visual Chips */}
                                 <div style={{ marginBottom: '16px' }}>
                                     <div style={ps.darazSectionHeading}>STORAGE REQUIREMENT</div>
-                                    <div style={{
-                                        padding: '10px 14px',
-                                        borderRadius: '10px',
-                                        fontSize: '12.5px',
-                                        fontWeight: 700,
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                        backgroundColor: selectedDetailMed.storageCondition?.includes('Refrigerated') ? '#EFF6FF' : '#ECFDF5',
-                                        color: selectedDetailMed.storageCondition?.includes('Refrigerated') ? '#1E40AF' : '#047857',
-                                        border: selectedDetailMed.storageCondition?.includes('Refrigerated') ? '1px solid #BFDBFE' : '1px solid #A7F3D0'
-                                    }}>
-                                        {selectedDetailMed.storageCondition || 'Normal Room Temperature (Store in a cool, dry place below 25°C)'}
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
+                                        {parseStorageChips(selectedDetailMed.storageCondition).map((chip, i) => (
+                                            <div key={i} style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                                padding: '7px 13px', borderRadius: '20px',
+                                                fontSize: '12px', fontWeight: 700,
+                                                backgroundColor: chip.bg, color: chip.color,
+                                                border: `1px solid ${chip.border}`,
+                                                whiteSpace: 'nowrap'
+                                            }}>
+                                                <span style={{ fontSize: '15px' }}>{chip.emoji}</span>
+                                                {chip.label}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
 
@@ -1574,39 +1712,85 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         >
                                             <FileCheck size={16} /> Request Doctor Quote
                                         </button>
-                                    ) : (
-                                        <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    for (let i = 0; i < detailQty; i++) {
-                                                        addToCart(selectedDetailMed, 'Pill');
-                                                    }
-                                                    showToastMessage(`Added ${detailQty} pill unit(s) of ${selectedDetailMed.name} to cart!`, 'success');
-                                                    setSelectedDetailMed(null);
-                                                }}
-                                                style={ps.darazAddPillsBtn}
-                                            >
-                                                <Plus size={15} /> Add Pill ({detailQty})
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    for (let i = 0; i < detailQty; i++) {
-                                                        addToCart(selectedDetailMed, 'Card');
-                                                    }
-                                                    showToastMessage(`Added ${detailQty} card (${selectedDetailMed.pillsPerCard || 10}s) of ${selectedDetailMed.name} to cart!`, 'success');
-                                                    setSelectedDetailMed(null);
-                                                }}
-                                                style={ps.darazAddCardsBtn}
-                                            >
-                                                <Plus size={15} /> Add Card ({selectedDetailMed.pillsPerCard || 10}s)
-                                            </button>
-                                        </div>
-                                    )}
+                                    ) : (() => {
+                                        const detailConfig = getDisplayConfig(selectedDetailMed);
+                                        return (
+                                            <div style={{ display: 'flex', gap: '8px', flex: 1 }}>
+                                                {detailConfig.buttons.map(btn => (
+                                                    <button
+                                                        key={btn.unitType}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            for (let i = 0; i < detailQty; i++) {
+                                                                addToCart(selectedDetailMed, btn.unitType, btn.price);
+                                                            }
+                                                            showToastMessage(`Added ${detailQty} ${btn.unitType.toLowerCase()}(s) of ${selectedDetailMed.name} to cart!`, 'success');
+                                                            setSelectedDetailMed(null);
+                                                        }}
+                                                        style={btn.isPack ? ps.darazAddCardsBtn : ps.darazAddPillsBtn}
+                                                    >
+                                                        <Plus size={15} /> {btn.label} ({detailQty})
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Prescription Violation Warning Popup Modal */}
+            {selectedViolationNotif && (
+                <PrescriptionViolationModal
+                    notification={selectedViolationNotif}
+                    onClose={() => setSelectedViolationNotif(null)}
+                    onNavigate={onNavigate}
+                />
+            )}
+
+            {/* Out of Stock Dialog */}
+            {outOfStockMed && (
+                <div style={ps.modalOverlay} onClick={() => setOutOfStockMed(null)}>
+                    <div
+                        onClick={e => e.stopPropagation()}
+                        className="animate-scale-up"
+                        style={{
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: '20px',
+                            padding: '32px 28px',
+                            maxWidth: '420px',
+                            width: '90%',
+                            textAlign: 'center',
+                            boxShadow: '0 25px 60px rgba(0,0,0,0.18)'
+                        }}
+                    >
+                        <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                            <AlertCircle size={32} color="#DC2626" />
+                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: 800, color: '#DC2626', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '8px' }}>CURRENTLY OUT OF STOCK</div>
+                        <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#0F172A', margin: '0 0 8px' }}>{outOfStockMed.name}</h3>
+                        <p style={{ fontSize: '13px', color: '#64748B', lineHeight: 1.55, margin: '0 0 20px' }}>
+                            We're sorry! This medicine is currently out of stock.
+                            Our pharmacist has been notified and will replenish it soon.
+                            You can check back shortly or contact us for urgent needs.
+                        </p>
+                        <div style={{ backgroundColor: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: '12px', padding: '12px 16px', marginBottom: '20px', textAlign: 'left' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#92400E', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Bell size={13} /> Pharmacist Notified
+                            </div>
+                            <p style={{ fontSize: '11.5px', color: '#78350F', margin: '4px 0 0', lineHeight: 1.45 }}>
+                                A stock replenishment alert has been automatically sent to our pharmacy team.
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => setOutOfStockMed(null)}
+                            style={{ width: '100%', padding: '12px', backgroundColor: '#059669', color: '#FFFFFF', border: 'none', borderRadius: '12px', fontWeight: 700, fontSize: '14px', cursor: 'pointer' }}
+                        >
+                            Back to Store
+                        </button>
                     </div>
                 </div>
             )}

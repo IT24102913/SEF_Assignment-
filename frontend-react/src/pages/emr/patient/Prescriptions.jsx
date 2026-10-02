@@ -11,6 +11,7 @@ const statusConfig = {
 export default function Prescriptions() {
   const [prescriptions, setPrescriptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     fetchPrescriptions();
@@ -53,41 +54,58 @@ export default function Prescriptions() {
     return (
       <div style={{
         backgroundColor: '#ffffff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '14px',
-        padding: '22px 24px',
-        boxShadow: '0 2px 8px -2px rgba(0,0,0,0.04)'
+        border: '1.5px solid #cbd5e1',
+        borderRadius: '16px',
+        padding: '24px 26px',
+        boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)',
+        transition: 'all 0.2s ease-in-out'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '42px', height: '42px', borderRadius: '10px', backgroundColor: '#e6f5f2', color: '#095e51', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Pill size={22} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#ecfdf5', color: '#095e51', border: '1.5px solid #a7f3d0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Pill size={24} />
             </div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: '1.05rem', color: '#0f172a' }}>{rx.medication}</div>
-              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Prescribed by <strong>{rx.prescribedDoctor}</strong></div>
+              <div style={{ fontWeight: 800, fontSize: '1.18rem', color: '#0f172a', letterSpacing: '-0.01em' }}>{rx.medication}</div>
+              <div style={{ fontSize: '0.86rem', color: '#475569', marginTop: '2px' }}>Prescribed by <strong style={{ color: '#0f172a' }}>{rx.prescribedDoctor}</strong></div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: cfg.bg, color: cfg.color, fontSize: '0.82rem', fontWeight: 700, padding: '5px 14px', borderRadius: '20px' }}>
-            <StatusIcon size={14} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: cfg.bg, color: cfg.color, fontSize: '0.85rem', fontWeight: 800, padding: '6px 16px', borderRadius: '20px', border: `1.5px solid ${cfg.color}30` }}>
+            <StatusIcon size={15} />
             {rx.status}
           </div>
         </div>
 
-        {/* Details grid */}
-        <div style={{ backgroundColor: '#f8fafc', padding: '14px 16px', borderRadius: '10px', fontSize: '0.88rem' }}>
-          <div style={{ color: '#334155', marginBottom: '6px' }}>
-            <strong>Instructions:</strong> {rx.dosage}
+        {/* Details box with crisp borders & distinct contrast */}
+        <div style={{
+          backgroundColor: '#f8fafc',
+          border: '1.5px solid #cbd5e1',
+          borderLeft: '5px solid #0d7c6b',
+          padding: '16px 20px',
+          borderRadius: '12px',
+          fontSize: '0.92rem'
+        }}>
+          <div style={{ color: '#0f172a', marginBottom: '10px', fontSize: '0.96rem' }}>
+            <span style={{ fontWeight: 800, color: '#095e51', marginRight: '8px' }}>Instructions:</span>
+            <span style={{ fontWeight: 700, color: '#0f172a' }}>{rx.dosage}</span>
           </div>
-          <div style={{ display: 'flex', gap: '24px', color: '#64748b', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '12px', color: '#334155', flexWrap: 'wrap', fontSize: '0.86rem' }}>
             {rx.startDate && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <Calendar size={14} /> {rx.startDate} {rx.endDate ? `→ ${rx.endDate}` : ''}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#ffffff', padding: '5px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontWeight: 600 }}>
+                <Calendar size={14} color="#0d7c6b" /> {rx.startDate} {rx.endDate ? `→ ${rx.endDate}` : ''}
               </span>
             )}
-            {rx.duration && <span><strong>Duration:</strong> {rx.duration}</span>}
-            {rx.unitPrice && <span><strong>Cost:</strong> {rx.unitPrice}</span>}
+            {rx.duration && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', backgroundColor: '#ffffff', padding: '5px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontWeight: 600 }}>
+                <strong style={{ color: '#095e51' }}>Duration:</strong> {rx.duration}
+              </span>
+            )}
+            {rx.unitPrice && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', backgroundColor: '#ffffff', padding: '5px 12px', borderRadius: '8px', border: '1.5px solid #cbd5e1', fontWeight: 600 }}>
+                <strong style={{ color: '#095e51' }}>Cost:</strong> {rx.unitPrice}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -97,10 +115,40 @@ export default function Prescriptions() {
   return (
     <div>
       <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>Pharmacy</h1>
-        <p style={{ color: '#64748b', fontSize: '0.92rem' }}>
-          Your active prescriptions, medication schedules, and refill history.
-        </p>
+        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>Pharmacy</span>
+          <button
+            type="button"
+            onClick={() => setShowInfo(prev => !prev)}
+            title={showInfo ? "Hide explanation" : "Click to view description"}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '22px',
+              height: '22px',
+              borderRadius: '50%',
+              backgroundColor: showInfo ? '#0d7c6b' : '#f1f5f9',
+              color: showInfo ? '#ffffff' : '#0d7c6b',
+              border: `1.5px solid ${showInfo ? '#0d7c6b' : '#cbd5e1'}`,
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 800,
+              fontFamily: 'monospace, sans-serif',
+              lineHeight: 1,
+              padding: 0,
+              transition: 'all 0.2s ease',
+              boxShadow: showInfo ? '0 0 0 3px rgba(13, 124, 107, 0.2)' : 'none'
+            }}
+          >
+            !
+          </button>
+        </h1>
+        {showInfo && (
+          <p style={{ color: '#0d7c6b', fontSize: '0.92rem', fontWeight: 500, margin: '4px 0 0 0', animation: 'fadeIn 0.2s ease-out' }}>
+            Your active prescriptions, medication schedules, and refill history.
+          </p>
+        )}
       </div>
 
       {loading ? (

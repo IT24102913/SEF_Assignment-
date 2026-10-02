@@ -1,7 +1,5 @@
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.EMR;
-using HealthBridge.Api.Models;
-using HealthBridge.Api.Models.Appointments;
 using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -36,22 +34,13 @@ public class EMRService : IEMRService
         }
 
         var patients = await query.OrderBy(p => p.PatientCode).ToListAsync();
-        var profiles = await _db.PatientProfiles.Include(pr => pr.User).ToListAsync();
-
-        return patients.Select(p =>
-        {
-            var prof = (p.UserId.HasValue ? profiles.FirstOrDefault(pr => pr.UserId == p.UserId.Value) : null)
-                    ?? (!string.IsNullOrWhiteSpace(p.Email) ? profiles.FirstOrDefault(pr => pr.User != null && pr.User.Email.Equals(p.Email, StringComparison.OrdinalIgnoreCase)) : null);
-            return MapPatientToDto(p, prof);
-        });
+        return patients.Select(MapPatientToDto);
     }
 
     public async Task<PatientDto?> GetPatientByIdAsync(Guid id)
     {
         var patient = await _db.Patients.FindAsync(id);
-        if (patient == null) return null;
-        var prof = await FindPatientProfileAsync(patient);
-        return MapPatientToDto(patient, prof);
+        return patient == null ? null : MapPatientToDto(patient);
     }
 
     public async Task<PatientDto?> GetPatientByUserIdAsync(int userId)
@@ -68,80 +57,45 @@ public class EMRService : IEMRService
                 {
                     existingByEmail.UserId = user.Id;
                     await _db.SaveChangesAsync();
-                    patient = existingByEmail;
+                    return MapPatientToDto(existingByEmail);
                 }
-                else
+
+                // Auto-create EMR patient for this registered user
+                var profile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
+                var newCode = await GenerateNextPatientCodeAsync();
+                patient = new Patient
                 {
-                    // Auto-create EMR patient for this registered user
-                    var prof = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
-                    var patientCount = await _db.Patients.CountAsync();
-                    patient = new Patient
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = user.Id,
-                        PatientCode = $"PAT-{1000 + patientCount + 1}",
-                        FullName = user.FullName,
-                        Email = user.Email,
-                        ContactPhone = prof?.PhoneNumber ?? "",
-                        Gender = prof?.Gender ?? "Other",
-                        DateOfBirth = prof?.DateOfBirth,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    _db.Patients.Add(patient);
+                    Id = Guid.NewGuid(),
+                    UserId = user.Id,
+                    PatientCode = newCode,
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    ContactPhone = profile?.PhoneNumber ?? "",
+                    Gender = profile?.Gender ?? "Other",
+                    DateOfBirth = profile?.DateOfBirth, // null until customer chooses
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.Patients.Add(patient);
+                try
+                {
                     await _db.SaveChangesAsync();
                 }
+                catch (Microsoft.EntityFrameworkCore.DbUpdateException)
+                {
+                    // Concurrent insert collision — try fetching the record that was just created
+                    patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == user.Email.ToLower());
+                }
+
             }
         }
-
-        if (patient == null) return null;
-
-        var profile = await FindPatientProfileAsync(patient, userId);
-
-        // Auto-heal empty fields in the Patient entity itself if profile has them
-        bool patientNeedsSave = false;
-        if (profile != null)
-        {
-            if (string.IsNullOrWhiteSpace(patient.ContactPhone) && !string.IsNullOrWhiteSpace(profile.PhoneNumber))
-            {
-                patient.ContactPhone = profile.PhoneNumber;
-                patientNeedsSave = true;
-            }
-            if ((string.IsNullOrWhiteSpace(patient.Gender) || patient.Gender == "Other") && !string.IsNullOrWhiteSpace(profile.Gender) && profile.Gender != "Other")
-            {
-                patient.Gender = profile.Gender;
-                patientNeedsSave = true;
-            }
-            if (!patient.DateOfBirth.HasValue && profile.DateOfBirth.HasValue)
-            {
-                patient.DateOfBirth = profile.DateOfBirth;
-                patientNeedsSave = true;
-            }
-            if (string.IsNullOrWhiteSpace(patient.Address) && !string.IsNullOrWhiteSpace(profile.Address))
-            {
-                patient.Address = profile.Address + (!string.IsNullOrWhiteSpace(profile.City) ? ", " + profile.City : "");
-                patientNeedsSave = true;
-            }
-            if (!patient.UserId.HasValue)
-            {
-                patient.UserId = userId;
-                patientNeedsSave = true;
-            }
-        }
-        if (patientNeedsSave)
-        {
-            await _db.SaveChangesAsync();
-        }
-
-        return MapPatientToDto(patient, profile);
+        return patient == null ? null : MapPatientToDto(patient);
     }
 
     public async Task<PatientDto?> GetPatientByCodeAsync(string code)
     {
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == code.Trim().ToUpper());
-        if (patient == null) return null;
-        var prof = await FindPatientProfileAsync(patient);
-        return MapPatientToDto(patient, prof);
+        return patient == null ? null : MapPatientToDto(patient);
     }
 
     public async Task<PatientDto> CreatePatientAsync(CreatePatientDto dto)
@@ -173,8 +127,7 @@ public class EMRService : IEMRService
         await _db.SaveChangesAsync();
         _logger.LogInformation("[EMR] Registered new patient: {Code} ({Name})", patient.PatientCode, patient.FullName);
 
-        var prof = await FindPatientProfileAsync(patient);
-        return MapPatientToDto(patient, prof);
+        return MapPatientToDto(patient);
     }
 
     public async Task<PatientDto?> UpdatePatientAsync(Guid id, UpdatePatientDto dto)
@@ -183,18 +136,8 @@ public class EMRService : IEMRService
         if (patient == null) return null;
 
         ApplyPatientUpdates(patient, dto);
-        var prof = await FindPatientProfileAsync(patient);
-        if (prof != null)
-        {
-            if (!string.IsNullOrWhiteSpace(dto.NicNumber)) prof.NicNumber = dto.NicNumber;
-            if (dto.ContactPhone != null) prof.PhoneNumber = dto.ContactPhone;
-            if (dto.Address != null) prof.Address = dto.Address;
-            if (dto.DateOfBirth.HasValue) prof.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
-            if (!string.IsNullOrWhiteSpace(dto.Gender)) prof.Gender = dto.Gender;
-            prof.UpdatedAt = DateTime.UtcNow;
-        }
         await _db.SaveChangesAsync();
-        return MapPatientToDto(patient, prof);
+        return MapPatientToDto(patient);
     }
 
     public async Task<PatientDto?> UpdatePatientByCodeAsync(string patientCode, UpdatePatientDto dto)
@@ -203,18 +146,8 @@ public class EMRService : IEMRService
         if (patient == null) return null;
 
         ApplyPatientUpdates(patient, dto);
-        var prof = await FindPatientProfileAsync(patient);
-        if (prof != null)
-        {
-            if (!string.IsNullOrWhiteSpace(dto.NicNumber)) prof.NicNumber = dto.NicNumber;
-            if (dto.ContactPhone != null) prof.PhoneNumber = dto.ContactPhone;
-            if (dto.Address != null) prof.Address = dto.Address;
-            if (dto.DateOfBirth.HasValue) prof.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
-            if (!string.IsNullOrWhiteSpace(dto.Gender)) prof.Gender = dto.Gender;
-            prof.UpdatedAt = DateTime.UtcNow;
-        }
         await _db.SaveChangesAsync();
-        return MapPatientToDto(patient, prof);
+        return MapPatientToDto(patient);
     }
 
     private static void ApplyPatientUpdates(Patient patient, UpdatePatientDto dto)
@@ -565,6 +498,79 @@ public class EMRService : IEMRService
         return true;
     }
 
+    // ─── Prescription Authorization Workflow ──────────────────────────────────
+
+    /// <summary>Staff submits a request to admin for edit/delete permission on a prescription</summary>
+    public async Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return null;
+
+        rx.HasAuthorizationRequest = true;
+        rx.AuthorizationStatus = "Pending";
+        rx.AuthorizationRequestedBy = dto.RequestedBy;
+        rx.AuthorizationRequestReason = dto.Reason;
+        rx.AuthorizationAction = dto.Action;
+        rx.AdminNote = string.Empty;
+        rx.AuthorizationRequestedAt = DateTime.UtcNow;
+        rx.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Authorization request submitted for prescription {Id} by {By} — Action: {Action}", id, dto.RequestedBy, dto.Action);
+        return MapPrescriptionToDto(rx);
+    }
+
+    /// <summary>Returns all prescriptions with a pending authorization request for admin review</summary>
+    public async Task<IEnumerable<PrescriptionAuthorizationSummaryDto>> GetPendingPrescriptionAuthorizationsAsync()
+    {
+        var pending = await _db.Prescriptions
+            .Where(p => p.HasAuthorizationRequest && p.AuthorizationStatus == "Pending")
+            .OrderByDescending(p => p.AuthorizationRequestedAt)
+            .ToListAsync();
+
+        return pending.Select(p => new PrescriptionAuthorizationSummaryDto
+        {
+            Id = p.Id,
+            PatientCode = p.PatientCode,
+            MedicationName = p.MedicationName,
+            AuthorizationRequestedBy = p.AuthorizationRequestedBy,
+            AuthorizationAction = p.AuthorizationAction,
+            AuthorizationRequestReason = p.AuthorizationRequestReason,
+            AuthorizationRequestedAt = p.AuthorizationRequestedAt,
+            AuthorizationStatus = p.AuthorizationStatus
+        });
+    }
+
+    /// <summary>Admin approves the delete request — deletes the prescription from the database</summary>
+    public async Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string adminNote)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return false;
+
+        _db.Prescriptions.Remove(rx);
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Admin approved delete for prescription {Id} — Note: {Note}", id, adminNote);
+        return true;
+    }
+
+    /// <summary>Admin rejects the edit/delete permission request</summary>
+    public async Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string adminNote)
+    {
+        var rx = await _db.Prescriptions.FindAsync(id);
+        if (rx == null) return null;
+
+        rx.HasAuthorizationRequest = false;
+        rx.AuthorizationStatus = "Rejected";
+        rx.AdminNote = adminNote;
+        rx.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("[EMR] Admin rejected authorization for prescription {Id} — Note: {Note}", id, adminNote);
+        return MapPrescriptionToDto(rx);
+    }
+
+
+
     // ─── Business-Specific Operation: Clinical Health Summary & Safety Checks ──
 
     public async Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId)
@@ -686,212 +692,89 @@ public class EMRService : IEMRService
 
     public async Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null)
     {
+        var results = new List<ChannelingAppointmentDto>();
+
         Patient? patient = null;
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
-            var pCodeTrim = patientCode.Trim();
-            patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == pCodeTrim.ToUpper());
-            if (patient == null && int.TryParse(pCodeTrim, out int parsedUserId))
-            {
-                patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == parsedUserId);
-            }
-            if (patient == null && pCodeTrim.Contains('@'))
-            {
-                patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == pCodeTrim.ToLower());
-            }
+            var cleanCode = patientCode.Trim().ToUpper();
+            patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == cleanCode);
         }
 
-        var nowUtc = DateTime.UtcNow;
-
-        // 1. Fetch from DoctorAppointments (Channeling booking system)
-        var docQuery = _db.DoctorAppointments
-            .Include(a => a.Doctor)
-            .Include(a => a.DoctorSession)
-            .AsQueryable();
-
+        // 1. Check ChannelingAppointments table
+        var query = _db.ChannelingAppointments.AsQueryable();
         if (!string.IsNullOrWhiteSpace(patientCode))
         {
-            var pCodeTrim = patientCode.Trim().ToLower();
-            int? uId = patient?.UserId;
-            if (!uId.HasValue && int.TryParse(patientCode, out int parsedId))
-            {
-                uId = parsedId;
-            }
-            var pEmail = patient?.Email?.ToLower() ?? (patientCode.Contains('@') ? pCodeTrim : null);
-            var pPhone = patient?.ContactPhone;
-            var pName = patient?.FullName?.ToLower();
+            query = query.Where(a => a.PatientCode.ToUpper() == patientCode.Trim().ToUpper());
+        }
+        var channelingList = await query.OrderByDescending(a => a.AppointmentDate).ToListAsync();
+        results.AddRange(channelingList.Select(a => new ChannelingAppointmentDto
+        {
+            Id = a.Id,
+            AppointmentCode = a.AppointmentCode,
+            PatientCode = a.PatientCode,
+            DoctorName = a.DoctorName,
+            Specialty = a.Specialty,
+            AppointmentDate = a.AppointmentDate,
+            Room = a.Room,
+            Status = a.Status
+        }));
 
-            docQuery = docQuery.Where(a =>
-                (uId.HasValue && a.PatientId == uId.Value) ||
-                (!string.IsNullOrEmpty(pEmail) && a.PatientEmail.ToLower() == pEmail) ||
-                (!string.IsNullOrEmpty(pPhone) && a.PatientPhone == pPhone) ||
-                (pName != null && a.PatientName.ToLower() == pName)
+        // 2. Also retrieve from DoctorAppointments table (where appointments booked through the portal are stored)
+        var docQuery = _db.DoctorAppointments.Include(d => d.Doctor).AsQueryable();
+        if (patient != null)
+        {
+            var pId = patient.UserId;
+            var pEmail = patient.Email?.Trim().ToLower();
+            var pName = patient.FullName?.Trim().ToLower();
+
+            docQuery = docQuery.Where(d =>
+                (pId.HasValue && d.PatientId == pId.Value) ||
+                (!string.IsNullOrEmpty(pEmail) && d.PatientEmail.ToLower() == pEmail) ||
+                (!string.IsNullOrEmpty(pName) && d.PatientName.ToLower() == pName)
             );
         }
-
-        var docList = await docQuery.OrderByDescending(a => a.AppointmentDate).ToListAsync();
-
-        var mappedDoctorApts = docList.Select(a =>
+        else if (!string.IsNullOrWhiteSpace(patientCode))
         {
-            string statusStr;
-            string categoryStr;
-
-            if (a.Status == AppointmentStatus.Cancelled)
-            {
-                statusStr = "Cancelled";
-                categoryStr = "Past";
-            }
-            else if (a.Status == AppointmentStatus.Completed || a.Status == AppointmentStatus.NoShow || a.QueueStatus == QueueStatus.Completed || a.QueueStatus == QueueStatus.NoShow)
-            {
-                statusStr = a.Status == AppointmentStatus.NoShow || a.QueueStatus == QueueStatus.NoShow ? "No Show" : "Completed";
-                categoryStr = "Past";
-            }
-            else if (a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called || a.CheckedInAt != null)
-            {
-                statusStr = a.QueueStatus == QueueStatus.InConsultation ? "In Consultation" : "Ongoing";
-                categoryStr = "Ongoing";
-            }
-            else
-            {
-                if (a.AppointmentDate.Date == nowUtc.Date)
-                {
-                    statusStr = a.Status == AppointmentStatus.PendingPayment ? "Pending Payment" : "Ongoing";
-                    categoryStr = "Ongoing";
-                }
-                else if (a.AppointmentDate.Date > nowUtc.Date)
-                {
-                    statusStr = a.Status == AppointmentStatus.PendingPayment ? "Pending Payment" : "Upcoming";
-                    categoryStr = "Upcoming";
-                }
-                else
-                {
-                    statusStr = "Completed";
-                    categoryStr = "Past";
-                }
-            }
-
-            var roomStr = !string.IsNullOrWhiteSpace(a.Doctor?.RoomNumber)
-                ? a.Doctor.RoomNumber
-                : "Consultation Suite";
-            if (!string.IsNullOrWhiteSpace(a.Doctor?.HospitalBranch))
-            {
-                roomStr += $", {a.Doctor.HospitalBranch}";
-            }
-
-            return new ChannelingAppointmentDto
-            {
-                Id = Guid.NewGuid(),
-                AppointmentCode = a.AppointmentNumber,
-                PatientCode = patient?.PatientCode ?? (a.PatientId.HasValue ? $"PAT-{a.PatientId}" : "PAT-USER"),
-                DoctorName = a.DoctorName,
-                Specialty = !string.IsNullOrWhiteSpace(a.Specialization) ? a.Specialization : (a.Doctor?.Specialization ?? "General Specialist"),
-                AppointmentDate = a.AppointmentDate,
-                Room = roomStr,
-                Status = statusStr,
-                Category = categoryStr,
-                QueueNumber = a.QueueNumber,
-                TotalAmount = a.TotalAmount,
-                PaymentStatus = a.PaymentStatus,
-                HospitalBranch = a.Doctor?.HospitalBranch ?? "Health Bridge Hospital - Colombo",
-                TimeSlot = a.TimeSlot
-            };
-        }).ToList();
-
-        // 2. Fetch from ChannelingAppointments (EMR Channeling table)
-        var chanQuery = _db.ChannelingAppointments.AsQueryable();
-        if (!string.IsNullOrWhiteSpace(patientCode))
-        {
-            var targetCode = patient?.PatientCode?.ToUpper() ?? patientCode.Trim().ToUpper();
-            chanQuery = chanQuery.Where(a => a.PatientCode.ToUpper() == targetCode);
+            docQuery = docQuery.Where(d => d.AppointmentNumber.Contains(patientCode));
         }
-        var chanList = await chanQuery.OrderByDescending(a => a.AppointmentDate).ToListAsync();
 
-        var mappedChanApts = chanList.Select(c =>
+        var docList = await docQuery.OrderByDescending(d => d.AppointmentDate).ToListAsync();
+        foreach (var d in docList)
         {
-            string statusStr = c.Status ?? "Upcoming";
-            string categoryStr = "Upcoming";
-            var sUpper = statusStr.Trim().ToUpper();
+            // Avoid duplicates if same appointment code exists
+            if (!results.Any(r => r.AppointmentCode == d.AppointmentNumber))
+            {
+                byte[] bytes = new byte[16];
+                BitConverter.GetBytes(d.Id).CopyTo(bytes, 0);
+                var guid = new Guid(bytes);
 
-            if (sUpper == "CANCELLED" || sUpper == "CANCELED")
-            {
-                categoryStr = "Past";
-                statusStr = "Cancelled";
-            }
-            else if (sUpper == "COMPLETED" || sUpper == "FINISHED")
-            {
-                categoryStr = "Past";
-                statusStr = "Completed";
-            }
-            else if (sUpper == "ONGOING" || sUpper == "IN CONSULTATION" || sUpper == "CHECKED IN" || sUpper == "IN PROGRESS")
-            {
-                categoryStr = "Ongoing";
-            }
-            else
-            {
-                if (c.AppointmentDate.Date == nowUtc.Date)
+                results.Add(new ChannelingAppointmentDto
                 {
-                    categoryStr = "Ongoing";
-                    if (sUpper == "UPCOMING") statusStr = "Ongoing";
-                }
-                else if (c.AppointmentDate.Date > nowUtc.Date)
-                {
-                    categoryStr = "Upcoming";
-                }
-                else
-                {
-                    categoryStr = "Past";
-                    if (sUpper == "UPCOMING") statusStr = "Completed";
-                }
-            }
-
-            return new ChannelingAppointmentDto
-            {
-                Id = c.Id,
-                AppointmentCode = c.AppointmentCode,
-                PatientCode = c.PatientCode,
-                DoctorName = c.DoctorName,
-                Specialty = c.Specialty,
-                AppointmentDate = c.AppointmentDate,
-                Room = c.Room,
-                Status = statusStr,
-                Category = categoryStr,
-                QueueNumber = null,
-                TotalAmount = null,
-                PaymentStatus = null,
-                HospitalBranch = null,
-                TimeSlot = c.AppointmentDate.ToString("hh:mm tt")
-            };
-        }).ToList();
-
-        // Merge without duplicating AppointmentCode
-        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var merged = new List<ChannelingAppointmentDto>();
-
-        foreach (var apt in mappedDoctorApts)
-        {
-            if (!string.IsNullOrEmpty(apt.AppointmentCode) && seenCodes.Add(apt.AppointmentCode))
-            {
-                merged.Add(apt);
+                    Id = guid,
+                    AppointmentCode = d.AppointmentNumber,
+                    PatientCode = patient?.PatientCode ?? patientCode ?? string.Empty,
+                    DoctorName = !string.IsNullOrEmpty(d.DoctorName) ? d.DoctorName : (d.Doctor?.FullName ?? "Doctor"),
+                    Specialty = !string.IsNullOrEmpty(d.Specialization) ? d.Specialization : (d.Doctor?.Specialization ?? "General Specialist"),
+                    AppointmentDate = d.AppointmentDate,
+                    Room = $"Room {(d.QueueNumber % 6) + 1} - Level 2",
+                    Status = d.Status.ToString(),
+                    QueueNumber = d.QueueNumber,
+                    TimeSlot = d.TimeSlot,
+                    TotalAmount = d.TotalAmount,
+                    PaymentStatus = d.PaymentStatus,
+                    HospitalBranch = "Health Bridge Central Hospital"
+                });
             }
         }
 
-        foreach (var apt in mappedChanApts)
-        {
-            if (string.IsNullOrEmpty(apt.AppointmentCode) || seenCodes.Add(apt.AppointmentCode))
-            {
-                merged.Add(apt);
-            }
-        }
-
-        return merged
-            .OrderByDescending(x => x.AppointmentDate)
-            .ThenBy(x => x.QueueNumber ?? 999);
+        return results.OrderByDescending(r => r.AppointmentDate);
     }
 
     public async Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto)
     {
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == dto.PatientCode.Trim().ToUpper());
-        var count = await _db.ChannelingAppointments.CountAsync() + await _db.DoctorAppointments.CountAsync();
+        var count = await _db.ChannelingAppointments.CountAsync();
         var code = $"APT-{3000 + count + 1}";
 
         var appointment = new ChannelingAppointment
@@ -919,8 +802,7 @@ public class EMRService : IEMRService
             Specialty = appointment.Specialty,
             AppointmentDate = appointment.AppointmentDate,
             Room = appointment.Room,
-            Status = appointment.Status,
-            Category = "Upcoming"
+            Status = appointment.Status
         };
     }
 
@@ -928,42 +810,30 @@ public class EMRService : IEMRService
 
     private async Task<string> GenerateNextPatientCodeAsync()
     {
-        var count = await _db.Patients.CountAsync();
-        return $"PAT-{1000 + count + 1}";
+        // Use MAX of existing numeric suffixes to avoid duplicate codes even after deletions
+        var allCodes = await _db.Patients.Select(p => p.PatientCode).ToListAsync();
+        int maxNum = 1000;
+        foreach (var code in allCodes)
+        {
+            if (code.StartsWith("PAT-") && int.TryParse(code.Substring(4), out var num))
+                maxNum = Math.Max(maxNum, num);
+        }
+        return $"PAT-{maxNum + 1}";
     }
 
-    private async Task<PatientProfile?> FindPatientProfileAsync(Patient patient, int? knownUserId = null)
-    {
-        int? targetUserId = knownUserId ?? patient.UserId;
-        if (targetUserId.HasValue)
-        {
-            var p = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == targetUserId.Value);
-            if (p != null) return p;
-        }
 
-        if (!string.IsNullOrWhiteSpace(patient.Email))
-        {
-            var p = await _db.PatientProfiles.Include(pr => pr.User)
-                .FirstOrDefaultAsync(pr => pr.User != null && pr.User.Email.ToLower() == patient.Email.ToLower());
-            if (p != null) return p;
-        }
-
-        return null;
-    }
-
-    private static PatientDto MapPatientToDto(Patient p, PatientProfile? profile = null) => new()
+    private static PatientDto MapPatientToDto(Patient p) => new()
     {
         Id = p.Id,
         PatientCode = p.PatientCode,
         FullName = p.FullName,
-        DateOfBirth = p.DateOfBirth ?? profile?.DateOfBirth,
-        Gender = (!string.IsNullOrWhiteSpace(p.Gender) && p.Gender != "Other") ? p.Gender : (profile?.Gender ?? p.Gender),
+        DateOfBirth = p.DateOfBirth,
+        Gender = p.Gender,
         BloodGroup = p.BloodGroup,
-        ContactPhone = !string.IsNullOrWhiteSpace(p.ContactPhone) ? p.ContactPhone : (profile?.PhoneNumber ?? ""),
+        ContactPhone = p.ContactPhone,
         Email = p.Email,
-        NicNumber = profile?.NicNumber,
-        Address = !string.IsNullOrWhiteSpace(p.Address) ? p.Address : (!string.IsNullOrWhiteSpace(profile?.Address) ? profile.Address + (!string.IsNullOrWhiteSpace(profile?.City) ? ", " + profile.City : "") : ""),
-        EmergencyContactName = !string.IsNullOrWhiteSpace(p.EmergencyContactName) ? p.EmergencyContactName : (profile?.EmergencyContact ?? ""),
+        Address = p.Address,
+        EmergencyContactName = p.EmergencyContactName,
         EmergencyContactPhone = p.EmergencyContactPhone,
         Allergies = p.Allergies,
         ChronicConditions = p.ChronicConditions,
@@ -1020,8 +890,16 @@ public class EMRService : IEMRService
         PrescribedDoctor = p.PrescribedDoctor,
         Status = p.Status,
         CreatedAt = p.CreatedAt,
-        UpdatedAt = p.UpdatedAt
+        UpdatedAt = p.UpdatedAt,
+        HasAuthorizationRequest = p.HasAuthorizationRequest,
+        AuthorizationStatus = p.AuthorizationStatus,
+        AuthorizationRequestedBy = p.AuthorizationRequestedBy,
+        AuthorizationRequestReason = p.AuthorizationRequestReason,
+        AuthorizationAction = p.AuthorizationAction,
+        AdminNote = p.AdminNote,
+        AuthorizationRequestedAt = p.AuthorizationRequestedAt
     };
+
 
     public async Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role)
     {
@@ -1283,6 +1161,18 @@ public class EMRService : IEMRService
         }
 
         return notifs;
+    }
+
+    // ─── AI Agent Support ─────────────────────────────────────────────────────
+
+    public async Task<Patient?> GetPatientWithRecordsAsync(string patientCode)
+    {
+        var code = patientCode.Trim().ToUpper();
+        return await _db.Patients
+            .Include(p => p.ConsultationNotes)
+            .Include(p => p.LabReports)
+            .Include(p => p.Prescriptions)
+            .FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == code);
     }
 }
 

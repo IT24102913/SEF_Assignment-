@@ -39,6 +39,26 @@ const Orders = () => {
     const [statusFilter, setStatusFilter] = useState('ALL');
     const [startDateFilter, setStartDateFilter] = useState('');
     const [endDateFilter, setEndDateFilter] = useState('');
+    const [violatedPatients, setViolatedPatients] = useState([]);
+    const [loadingViolatedPatients, setLoadingViolatedPatients] = useState(false);
+
+    useEffect(() => {
+        if (statusFilter === 'ViolatedPatients') {
+            fetchViolatedPatients();
+        }
+    }, [statusFilter]);
+
+    const fetchViolatedPatients = async () => {
+        setLoadingViolatedPatients(true);
+        try {
+            const res = await api.get('/PharmacyOrders/violated-patients');
+            setViolatedPatients(res.data);
+        } catch (err) {
+            console.warn('Failed to fetch violated patients:', err);
+        } finally {
+            setLoadingViolatedPatients(false);
+        }
+    };
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [adminNoteInput, setAdminNoteInput] = useState('');
     const [quotePriceInput, setQuotePriceInput] = useState('');
@@ -59,7 +79,7 @@ const Orders = () => {
     const evaluatePrescriptionSafetyClient = (currentOrder, allOrdersList = []) => {
         if (!currentOrder) {
             return {
-                aiAgent: "Google Gemini 1.5 Vision (Agentic AI)",
+                aiAgent: "Gemini 3.8 Flash (Agentic AI)",
                 riskScore: 50,
                 flags: ["Missing or ambiguous prescription information"],
                 handwritingStatus: "Requires Manual Verification",
@@ -68,18 +88,27 @@ const Orders = () => {
             };
         }
 
-        if (typeof currentOrder.safetyRiskScore === 'number' && currentOrder.safetyFlags && !Array.isArray(currentOrder.safetyFlags) && currentOrder.safetyFlags.includes("Google Gemini")) {
+        const currentRxImage = currentOrder.prescriptionImageUrl || currentOrder.imageUrl;
+        const hasRxImage = !!currentRxImage;
+
+        if (typeof currentOrder.safetyRiskScore === 'number' && currentOrder.safetyFlags) {
             const flags = Array.isArray(currentOrder.safetyFlags)
-                ? currentOrder.safetyFlags
+                ? [...currentOrder.safetyFlags]
                 : typeof currentOrder.safetyFlags === 'string'
                     ? currentOrder.safetyFlags.split(',').map(s => s.trim()).filter(Boolean)
                     : [];
+
+            const hasViolation = flags.some(f => {
+                const l = f.toLowerCase();
+                return l.includes("violation") || l.includes("non_medical") || l.includes("non-medical") || l.includes("non_prescription") || l.includes("forgery") || l.includes("suspicious") || l.includes("tampered") || l.includes("invalid document");
+            });
+
             return {
-                aiAgent: "Google Gemini 1.5 Vision (Agentic AI)",
+                aiAgent: "Gemini 3.8 Flash (Agentic AI)",
                 riskScore: currentOrder.safetyRiskScore,
                 flags,
-                handwritingStatus: flags.some(f => f.toLowerCase().includes("handwriting") || f.toLowerCase().includes("cursive")) ? "Ambiguity Flagged" : "Cursive Handwriting Decoded",
-                duplicationStatus: flags.some(f => f.toLowerCase().includes("duplicate")) ? "Duplicate Detected" : "Unique Prescription",
+                handwritingStatus: !hasRxImage ? "N/A - Direct OTC Order (No Rx Image)" : hasViolation ? "⚠️ Non-Medical / Invalid Upload" : "Cursive Handwriting Decoded",
+                duplicationStatus: !hasRxImage ? "N/A - Direct OTC Purchase" : flags.some(f => f.toLowerCase().includes("duplicate")) ? "Duplicate Rx Detected" : hasViolation ? "Invalid Document Uploaded" : "Unique Prescription",
                 recommendedAction: currentOrder.safetyRecommendedAction || (currentOrder.safetyRiskScore >= 70 ? "BLOCK_AND_FLAG_FOR_REVIEW" : currentOrder.safetyRiskScore >= 30 ? "REQUIRE_MANUAL_REVIEW" : "APPROVE")
             };
         }
@@ -98,11 +127,10 @@ const Orders = () => {
         });
 
         // A. Prescription Image, Non-Medical Image & Fingerprinting Duplication Check
-        const currentRxImage = currentOrder.prescriptionImageUrl || currentOrder.imageUrl;
         let isDuplicateRx = false;
         let isNonMedicalDoc = false;
 
-        if (currentRxImage) {
+        if (hasRxImage) {
             isDuplicateRx = patientHistory.some(pastOrder => {
                 const pastRxImage = pastOrder.prescriptionImageUrl || pastOrder.imageUrl;
                 if (!pastRxImage) return false;
@@ -110,7 +138,7 @@ const Orders = () => {
                     (currentOrder.prescriptionHash && pastOrder.prescriptionHash && currentOrder.prescriptionHash === pastRxImage);
             });
 
-            // Check if uploaded image is non-medical (e.g. assignment code, school worksheet, reading/writing exercise, homework, non-prescription file)
+            // Check if uploaded image is non-medical
             const rxLower = String(currentRxImage).toLowerCase();
             const orderNum = String(currentOrder.orderNumber || '');
             const notesLower = String(currentOrder.notes || currentOrder.patientNote || '').toLowerCase();
@@ -119,7 +147,9 @@ const Orders = () => {
                 "scores", "vector", "assignment", "worksheet", "school", "reading", "writing",
                 "homework", "math", "exercise", "teacher", "library", "bus", "friends", "kid",
                 "child", "sentence", "alphabet", "student", "class", "grade", "essay", "drawing",
-                "sketch", "nonmedical", "fake", "invalid", "worksheetdigital"
+                "sketch", "nonmedical", "fake", "invalid", "worksheetdigital",
+                "laptop", "computer", "keyboard", "screen", "desktop", "photo", "poster", "naruto",
+                "code", "picture", "img", "screenshot", "table", "device", "camera", "whatsapp", "tele", "image"
             ];
 
             if (nonMedicalKeywords.some(kw => rxLower.includes(kw) || notesLower.includes(kw)) ||
@@ -129,20 +159,20 @@ const Orders = () => {
             }
 
             if (isNonMedicalDoc) {
-                flags.push("⚠️ PRESCRIPTION VIOLATION: Uploaded file is a non-medical document (Child Reading & Writing School Worksheet / Non-Medical File), NOT a valid doctor prescription!");
+                flags.push("⚠️ PRESCRIPTION VIOLATION: Uploaded file is a non-medical image or document (Laptop / Keyboard / Non-Prescription Photo), NOT a valid doctor prescription!");
                 riskScore += 95;
             } else if (isDuplicateRx) {
                 flags.push("⚠️ PRESCRIPTION VIOLATION: Duplicate prescription image upload reuse attempt detected across order history");
                 riskScore += 75;
             } else {
-                flags.push("Doctor Handwriting OCR & Cursive Reading Verified (Google Gemini 1.5 Vision)");
+                flags.push("Doctor Handwriting OCR & Cursive Reading Verified (Gemini 3.8 Flash)");
             }
         } else if (currentOrder.requiresPrescription || (currentOrder.items && currentOrder.items.some(i => i.requiresPrescription))) {
-            flags.push("Missing or ambiguous prescription information");
+            flags.push("Missing prescription receipt image for prescription-required medication");
             riskScore += 40;
         }
 
-        // C. Duplicate Line Item Detection in Single Order
+        // B. Duplicate Line Item Detection in Single Order
         const currentItems = currentOrder.items || [];
         const itemNames = currentItems.map(i => (i.medicineName || i.name || '').trim().toLowerCase()).filter(Boolean);
         const duplicateItems = itemNames.filter((name, index) => itemNames.indexOf(name) !== index);
@@ -151,8 +181,38 @@ const Orders = () => {
             riskScore += 25;
         }
 
-        // D. Refill Schedule & Early Refill Validation
+        // C. Order Frequency & Weekly Repeat Purchase Check (Anti-Abuse Scan for ALL Orders)
         const currentOrderDate = new Date(currentOrder.createdAt || Date.now());
+        const nowMs = currentOrderDate.getTime();
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+        const past7DaysOrders = patientHistory.filter(o => {
+            const oTime = new Date(o.createdAt || 0).getTime();
+            return (nowMs - oTime) <= sevenDaysMs && (o.status !== 'Cancelled');
+        });
+
+        if (past7DaysOrders.length >= 2) {
+            flags.push(`⚠️ High Velocity Order History: Patient placed ${past7DaysOrders.length + 1} orders within 7 days`);
+            riskScore += 35;
+        }
+
+        for (const item of currentItems) {
+            const medName = (item.medicineName || item.name || '').trim().toLowerCase();
+            if (!medName) continue;
+
+            const repeatOrdersThisWeek = past7DaysOrders.filter(o => {
+                const pItems = o.items || [];
+                return pItems.some(pi => (pi.medicineName || pi.name || '').trim().toLowerCase() === medName);
+            });
+
+            if (repeatOrdersThisWeek.length >= 1) {
+                flags.push(`⚠️ Repeat Medication Purchase: Patient ordered "${item.medicineName || item.name}" ${repeatOrdersThisWeek.length + 1} times within 7 days`);
+                riskScore += 30;
+                break;
+            }
+        }
+
+        // D. Refill Schedule & Early Refill Validation
         const pastFulfilledOrders = patientHistory.filter(o =>
             o.status === 'Confirmed' || o.status === 'Dispatched' || o.status === 'Delivered' || o.patientConfirmed
         );
@@ -194,7 +254,7 @@ const Orders = () => {
         }
 
         if (isEarlyRefill) {
-            flags.push("Early refill attempt detected for prescribed medication");
+            flags.push("Early refill attempt detected for medication");
             riskScore += 50;
         }
 
@@ -214,11 +274,11 @@ const Orders = () => {
         }
 
         return {
-            aiAgent: "Google Gemini 1.5 Vision (Agentic AI)",
+            aiAgent: "Gemini 3.8 Flash (Agentic AI)",
             riskScore,
             flags,
-            handwritingStatus: isNonMedicalDoc ? "⚠️ Non-Medical Image Uploaded" : currentRxImage ? "Cursive Handwriting Decoded" : "No Handwriting Image",
-            duplicationStatus: isDuplicateRx ? "Duplicate Image Detected" : duplicateItems.length > 0 ? "Duplicate Items Detected" : isNonMedicalDoc ? "Invalid Document Uploaded" : "Unique Prescription",
+            handwritingStatus: !hasRxImage ? "N/A - Direct OTC Order (No Rx Image)" : isNonMedicalDoc ? "⚠️ Non-Medical Image Uploaded" : "Cursive Handwriting Decoded",
+            duplicationStatus: !hasRxImage ? "N/A - Direct OTC Purchase" : isDuplicateRx ? "Duplicate Rx Image Detected" : duplicateItems.length > 0 ? "Duplicate Items Detected" : isNonMedicalDoc ? "Invalid Document Uploaded" : "Unique Prescription",
             recommendedAction,
             isNonMedicalDoc
         };
@@ -226,7 +286,22 @@ const Orders = () => {
 
     useEffect(() => {
         fetchOrders();
+        fetchBlockedUsers();
     }, []);
+
+    const fetchBlockedUsers = async () => {
+        try {
+            const res = await api.get('/PharmacyOrders/blocked-users');
+            if (res.data && Array.isArray(res.data)) {
+                setBlockedUsers(res.data);
+                try {
+                    localStorage.setItem('medix_blocked_users', JSON.stringify(res.data));
+                } catch (e) { }
+            }
+        } catch (e) {
+            console.warn('Unable to load blocked users from API:', e);
+        }
+    };
 
 
     const showToastMessage = (message, type = 'success') => {
@@ -350,7 +425,7 @@ const Orders = () => {
 
     const handleSendWarningMessage = (patientEmail, orderNumber) => {
         const customMsg = warningMessages[orderNumber] ||
-            `We detected that you uploaded an invalid non-medical image for prescription verification (Order #${orderNumber}). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to medibridge@gmail.com.`;
+            `We detected that you uploaded an invalid non-medical image for prescription verification (Order #${orderNumber}). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.`;
 
         try {
             const notifications = JSON.parse(localStorage.getItem('medix_notifications') || '[]');
@@ -370,20 +445,32 @@ const Orders = () => {
         }
     };
 
-    const handleToggleBlockUser = (patientEmail) => {
+    const handleToggleBlockUser = async (patientEmail) => {
         if (!patientEmail) return;
+        const isCurrentlyBlocked = blockedUsers.includes(patientEmail);
+        const shouldBlock = !isCurrentlyBlocked;
         let updated;
-        if (blockedUsers.includes(patientEmail)) {
+        if (isCurrentlyBlocked) {
             updated = blockedUsers.filter(e => e !== patientEmail);
-            showToastMessage(`Patient account ${patientEmail} UNBLOCKED.`, 'success');
         } else {
             updated = [...blockedUsers, patientEmail];
-            showToastMessage(`Patient account ${patientEmail} BLOCKED 🚫!`, 'error');
         }
         setBlockedUsers(updated);
         try {
             localStorage.setItem('medix_blocked_users', JSON.stringify(updated));
         } catch (e) { }
+
+        try {
+            await api.post('/PharmacyOrders/block-user', {
+                email: patientEmail,
+                block: shouldBlock,
+                reason: "Prescription anti-abuse violation"
+            });
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+        } catch (e) {
+            console.warn('Failed to update block state on backend:', e);
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+        }
     };
 
     const filteredOrders = orders.filter(o => {
@@ -405,6 +492,16 @@ const Orders = () => {
         if (!matchesDate) return false;
         if (statusFilter === 'ALL') return matchesSearch;
         if (statusFilter === 'PendingVerification') return matchesSearch && (o.status === 'PendingVerification' || o.status === 'Pending' || !!o.prescriptionImageUrl);
+        if (statusFilter === 'ViolatedPrescriptions' || statusFilter === 'Violated Prescriptions Audit') {
+            return matchesSearch && (
+                (o.safetyRiskScore ?? 0) >= 70 ||
+                o.safetyRecommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW' ||
+                (() => {
+                    const safety = evaluatePrescriptionSafetyClient(o, orders);
+                    return safety.riskScore >= 70 || safety.isNonMedicalDoc || safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW';
+                })()
+            );
+        }
         return matchesSearch && o.status === statusFilter;
     });
 
@@ -437,8 +534,8 @@ const Orders = () => {
                         <div style={styles.logo}>
                             <img src={logoImage} alt="Health Bridge" style={styles.logoImg} />
                             <div>
-                                <h1 style={styles.logoTitle}>PRESCRIPTION & ORDER VERIFICATION</h1>
-                                <p style={styles.logoSubtitle}>Admin Verification Portal & Pharmacy Fulfillment</p>
+                                <h1 style={styles.logoTitle}>PRESCRIPTION &amp; ORDER VERIFICATION</h1>
+                                <p style={styles.logoSubtitle}>Admin Verification Portal &amp; Pharmacy Fulfillment</p>
                             </div>
                         </div>
                     </div>
@@ -545,19 +642,19 @@ const Orders = () => {
                     </div>
 
                     <div style={styles.filterTabs}>
-                        {['ALL', 'PendingVerification', 'Approved', 'Confirmed', 'Dispatched', 'Cancelled', 'ViolatedPrescriptions'].map(st => (
+                        {['ALL', 'PendingVerification', 'Approved', 'Confirmed', 'Dispatched', 'Cancelled', 'ViolatedPrescriptions', 'ViolatedPatients'].map(st => (
                             <button
                                 key={st}
                                 onClick={() => setStatusFilter(st)}
                                 style={{
                                     ...styles.filterBtn,
-                                    backgroundColor: statusFilter === st ? (st === 'ViolatedPrescriptions' ? '#DC2626' : '#059669') : '#FFFFFF',
-                                    color: statusFilter === st ? '#FFFFFF' : (st === 'ViolatedPrescriptions' ? '#DC2626' : '#475569'),
-                                    borderColor: statusFilter === st ? (st === 'ViolatedPrescriptions' ? '#DC2626' : '#059669') : (st === 'ViolatedPrescriptions' ? '#FCA5A5' : '#E2E8F0'),
-                                    fontWeight: st === 'ViolatedPrescriptions' ? 800 : 600,
+                                    backgroundColor: statusFilter === st ? (st === 'ViolatedPrescriptions' || st === 'ViolatedPatients' ? '#DC2626' : '#059669') : '#FFFFFF',
+                                    color: statusFilter === st ? '#FFFFFF' : (st === 'ViolatedPrescriptions' || st === 'ViolatedPatients' ? '#DC2626' : '#475569'),
+                                    borderColor: statusFilter === st ? (st === 'ViolatedPrescriptions' || st === 'ViolatedPatients' ? '#DC2626' : '#059669') : (st === 'ViolatedPrescriptions' || st === 'ViolatedPatients' ? '#FCA5A5' : '#E2E8F0'),
+                                    fontWeight: (st === 'ViolatedPrescriptions' || st === 'ViolatedPatients') ? 800 : 600,
                                 }}
                             >
-                                {st === 'ALL' ? 'All Orders' : st === 'ViolatedPrescriptions' ? '⚠️ Violated Prescriptions Audit' : st}
+                                {st === 'ALL' ? 'All Orders' : st === 'ViolatedPrescriptions' ? '⚠️ Violated Prescriptions Audit' : st === 'ViolatedPatients' ? '🚨 Violated Patients & Abuse Desk' : st}
                             </button>
                         ))}
                     </div>
@@ -565,7 +662,76 @@ const Orders = () => {
 
                 {/* Orders List */}
                 <div style={styles.ordersGrid}>
-                    {loading ? (
+                    {statusFilter === 'ViolatedPatients' ? (
+                        loadingViolatedPatients ? (
+                            <div style={styles.loadingState}>
+                                <div className="spinner" />
+                                <p>Loading violated patients summary...</p>
+                            </div>
+                        ) : violatedPatients.length === 0 ? (
+                            <div style={styles.emptyState}>
+                                <ShieldAlert size={48} color="#059669" />
+                                <h3>No Violated Patients Found</h3>
+                                <p>No patients currently have high-risk flagged orders in the system.</p>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px', width: '100%', gridColumn: '1 / -1' }}>
+                                {violatedPatients.map(p => (
+                                    <div key={p.customerEmail} style={{
+                                        backgroundColor: '#FFFFFF',
+                                        border: '1px solid #FECACA',
+                                        borderRadius: '12px',
+                                        padding: '16px',
+                                        boxShadow: '0 2px 8px rgba(220, 38, 38, 0.08)'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                                            <div>
+                                                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>{p.customerName || 'Anonymous'}</h4>
+                                                <div style={{ fontSize: '12.5px', color: '#64748B' }}>{p.customerEmail}</div>
+                                            </div>
+                                            <span style={{
+                                                padding: '4px 10px',
+                                                borderRadius: '12px',
+                                                fontSize: '11px',
+                                                fontWeight: 800,
+                                                backgroundColor: p.riskLevel === 'CRITICAL' ? '#FEE2E2' : p.riskLevel === 'HIGH' ? '#FFEDD5' : '#FEF3C7',
+                                                color: p.riskLevel === 'CRITICAL' ? '#991B1B' : p.riskLevel === 'HIGH' ? '#9A3412' : '#92400E'
+                                            }}>
+                                                {p.riskLevel} RISK
+                                            </span>
+                                        </div>
+
+                                        <div style={{ fontSize: '13px', color: '#334155', display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '14px' }}>
+                                            <div>Flagged Orders: <strong style={{ color: '#DC2626' }}>{p.flaggedOrders} of {p.totalOrders}</strong></div>
+                                            <div>Suspicious Rate: <strong>{p.suspiciousRate}%</strong></div>
+                                            <div>Last Violation: <strong>{new Date(p.lastFlaggedAt).toLocaleDateString()}</strong></div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => navigate(`/pharmacy/staff/patient-analytics?email=${encodeURIComponent(p.customerEmail)}`)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '8px',
+                                                backgroundColor: '#7C3AED',
+                                                color: '#FFFFFF',
+                                                border: 'none',
+                                                borderRadius: '8px',
+                                                fontWeight: 800,
+                                                fontSize: '13px',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            📊 View Full Patient Analytics
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )
+                    ) : loading ? (
                         <div style={styles.loadingState}>
                             <div className="spinner" />
                             <p>Loading prescription orders...</p>
@@ -644,6 +810,25 @@ const Orders = () => {
                                         <div style={styles.infoLine}>
                                             <MapPin size={14} color="#059669" /> Delivery Option: <strong>{order.deliveryMethod === 'Pickup' ? '🏥 Counter Pickup (FREE)' : '🚚 Home Delivery (Delivery Charges < 500)'}</strong> ({order.deliveryAddress || 'Store Pick-up'})
                                         </div>
+                                        <button
+                                            onClick={() => navigate(`/pharmacy/staff/patient-analytics?email=${encodeURIComponent(order.customerEmail)}`)}
+                                            style={{
+                                                marginTop: '8px',
+                                                padding: '5px 12px',
+                                                backgroundColor: '#7C3AED',
+                                                color: '#FFFFFF',
+                                                border: 'none',
+                                                borderRadius: '6px',
+                                                cursor: 'pointer',
+                                                fontWeight: 700,
+                                                fontSize: '11.5px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
+                                            }}
+                                        >
+                                            📊 View Patient Analytics
+                                        </button>
                                     </div>
 
                                     {/* Prescription & Days Supply Banner */}
@@ -673,12 +858,31 @@ const Orders = () => {
                                             return (
                                                 <div key={idx} style={styles.itemRow}>
                                                     <span>{(() => {
-                                                        const isCard = item.unitType === 'Card' || (item.medicineName || item.name || '').toLowerCase().includes('(card)');
-                                                        const unitLabel = isCard ? (item.quantity > 1 ? 'Cards' : 'Card') : (item.quantity > 1 ? 'Pills' : 'Pill');
                                                         const nameStr = item.medicineName || item.name || '';
-                                                        return nameStr.toLowerCase().includes('(card)')
-                                                            ? `${nameStr} (x${item.quantity})`
-                                                            : `${nameStr} (x${item.quantity} ${unitLabel})`;
+                                                        if (nameStr.toLowerCase().includes('(card)')) {
+                                                            return `${nameStr} (x${item.quantity})`;
+                                                        }
+                                                        const rawUnit = item.unitType || item.unitName || 'Pill';
+                                                        const u = rawUnit.trim();
+                                                        const lower = u.toLowerCase();
+                                                        const qty = item.quantity || 1;
+
+                                                        let unitLabel = u;
+                                                        if (lower === 'card') unitLabel = qty > 1 ? 'Cards' : 'Card';
+                                                        else if (lower === 'pill') unitLabel = qty > 1 ? 'Pills' : 'Pill';
+                                                        else if (lower === 'bottle') unitLabel = qty > 1 ? 'Bottles' : 'Bottle';
+                                                        else if (lower === 'tube') unitLabel = qty > 1 ? 'Tubes' : 'Tube';
+                                                        else if (lower === 'sachet') unitLabel = qty > 1 ? 'Sachets' : 'Sachet';
+                                                        else if (lower === 'box') unitLabel = qty > 1 ? 'Boxes' : 'Box';
+                                                        else if (lower === 'vial') unitLabel = qty > 1 ? 'Vials' : 'Vial';
+                                                        else if (lower === 'inhaler') unitLabel = qty > 1 ? 'Inhalers' : 'Inhaler';
+                                                        else if (lower === 'drops') unitLabel = qty > 1 ? 'Bottles' : 'Bottle';
+                                                        else if (qty > 1) {
+                                                            unitLabel = (lower.endsWith('s') || lower.endsWith('x') || lower.endsWith('ch') || lower.endsWith('sh'))
+                                                                ? `${u}es`
+                                                                : `${u}s`;
+                                                        }
+                                                        return `${nameStr} (x${qty} ${unitLabel})`;
                                                     })()}</span>
                                                     <span style={{ fontWeight: 600, color: isRxItem ? '#D97706' : '#059669' }}>
                                                         {isRxItem ? 'Pharmacist Quote Required' : `Rs. ${(item.subtotal || item.price * item.quantity || 0).toFixed(2)}`}
@@ -756,7 +960,7 @@ const Orders = () => {
                                     Review Order #{selectedOrder.orderNumber}
                                 </h3>
                                 <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                                    🤖 Powered by Google Gemini 1.5 Vision Agentic AI
+                                    🤖 Powered by Gemini 3.8 Flash (Agentic AI)
                                 </div>
                             </div>
                             <button
@@ -1057,6 +1261,16 @@ const Orders = () => {
                                 >
                                     <XCircle size={16} /> Reject Order
                                 </button>
+                                <button
+                                    onClick={() => {
+                                        const email = selectedOrder.customerEmail;
+                                        setSelectedOrder(null);
+                                        navigate(`/pharmacy/staff/patient-analytics?email=${encodeURIComponent(email)}`);
+                                    }}
+                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#7C3AED' }}
+                                >
+                                    📊 View Patient Analytics
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1080,7 +1294,7 @@ const Orders = () => {
                     }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px solid #E2E8F0', paddingBottom: '10px' }}>
                             <h4 style={{ margin: 0, color: '#0F172A', fontSize: '16px', fontWeight: 800 }}>
-                                Doctor Prescription Verification (Google Gemini 1.5 Vision)
+                                Doctor Prescription Verification (Gemini 3.8 Flash)
                             </h4>
                             <button onClick={() => setViewRxModal(null)} style={styles.closeBtn} title="Close Preview">&times;</button>
                         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate, Link } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutGrid,
   ShieldCheck,
@@ -11,8 +11,11 @@ import {
   LogOut, 
   Bell, 
   Activity,
-  ArrowLeft,
-  CheckCheck
+  CheckCheck,
+  Sparkles,
+  X,
+  Trash2,
+  ArrowLeft
 } from 'lucide-react';
 import EmrFooter from './EmrFooter';
 import { emrApi } from '../../api/emrApi';
@@ -37,8 +40,20 @@ const T = {
 
 export default function EmrLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef(null);
+
+  // Explicitly remove footer from requested EMR sub-pages
+  const noFooterPaths = [
+    '/emr/consultation-notes',
+    '/emr/lab-reports',
+    '/emr/pharmacy',
+    '/emr/channeling-history',
+    '/emr/ai-insights',
+    '/emr/ai-advisor'
+  ];
+  const hideFooter = noFooterPaths.some(path => location.pathname.startsWith(path));
 
   // Support both Medix sessionStorage and EMR localStorage
   const rawUser = sessionStorage.getItem('user') || localStorage.getItem('hb_user') || localStorage.getItem('user') || '{}';
@@ -52,17 +67,40 @@ export default function EmrLayout() {
     fetchLiveNotifications();
   }, [storedUser.id, storedUser.role]);
 
+  const getDismissedNotifKey = () => `emr_dismissed_notifs_${storedUser.id || storedUser.email || 'guest'}`;
+
   const fetchLiveNotifications = async () => {
     try {
       const data = await emrApi.getMyNotifications();
+      const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
       if (Array.isArray(data)) {
-        setNotifications(data);
+        setNotifications(data.filter(n => !dismissed.includes(n.id)));
       } else {
         setNotifications([]);
       }
     } catch {
       setNotifications([]);
     }
+  };
+
+  const dismissNotification = (id, e) => {
+    if (e) e.stopPropagation();
+    const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
+    if (!dismissed.includes(id)) {
+      dismissed.push(id);
+      localStorage.setItem(getDismissedNotifKey(), JSON.stringify(dismissed));
+    }
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const clearAllNotifications = (e) => {
+    if (e) e.stopPropagation();
+    const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
+    notifications.forEach(n => {
+      if (!dismissed.includes(n.id)) dismissed.push(n.id);
+    });
+    localStorage.setItem(getDismissedNotifKey(), JSON.stringify(dismissed));
+    setNotifications([]);
   };
 
   const handleLogout = () => {
@@ -85,6 +123,7 @@ export default function EmrLayout() {
 
   const navItems = [
     { name: 'Overview',           path: '/emr/overview',           icon: LayoutGrid },
+    { name: 'AI Health Advisor',  path: '/emr/ai-insights',        icon: Sparkles, badge: 'Agentic AI' },
     { name: 'Consultation Notes', path: '/emr/consultation-notes', icon: FileText },
     { name: 'Lab Reports',        path: '/emr/lab-reports',        icon: Microscope },
     { name: 'Pharmacy',           path: '/emr/pharmacy',           icon: Pill },
@@ -140,7 +179,22 @@ export default function EmrLayout() {
                   })}
                 >
                   <Icon size={19} />
-                  {item.name}
+                  <span style={{ flex: 1 }}>{item.name}</span>
+                  {item.badge && (
+                    <span style={{
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: '#ffffff',
+                      padding: '2px 7px',
+                      borderRadius: '999px',
+                      border: '1px solid rgba(255, 255, 255, 0.35)'
+                    }}>
+                      {item.badge}
+                    </span>
+                  )}
                 </NavLink>
               );
             })}
@@ -159,17 +213,6 @@ export default function EmrLayout() {
             <ArrowLeft size={19} />
             Back to Main Portal
           </Link>
-
-          <button onClick={handleLogout} style={{
-            display: 'flex', alignItems: 'center', gap: '14px',
-            padding: '11px 16px', borderRadius: '10px',
-            color: '#fca5a5', backgroundColor: 'rgba(239,68,68,0.08)',
-            border: '1px solid rgba(239,68,68,0.15)',
-            cursor: 'pointer', fontSize: '0.92rem', fontWeight: 600,
-          }}>
-            <LogOut size={19} />
-            Logout
-          </button>
         </div>
       </aside>
 
@@ -230,18 +273,34 @@ export default function EmrLayout() {
                         {storedUser.role || 'Patient'}
                       </span>
                     </div>
-                    {notifications.some(n => n.unread) && (
-                      <button
-                        onClick={() => setNotifications(prev => prev.map(x => ({ ...x, unread: false })))}
-                        style={{
-                          background: 'none', border: 'none', color: T.accent,
-                          fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
-                          display: 'inline-flex', alignItems: 'center', gap: '4px'
-                        }}
-                      >
-                        <CheckCheck size={13} /> Mark all read
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {notifications.some(n => n.unread) && (
+                        <button
+                          onClick={() => setNotifications(prev => prev.map(x => ({ ...x, unread: false })))}
+                          style={{
+                            background: 'none', border: 'none', color: T.accent,
+                            fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}
+                          title="Mark all notifications as read"
+                        >
+                          <CheckCheck size={13} /> Read all
+                        </button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={clearAllNotifications}
+                          style={{
+                            background: 'none', border: 'none', color: '#ef4444',
+                            fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px'
+                          }}
+                          title="Remove all notifications"
+                        >
+                          <Trash2 size={13} /> Clear all
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div style={{ maxHeight: '310px', overflowY: 'auto' }}>
@@ -268,9 +327,24 @@ export default function EmrLayout() {
                             transition: 'background 0.2s'
                           }}
                         >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2px', gap: '8px' }}>
                             <span style={{ fontWeight: 600, color: '#0d2b27' }}>{n.title}</span>
-                            {n.unread && <span style={{ width: '7px', height: '7px', backgroundColor: '#10b981', borderRadius: '50%' }} />}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                              {n.unread && <span style={{ width: '7px', height: '7px', backgroundColor: '#10b981', borderRadius: '50%' }} />}
+                              <button
+                                onClick={(e) => dismissNotification(n.id, e)}
+                                title="Remove notification"
+                                style={{
+                                  background: 'none', border: 'none', padding: '2px',
+                                  cursor: 'pointer', color: '#94a3b8', borderRadius: '4px',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
                           </div>
                           <div style={{ color: '#4d7a73', fontSize: '0.8rem', lineHeight: 1.4 }}>{n.message}</div>
                           <div style={{ color: '#94a3b8', fontSize: '0.72rem', marginTop: '4px' }}>{n.time}</div>
@@ -324,7 +398,7 @@ export default function EmrLayout() {
         {/* Page Content */}
         <main className="emr-content">
           <Outlet />
-          <EmrFooter />
+          {!hideFooter && <EmrFooter />}
         </main>
       </div>
     </div>

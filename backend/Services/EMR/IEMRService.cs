@@ -1,4 +1,5 @@
 using HealthBridge.Api.DTOs.EMR;
+using HealthBridge.Api.Models.EMR;
 
 namespace HealthBridge.Api.Services.EMR;
 
@@ -34,12 +35,22 @@ public interface IEMRService
     Task<PrescriptionDto?> UpdatePrescriptionStatusAsync(Guid id, UpdatePrescriptionStatusDto dto);
     Task<bool> DeletePrescriptionAsync(Guid id);
 
+    // Prescription authorization workflow (staff request edit/delete → admin approve/reject)
+    Task<PrescriptionDto?> RequestPrescriptionAuthorizationAsync(Guid id, RequestPrescriptionAuthorizationDto dto);
+    Task<IEnumerable<PrescriptionAuthorizationSummaryDto>> GetPendingPrescriptionAuthorizationsAsync();
+    Task<bool> ApproveAndDeletePrescriptionAsync(Guid id, string adminNote);
+    Task<PrescriptionDto?> RejectPrescriptionAuthorizationAsync(Guid id, string adminNote);
+
+
     // Channeling Appointments
     Task<IEnumerable<ChannelingAppointmentDto>> GetChannelingAppointmentsAsync(string? patientCode = null);
     Task<ChannelingAppointmentDto> CreateChannelingAppointmentAsync(CreateChannelingAppointmentDto dto);
 
     // Business-Specific Operation
     Task<ClinicalSummaryDto?> GenerateClinicalSummaryAsync(string patientCodeOrId);
+
+    // AI Agent Support - returns full entity with navigation properties
+    Task<Patient?> GetPatientWithRecordsAsync(string patientCode);
 
     // Notifications (100% User-Specific and Role-Based)
     Task<IEnumerable<EMRNotificationDto>> GetUserNotificationsAsync(int userId, string role);

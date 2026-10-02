@@ -16,6 +16,87 @@ class PharmacyStorePage extends StatefulWidget {
 }
 
 class _PharmacyStorePageState extends State<PharmacyStorePage> {
+  List<DropdownMenuItem<String>> _buildCartUnitDropdownItems(CartItemModel item) {
+    final med = item.medicine;
+    final unit = med.sellingUnit.toUpperCase();
+    final items = <DropdownMenuItem<String>>[];
+
+    if (unit == 'PILLS' || unit == 'PILL') {
+      items.add(DropdownMenuItem(
+        value: 'Pill',
+        child: Text('1 Pill (Rs. ${med.price.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+      items.add(DropdownMenuItem(
+        value: 'Card',
+        child: Text('1 Card (${med.pillsPerCard} Pills - Rs. ${med.cardPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else if (unit == 'BOTTLE') {
+      final pPrice = med.pricePerBottle ?? med.price;
+      items.add(DropdownMenuItem(
+        value: 'Bottle',
+        child: Text('1 Bottle (${med.bottleSize ?? 100} ml - Rs. ${pPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else if (unit == 'TUBE') {
+      final tPrice = med.pricePerTube ?? med.price;
+      items.add(DropdownMenuItem(
+        value: 'Tube',
+        child: Text('1 Tube (${med.tubeWeight ?? 20} g - Rs. ${tPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else if (unit == 'SACHET') {
+      final sPrice = med.pricePerSachet ?? med.price;
+      final bPrice = med.boxPrice ?? (sPrice * (med.sachetsPerBox ?? 10));
+      items.add(DropdownMenuItem(
+        value: 'Sachet',
+        child: Text('1 Sachet (Rs. ${sPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+      items.add(DropdownMenuItem(
+        value: 'Box',
+        child: Text('1 Box (${med.sachetsPerBox ?? 10} Sachets - Rs. ${bPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else if (unit == 'VIAL') {
+      final vPrice = med.pricePerVial ?? med.price;
+      final bPrice = med.boxPrice ?? (vPrice * (med.vialsPerBox ?? 5));
+      items.add(DropdownMenuItem(
+        value: 'Vial',
+        child: Text('1 Vial (Rs. ${vPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+      items.add(DropdownMenuItem(
+        value: 'Box',
+        child: Text('1 Box (${med.vialsPerBox ?? 5} Vials - Rs. ${bPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else if (unit == 'DROPS') {
+      final dPrice = med.pricePerBottle ?? med.price;
+      items.add(DropdownMenuItem(
+        value: 'Bottle',
+        child: Text('1 Bottle (${med.volumeMl ?? 10} ml - Rs. ${dPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else if (unit == 'INHALER') {
+      final iPrice = med.pricePerInhaler ?? med.price;
+      items.add(DropdownMenuItem(
+        value: 'Inhaler',
+        child: Text('1 Inhaler (${med.puffsPerInhaler ?? 200} Puffs - Rs. ${iPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    } else {
+      final uName = med.unitName ?? item.unitType;
+      final uPrice = med.pricePerUnit ?? med.price;
+      items.add(DropdownMenuItem(
+        value: item.unitType,
+        child: Text('1 $uName (Rs. ${uPrice.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    }
+
+    // Safety fallback to guarantee item.unitType is ALWAYS present in items:
+    if (!items.any((i) => i.value == item.unitType)) {
+      items.add(DropdownMenuItem(
+        value: item.unitType,
+        child: Text('1 ${item.unitType} (Rs. ${med.price.toStringAsFixed(2)})', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+      ));
+    }
+
+    return items;
+  }
+
+
   List<MedicineModel> _allMedicines = [];
   List<MedicineModel> _filteredMedicines = [];
   List<CategoryModel> _categories = [];
@@ -32,6 +113,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   String? _notificationName;
   double? _notificationPrice;
   bool _showCartToast = false;
+  bool _isBlocked = false;
 
   @override
   void initState() {
@@ -43,11 +125,14 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
     setState(() => _isLoading = true);
     final medicines = await PharmacyService.getMedicines();
     final categories = await PharmacyService.getCategories();
+    final userEmail = AuthState.email ?? AppSession.loggedInUserEmail ?? '';
+    final blocked = await PharmacyService.isUserBlocked(userEmail);
 
     if (mounted) {
       setState(() {
         _allMedicines = medicines;
         _categories = categories;
+        _isBlocked = blocked;
         _applyFilters();
         _isLoading = false;
       });
@@ -68,6 +153,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _addToCart(MedicineModel med, {String defaultUnitType = 'Pill'}) {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     final isRx = med.requiresPrescription;
     final unitType = isRx ? 'RxQuote' : defaultUnitType;
 
@@ -140,6 +229,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   double get _cartTotal => _cartSubtotal + _deliveryFee;
 
   void _openCheckoutModal({bool isDirectRxMode = false}) {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -159,6 +252,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _openMedicineDetailModal(MedicineModel med) {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -175,6 +272,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _openCartDrawer() {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -361,22 +462,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                                       value: item.unitType,
                                                       isDense: true,
                                                       underline: const SizedBox(),
-                                                      items: [
-                                                        DropdownMenuItem(
-                                                          value: 'Pill',
-                                                          child: Text(
-                                                            '💊 1 Pill (Rs. ${item.medicine.price.toStringAsFixed(2)})',
-                                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
-                                                          ),
-                                                        ),
-                                                        DropdownMenuItem(
-                                                          value: 'Card',
-                                                          child: Text(
-                                                            '🎴 1 Card (${item.medicine.pillsPerCard} Pills - Rs. ${item.medicine.cardPrice.toStringAsFixed(2)})',
-                                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
-                                                          ),
-                                                        ),
-                                                      ],
+                                                      items: _buildCartUnitDropdownItems(item),
                                                       onChanged: (newUnit) {
                                                         if (newUnit != null) {
                                                           setCartState(() {
@@ -480,135 +566,138 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                       color: Colors.white,
                       border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Fulfillment Options
-                        const Text(
-                          '🚚 Select Delivery Option:',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setCartState(() {
-                                    setState(() {
-                                      _deliveryMethod = 'HomeDelivery';
-                                    });
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                  decoration: BoxDecoration(
-                                    color: _deliveryMethod == 'HomeDelivery' ? const Color(0xFFECFDF5) : Colors.white,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: _deliveryMethod == 'HomeDelivery' ? const Color(0xFF059669) : const Color(0xFFCBD5E1),
-                                      width: _deliveryMethod == 'HomeDelivery' ? 2 : 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '🚚 Home Delivery\n(+ Delivery Charges < 500)',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: _deliveryMethod == 'HomeDelivery' ? const Color(0xFF065F46) : const Color(0xFF475569),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setCartState(() {
-                                    setState(() {
-                                      _deliveryMethod = 'Pickup';
-                                    });
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                                  decoration: BoxDecoration(
-                                    color: _deliveryMethod == 'Pickup' ? const Color(0xFFECFDF5) : Colors.white,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: _deliveryMethod == 'Pickup' ? const Color(0xFF059669) : const Color(0xFFCBD5E1),
-                                      width: _deliveryMethod == 'Pickup' ? 2 : 1,
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '🏥 Counter Pickup\n(FREE)',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: _deliveryMethod == 'Pickup' ? const Color(0xFF065F46) : const Color(0xFF475569),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-
-                        if (!_cartHasRx) ...[
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Items Subtotal:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                              Text('Rs. ${_cartSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Delivery Charge:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                              Text(
-                                _deliveryMethod == 'HomeDelivery' ? 'Payable on Delivery (< Rs. 500)' : 'FREE',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
-                              ),
-                            ],
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Fulfillment Options
+                          const Text(
+                            'Select Delivery Option:',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF334155)),
                           ),
                           const SizedBox(height: 8),
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('Total Amount', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
-                              Text(
-                                'Rs. ${_cartTotal.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF059669)),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    setCartState(() {
+                                      setState(() {
+                                        _deliveryMethod = 'HomeDelivery';
+                                      });
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: _deliveryMethod == 'HomeDelivery' ? const Color(0xFFECFDF5) : Colors.white,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: _deliveryMethod == 'HomeDelivery' ? const Color(0xFF059669) : const Color(0xFFCBD5E1),
+                                        width: _deliveryMethod == 'HomeDelivery' ? 2 : 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Home Delivery\n(+ Delivery Charges < 500)',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: _deliveryMethod == 'HomeDelivery' ? const Color(0xFF065F46) : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    setCartState(() {
+                                      setState(() {
+                                        _deliveryMethod = 'Pickup';
+                                      });
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: _deliveryMethod == 'Pickup' ? const Color(0xFFECFDF5) : Colors.white,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: _deliveryMethod == 'Pickup' ? const Color(0xFF059669) : const Color(0xFFCBD5E1),
+                                        width: _deliveryMethod == 'Pickup' ? 2 : 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Counter Pickup\n(FREE)',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: _deliveryMethod == 'Pickup' ? const Color(0xFF065F46) : const Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                        ],
+                          const SizedBox(height: 14),
 
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _openCheckoutModal(isDirectRxMode: false);
-                          },
-                          icon: const Icon(Icons.arrow_forward),
-                          label: const Text(
-                            'PROCEED TO CHECKOUT',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                          if (!_cartHasRx) ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Items Subtotal:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                Text('Rs. ${_cartSubtotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Delivery Charge:', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                Text(
+                                  _deliveryMethod == 'HomeDelivery' ? 'Payable on Delivery (< Rs. 500)' : 'FREE',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Total Amount', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF475569))),
+                                Text(
+                                  'Rs. ${_cartTotal.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF059669)),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _openCheckoutModal(isDirectRxMode: false);
+                            },
+                            icon: const Icon(Icons.arrow_forward),
+                            label: const Text(
+                              'PROCEED TO CHECKOUT',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF059669),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
                           ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF059669),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
               ],
@@ -724,25 +813,32 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: const [
-                              Icon(Icons.local_pharmacy, color: Color(0xFF059669), size: 28),
-                              SizedBox(width: 8),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Pharmacy Store',
-                                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.local_pharmacy, color: Color(0xFF059669), size: 28),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: const [
+                                      Text(
+                                        'Pharmacy Store',
+                                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                      ),
+                                      Text(
+                                        'Manage health records & pharmacy orders',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+                                      ),
+                                    ],
                                   ),
-                                  Text(
-                                    'Manage health records & pharmacy orders',
-                                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                                  ),
-                                ],
-                              ),
-                            ],
+                                ),
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           InkWell(
                             onTap: _openCartDrawer,
                             child: Container(
@@ -927,7 +1023,12 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                               onPressed: () {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const MyPharmacyOrdersPage()),
+                                  PageRouteBuilder(
+                                    transitionDuration: Duration.zero,
+                                    reverseTransitionDuration: const Duration(milliseconds: 200),
+                                    pageBuilder: (_, __, ___) => const MyPharmacyOrdersPage(),
+                                    transitionsBuilder: (_, animation, __, child) => child,
+                                  ),
                                 );
                               },
                               icon: const Icon(Icons.arrow_forward, size: 14),
@@ -945,9 +1046,63 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                     ),
                   ),
 
+                  // Account Blocked Alert Banner
+                  if (_isBlocked)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF7F1D1D), Color(0xFF991B1B)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFEF4444), width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFEF4444).withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: const BoxDecoration(
+                                color: Color(0x33FFFFFF),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.shield_outlined, color: Color(0xFFFCA5A5), size: 26),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '🚫 PHARMACY & PRESCRIPTION SUSPENDED',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Your account has been suspended by administration from ordering or prescription uploads. Other services remain available.',
+                                    style: TextStyle(color: Color(0xFFFECACA), fontSize: 11, height: 1.3),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // Search Bar
                   SliverToBoxAdapter(
-
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                       child: Container(
@@ -1067,10 +1222,16 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                 delegate: SliverChildBuilderDelegate(
                                   (context, index) {
                                     final med = _filteredMedicines[index];
-                                    return ProductCard(
-                                      medicine: med,
-                                      onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
-                                      onOpenDetail: () => _openMedicineDetailModal(med),
+                                    return Opacity(
+                                      opacity: _isBlocked ? 0.45 : 1.0,
+                                      child: AbsorbPointer(
+                                        absorbing: _isBlocked,
+                                        child: ProductCard(
+                                          medicine: med,
+                                          onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
+                                          onOpenDetail: () => _openMedicineDetailModal(med),
+                                        ),
+                                      ),
                                     );
                                   },
                                   childCount: _filteredMedicines.length,
@@ -1336,18 +1497,104 @@ class ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isRx = medicine.requiresPrescription;
+    final isOutOfStock = medicine.stockQuantity <= 0;
 
     return InkWell(
-      onTap: onOpenDetail,
+      onTap: () {
+        if (isOutOfStock) {
+          // Show out-of-stock popup
+          showDialog(
+            context: context,
+            builder: (ctx) => Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64, height: 64,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFEF2F2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.remove_shopping_cart, color: Color(0xFFDC2626), size: 32),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'CURRENTLY OUT OF STOCK',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFFDC2626), letterSpacing: 1.0),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      medicine.name,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      "We're sorry! This medicine is currently out of stock. Our pharmacist has been notified and will replenish it soon. Please check back shortly.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.5),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFFCD34D)),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.notifications_active_outlined, color: Color(0xFFD97706), size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Pharmacist Notified — A stock replenishment alert has been sent to our pharmacy team.',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF78350F), height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF059669),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Back to Store', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+        onOpenDetail();
+      },
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isOutOfStock ? const Color(0xFFF8FAFC) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isRx ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0)),
+          border: Border.all(color: isOutOfStock ? const Color(0xFFCBD5E1) : isRx ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withOpacity(isOutOfStock ? 0.01 : 0.02),
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -1359,18 +1606,41 @@ class ProductCard extends StatelessWidget {
             // Image / Badge Container
             Stack(
               children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  child: medicine.imageUrl != null && medicine.imageUrl!.startsWith('http')
-                      ? Image.network(
-                          medicine.imageUrl!,
-                          height: 120,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _buildImagePlaceholder(),
-                        )
-                      : _buildImagePlaceholder(),
+                Opacity(
+                  opacity: isOutOfStock ? 0.6 : 1.0,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                    child: medicine.imageUrl != null && medicine.imageUrl!.startsWith('http')
+                        ? Image.network(
+                            medicine.imageUrl!,
+                            height: 120,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _buildImagePlaceholder(),
+                          )
+                        : _buildImagePlaceholder(),
+                  ),
                 ),
+                // Out-of-stock overlay badge
+                if (isOutOfStock)
+                  Positioned(
+                    bottom: 8, left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDC2626).withOpacity(0.9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.remove_shopping_cart, color: Colors.white, size: 10),
+                          SizedBox(width: 4),
+                          Text('Out of Stock', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
                 if (isRx)
                   Positioned(
                     top: 8,
@@ -1427,63 +1697,94 @@ class ProductCard extends StatelessWidget {
                     ),
                     const Spacer(),
 
-                    // Prices
-                    Text(
-                      'Rs. ${medicine.price.toStringAsFixed(2)} / pill',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF059669)),
-                    ),
-                    Text(
-                      'Card (${medicine.pillsPerCard} pills): Rs. ${medicine.cardPrice.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Action Buttons
-                    if (isRx)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () => _showRxInfoModal(context),
-                          icon: const Icon(Icons.assignment, size: 12),
-                          label: const Text('Request Quote', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFD97706),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                        ),
-                      )
-                    else
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => onAddToCart('Pill'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF059669),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              child: const Text('+ Pill', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                    // Prices & Buttons (Adaptive)
+                    Builder(
+                      builder: (context) {
+                        final config = getFlutterDisplayConfig(medicine);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              config.priceLine,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Color(0xFF059669)),
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: () => onAddToCart('Card'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF047857),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            if (config.packLine.isNotEmpty)
+                              Text(
+                                config.packLine,
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                               ),
-                              child: const Text('+ Card', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
-                        ],
-                      ),
+                            const SizedBox(height: 8),
+                            if (isRx)
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  onPressed: isOutOfStock ? null : () => _showRxInfoModal(context),
+                                  icon: const Icon(Icons.assignment, size: 12),
+                                  label: const Text('Request Quote', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isOutOfStock ? const Color(0xFFCBD5E1) : const Color(0xFFD97706),
+                                    foregroundColor: isOutOfStock ? const Color(0xFF94A3B8) : Colors.white,
+                                    disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                    disabledForegroundColor: const Color(0xFF94A3B8),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              )
+                            else if (config.buttons.length == 1)
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: isOutOfStock ? null : () => onAddToCart(config.buttons[0].unitType),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isOutOfStock ? const Color(0xFFCBD5E1) : const Color(0xFF059669),
+                                    foregroundColor: isOutOfStock ? const Color(0xFF94A3B8) : Colors.white,
+                                    disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                    disabledForegroundColor: const Color(0xFF94A3B8),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  child: Text(config.buttons[0].label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                ),
+                              )
+                            else
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: isOutOfStock ? null : () => onAddToCart(config.buttons[0].unitType),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isOutOfStock ? const Color(0xFFCBD5E1) : const Color(0xFF059669),
+                                        foregroundColor: isOutOfStock ? const Color(0xFF94A3B8) : Colors.white,
+                                        disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                        disabledForegroundColor: const Color(0xFF94A3B8),
+                                        padding: const EdgeInsets.symmetric(vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      child: Text(config.buttons[0].label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: isOutOfStock ? null : () => onAddToCart(config.buttons[1].unitType),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: isOutOfStock ? const Color(0xFFCBD5E1) : const Color(0xFF047857),
+                                        foregroundColor: isOutOfStock ? const Color(0xFF94A3B8) : Colors.white,
+                                        disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                        disabledForegroundColor: const Color(0xFF94A3B8),
+                                        padding: const EdgeInsets.symmetric(vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      child: Text(config.buttons[1].label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -1528,6 +1829,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _nameCtrl;
+  late TextEditingController _emailCtrl;
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
   late TextEditingController _notesCtrl;
@@ -1545,6 +1847,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: AppSession.userName ?? 'Patient Customer');
+    _emailCtrl = TextEditingController(text: AppSession.loggedInUserEmail ?? AuthState.email ?? '');
     _phoneCtrl = TextEditingController(text: '0771234567');
     _addressCtrl = TextEditingController(text: 'No 12, Hospital Road, Colombo 03');
     _notesCtrl = TextEditingController();
@@ -1558,6 +1861,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _emailCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     _notesCtrl.dispose();
@@ -1637,11 +1941,14 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
             }).toList();
 
     final subtotal = widget.cart.fold(0.0, (s, i) => s + i.lineTotal);
+    final deliveryFee = 0.0;
     final totalAmount = isRx ? 0.0 : subtotal;
 
     final resData = await PharmacyService.placeOrder(
       customerName: _nameCtrl.text.trim(),
-      customerEmail: AppSession.loggedInUserEmail ?? AuthState.email ?? '',
+      customerEmail: _emailCtrl.text.trim().isNotEmpty
+          ? _emailCtrl.text.trim()
+          : (AppSession.loggedInUserEmail ?? AuthState.email ?? ''),
       customerPhone: _phoneCtrl.text.trim(),
       deliveryAddress: _addressCtrl.text.trim(),
       deliveryMethod: widget.deliveryMethod,
@@ -1687,7 +1994,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
           ),
         ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).padding.bottom + 30),
           child: Form(
             key: _formKey,
             child: Column(
@@ -1725,6 +2032,17 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
                   controller: _nameCtrl,
                   decoration: const InputDecoration(labelText: 'Full Name *', border: OutlineInputBorder()),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Enter full name' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email Address (Order Confirmation Sent Here) *',
+                    hintText: 'e.g. yourname@gmail.com',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v == null || v.trim().isEmpty || !v.contains('@') ? 'Enter a valid email address (@ required)' : null,
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -1935,6 +2253,50 @@ class MedicineDetailBottomSheet extends StatefulWidget {
 class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
   int _selectedImageIndex = 0;
   int _quantity = 1;
+
+  // Storage chip data: maps raw keyword => display data
+  static final Map<String, Map<String, String>> _storageMap = {
+    'room_temp':               {'emoji': '🌡️', 'label': 'Normal Room Temp. (<25°C)', 'bg': 'ecfdf5', 'color': '047857', 'border': 'a7f3d0'},
+    'normal room temperature': {'emoji': '🌡️', 'label': 'Normal Room Temp. (<25°C)', 'bg': 'ecfdf5', 'color': '047857', 'border': 'a7f3d0'},
+    'cool_dry':                {'emoji': '🌤️', 'label': 'Cool & Dry Place (<25°C)',  'bg': 'f0fdf4', 'color': '166534', 'border': '86efac'},
+    'cool & dry':              {'emoji': '🌤️', 'label': 'Cool & Dry Place (<25°C)',  'bg': 'f0fdf4', 'color': '166534', 'border': '86efac'},
+    'refrigerated':            {'emoji': '❄️', 'label': 'Refrigerated (2°C – 8°C)',  'bg': 'eff6ff', 'color': '1d4ed8', 'border': 'bfdbfe'},
+    'frozen':                  {'emoji': '🧊', 'label': 'Frozen (Below -18°C)',       'bg': 'eff6ff', 'color': '1e40af', 'border': '93c5fd'},
+    'protect_light':           {'emoji': '☀️', 'label': 'Protect from Light',         'bg': 'fffbeb', 'color': '92400e', 'border': 'fde68a'},
+    'protect from light':      {'emoji': '☀️', 'label': 'Protect from Light',         'bg': 'fffbeb', 'color': '92400e', 'border': 'fde68a'},
+    'protect_moist':           {'emoji': '💧', 'label': 'Protect from Moisture',      'bg': 'eff6ff', 'color': '1e40af', 'border': 'bfdbfe'},
+    'protect_moisture':        {'emoji': '💧', 'label': 'Protect from Moisture',      'bg': 'eff6ff', 'color': '1e40af', 'border': 'bfdbfe'},
+    'protect from moisture':   {'emoji': '💧', 'label': 'Protect from Moisture',      'bg': 'eff6ff', 'color': '1e40af', 'border': 'bfdbfe'},
+    'keep_children':           {'emoji': '👶', 'label': 'Keep Out of Reach of Children', 'bg': 'fef2f2', 'color': '991b1b', 'border': 'fecaca'},
+    'keep_reach':              {'emoji': '👶', 'label': 'Keep Out of Reach of Children', 'bg': 'fef2f2', 'color': '991b1b', 'border': 'fecaca'},
+    'keep out of reach':       {'emoji': '👶', 'label': 'Keep Out of Reach of Children', 'bg': 'fef2f2', 'color': '991b1b', 'border': 'fecaca'},
+    'original_pack':           {'emoji': '📦', 'label': 'Store in Original Container', 'bg': 'f8fafc', 'color': '334155', 'border': 'cbd5e1'},
+    'store_original':          {'emoji': '📦', 'label': 'Store in Original Container', 'bg': 'f8fafc', 'color': '334155', 'border': 'cbd5e1'},
+    'store in original':       {'emoji': '📦', 'label': 'Store in Original Container', 'bg': 'f8fafc', 'color': '334155', 'border': 'cbd5e1'},
+    'do not freeze':           {'emoji': '🚫', 'label': 'Do Not Freeze',              'bg': 'fef2f2', 'color': '991b1b', 'border': 'fecaca'},
+  };
+
+  // Convert a hex string like 'ecfdf5' to Color
+  static Color _hex(String h) {
+    return Color(int.parse('FF$h', radix: 16));
+  }
+
+  List<Map<String, dynamic>> _parseStorageChips(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return [{'emoji': '🌡️', 'label': 'Normal Room Temp. (<25°C)', 'bg': _hex('ecfdf5'), 'color': _hex('047857'), 'border': _hex('a7f3d0')}];
+    }
+    final parts = raw.split(RegExp(r'[,;]+')).map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    return parts.map((part) {
+      final lower = part.toLowerCase();
+      for (final entry in _storageMap.entries) {
+        if (lower.contains(entry.key)) {
+          final d = entry.value;
+          return {'emoji': d['emoji']!, 'label': d['label']!, 'bg': _hex(d['bg']!), 'color': _hex(d['color']!), 'border': _hex(d['border']!)};
+        }
+      }
+      return {'emoji': '📋', 'label': part, 'bg': _hex('f8fafc'), 'color': _hex('334155'), 'border': _hex('cbd5e1')};
+    }).toList();
+  }
 
   Future<void> _launchGoogleSearch(String query) async {
     final searchUrl = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query + " medicine dosage brand details")}');
@@ -2200,11 +2562,21 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                         const SizedBox(height: 12),
                         Row(
                           children: [
-                            const Icon(Icons.check_circle, color: Color(0xFF059669), size: 16),
+                            Icon(
+                              med.stockQuantity > 0 ? Icons.check_circle : Icons.cancel,
+                              color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                              size: 16,
+                            ),
                             const SizedBox(width: 6),
                             Text(
-                              'In stock (${med.stockQuantity > 0 ? med.stockQuantity : 100} available) • Express Dispatch Ready',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                              med.stockQuantity > 0
+                                  ? 'In Stock \u2022 Express Dispatch Ready'
+                                  : 'Out of Stock \u2014 Currently Unavailable',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                              ),
                             ),
                           ],
                         ),
@@ -2214,32 +2586,40 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
 
                   const SizedBox(height: 18),
 
-                  // Storage Requirement Section
+                  // Storage Requirement Section — Chip Badges
                   const Text(
                     'STORAGE REQUIREMENT',
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5),
                   ),
-                  const SizedBox(height: 6),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: med.storageCondition?.contains('2°C') == true ? const Color(0xFFEFF6FF) : const Color(0xFFECFDF5),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: med.storageCondition?.contains('2°C') == true ? const Color(0xFFBFDBFE) : const Color(0xFFA7F3D0),
-                      ),
-                    ),
-                    child: Text(
-                      med.storageCondition?.isNotEmpty == true
-                          ? med.storageCondition!
-                          : 'Normal Room Temperature (Store in a cool, dry place below 25°C)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: med.storageCondition?.contains('2°C') == true ? const Color(0xFF1E40AF) : const Color(0xFF065F46),
-                      ),
-                    ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _parseStorageChips(med.storageCondition).map((chip) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: chip['bg']!,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: chip['border']!),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(chip['emoji']!, style: const TextStyle(fontSize: 15)),
+                            const SizedBox(width: 6),
+                            Text(
+                              chip['label']!,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: chip['color']!,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
                   ),
 
                   const SizedBox(height: 18),
@@ -2274,95 +2654,226 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
               color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            child: isRx
-                ? SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        widget.onAddToCart('RxQuote', 1);
-                      },
-                      icon: const Icon(Icons.upload_file, size: 18),
-                      label: const Text('Request Prescription Quote', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD97706),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: SafeArea(
+              top: false,
+              child: isRx
+                  ? SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          widget.onAddToCart('RxQuote', 1);
+                        },
+                        icon: const Icon(Icons.upload_file, size: 18),
+                        label: const Text('Request Prescription Quote', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD97706),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                       ),
+                    )
+                  : Row(
+                      children: [
+                        // Quantity selector (- 1 +)
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                                icon: const Icon(Icons.remove, size: 16),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              ),
+                              Text(
+                                '$_quantity',
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                              ),
+                              IconButton(
+                                onPressed: () => setState(() => _quantity++),
+                                icon: const Icon(Icons.add, size: 16),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+
+                        // Add Pill Button
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              widget.onAddToCart('Pill', _quantity);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF059669),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text('+ Add Pill ($_quantity)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Add Card Button
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              widget.onAddToCart('Card', _quantity);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF047857),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: Text('+ Add Card (${med.pillsPerCard}s)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          ),
+                        ),
+                      ],
                     ),
-                  )
-                : Row(
-                    children: [
-                      // Quantity selector (- 1 +)
-                      Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFCBD5E1)),
-                        ),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
-                              icon: const Icon(Icons.remove, size: 16),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                            ),
-                            Text(
-                              '$_quantity',
-                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                            ),
-                            IconButton(
-                              onPressed: () => setState(() => _quantity++),
-                              icon: const Icon(Icons.add, size: 16),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-
-                      // Add Pill Button
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            widget.onAddToCart('Pill', _quantity);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF059669),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: Text('+ Add Pill ($_quantity)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-
-                      // Add Card Button
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            widget.onAddToCart('Card', _quantity);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF047857),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: Text('+ Add Card (${med.pillsPerCard}s)', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        ),
-                      ),
-                    ],
-                  ),
+            ),
           ),
         ],
       ),
     );
+  }
+}
+
+class FlutterUnitConfig {
+  final String priceLine;
+  final String packLine;
+  final List<FlutterUnitButton> buttons;
+
+  FlutterUnitConfig({
+    required this.priceLine,
+    required this.packLine,
+    required this.buttons,
+  });
+}
+
+class FlutterUnitButton {
+  final String label;
+  final String unitType;
+  final double price;
+
+  FlutterUnitButton({
+    required this.label,
+    required this.unitType,
+    required this.price,
+  });
+}
+
+FlutterUnitConfig getFlutterDisplayConfig(MedicineModel med) {
+  final unit = med.sellingUnit.toUpperCase();
+  switch (unit) {
+    case 'PILLS':
+      final uPrice = med.price;
+      final pills = med.pillsPerCard;
+      final cPrice = med.cardPrice;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${uPrice.toStringAsFixed(2)} / pill',
+        packLine: 'Card ($pills pills): Rs. ${cPrice.toStringAsFixed(2)}',
+        buttons: [
+          FlutterUnitButton(label: '+ Pill', unitType: 'Pill', price: uPrice),
+          FlutterUnitButton(label: '+ Card', unitType: 'Card', price: cPrice),
+        ],
+      );
+    case 'BOTTLE':
+      final pPrice = med.pricePerBottle ?? med.price;
+      final size = med.bottleSize ?? 100;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${pPrice.toStringAsFixed(2)} / bottle',
+        packLine: 'Size: $size ml',
+        buttons: [
+          FlutterUnitButton(label: '+ Bottle', unitType: 'Bottle', price: pPrice),
+        ],
+      );
+    case 'TUBE':
+      final tPrice = med.pricePerTube ?? med.price;
+      final weight = med.tubeWeight ?? 20;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${tPrice.toStringAsFixed(2)} / tube',
+        packLine: 'Weight: $weight g',
+        buttons: [
+          FlutterUnitButton(label: '+ Tube', unitType: 'Tube', price: tPrice),
+        ],
+      );
+    case 'SACHET':
+      final sPrice = med.pricePerSachet ?? med.price;
+      final sachets = med.sachetsPerBox ?? 10;
+      final bPrice = med.boxPrice ?? (sPrice * sachets);
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${sPrice.toStringAsFixed(2)} / sachet',
+        packLine: 'Box ($sachets sachets): Rs. ${bPrice.toStringAsFixed(2)}',
+        buttons: [
+          FlutterUnitButton(label: '+ Sachet', unitType: 'Sachet', price: sPrice),
+          FlutterUnitButton(label: '+ Box', unitType: 'Box', price: bPrice),
+        ],
+      );
+    case 'VIAL':
+      final vPrice = med.pricePerVial ?? med.price;
+      final vials = med.vialsPerBox ?? 5;
+      final bPrice = med.boxPrice ?? (vPrice * vials);
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${vPrice.toStringAsFixed(2)} / vial',
+        packLine: 'Box ($vials vials): Rs. ${bPrice.toStringAsFixed(2)}',
+        buttons: [
+          FlutterUnitButton(label: '+ Vial', unitType: 'Vial', price: vPrice),
+          FlutterUnitButton(label: '+ Box', unitType: 'Box', price: bPrice),
+        ],
+      );
+    case 'DROPS':
+      final dPrice = med.pricePerBottle ?? med.price;
+      final vol = med.volumeMl ?? 10;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${dPrice.toStringAsFixed(2)} / bottle',
+        packLine: 'Volume: $vol ml',
+        buttons: [
+          FlutterUnitButton(label: '+ Bottle', unitType: 'Bottle', price: dPrice),
+        ],
+      );
+    case 'INHALER':
+      final iPrice = med.pricePerInhaler ?? med.price;
+      final puffs = med.puffsPerInhaler ?? 200;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${iPrice.toStringAsFixed(2)} / inhaler',
+        packLine: 'Puffs: $puffs',
+        buttons: [
+          FlutterUnitButton(label: '+ Inhaler', unitType: 'Inhaler', price: iPrice),
+        ],
+      );
+    case 'CUSTOM':
+      final uName = med.unitName ?? 'Unit';
+      final cPrice = med.pricePerUnit ?? med.price;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${cPrice.toStringAsFixed(2)} / ${uName.toLowerCase()}',
+        packLine: '',
+        buttons: [
+          FlutterUnitButton(label: '+ $uName', unitType: uName, price: cPrice),
+        ],
+      );
+    default:
+      final uPrice = med.price;
+      final pills = med.pillsPerCard;
+      final cPrice = med.cardPrice;
+      return FlutterUnitConfig(
+        priceLine: 'Rs. ${uPrice.toStringAsFixed(2)} / pill',
+        packLine: 'Card ($pills pills): Rs. ${cPrice.toStringAsFixed(2)}',
+        buttons: [
+          FlutterUnitButton(label: '+ Pill', unitType: 'Pill', price: uPrice),
+          FlutterUnitButton(label: '+ Card', unitType: 'Card', price: cPrice),
+        ],
+      );
   }
 }

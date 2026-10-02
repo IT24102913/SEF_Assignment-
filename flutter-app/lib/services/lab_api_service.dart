@@ -1,9 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
-
 import '../utils/config.dart';
 
-final String baseUrl = ApiConfig.labUrl;
+String get baseUrl => ApiConfig.labUrl;
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 
@@ -97,6 +97,15 @@ class LabApiService {
 
   // Lab Tests
   static Future<List<LabTest>> getTests({String search = '', String category = ''}) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.get(Uri.parse('$host/api/lab/tests?search=$search&category=$category'))
+            .timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) {
+          return (jsonDecode(res.body) as List).map((j) => LabTest.fromJson(j)).toList();
+        }
+      } catch (_) {}
+    }
     final res = await _client.get(Uri.parse('$baseUrl/tests?search=$search&category=$category'));
     if (res.statusCode == 200) {
       return (jsonDecode(res.body) as List).map((j) => LabTest.fromJson(j)).toList();
@@ -105,6 +114,13 @@ class LabApiService {
   }
 
   static Future<List<String>> getCategories() async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.get(Uri.parse('$host/api/lab/tests/categories'))
+            .timeout(const Duration(seconds: 4));
+        if (res.statusCode == 200) return List<String>.from(jsonDecode(res.body));
+      } catch (_) {}
+    }
     final res = await _client.get(Uri.parse('$baseUrl/tests/categories'));
     if (res.statusCode == 200) return List<String>.from(jsonDecode(res.body));
     throw Exception('Failed to load categories');
@@ -154,22 +170,58 @@ class LabApiService {
     throw Exception(res.body);
   }
 
+  /// Upload prescription image file to server at full high-resolution
+  static Future<String?> uploadImageFile(File file) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final req = http.MultipartRequest('POST', Uri.parse('$host/api/uploads'));
+        req.files.add(await http.MultipartFile.fromPath('file', file.path));
+        final stream = await req.send().timeout(const Duration(seconds: 20));
+        final res = await http.Response.fromStream(stream);
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          final data = jsonDecode(res.body);
+          return data['fileUrl']?.toString() ?? data['relativePath']?.toString();
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static Future<LabBooking> uploadPrescription(String bookingId, String imageUrl) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.post(
+          Uri.parse('$host/api/lab/bookings/$bookingId/prescription'),
+          headers: _headers,
+          body: jsonEncode({'prescriptionImageUrl': imageUrl}),
+        ).timeout(const Duration(seconds: 15));
+        if (res.statusCode == 200) return LabBooking.fromJson(jsonDecode(res.body));
+      } catch (_) {}
+    }
     final res = await _client.post(
       Uri.parse('$baseUrl/bookings/$bookingId/prescription'),
       headers: _headers,
       body: jsonEncode({'prescriptionImageUrl': imageUrl}),
-    );
+    ).timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) return LabBooking.fromJson(jsonDecode(res.body));
     throw Exception('Failed to upload prescription');
   }
 
   static Future<void> cancelBooking(String bookingId, String patientId) async {
     final parsedId = int.tryParse(patientId) ?? 1;
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.delete(
+          Uri.parse('$host/api/lab/bookings/$bookingId?patientId=$parsedId'),
+          headers: _headers,
+        ).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 204 || res.statusCode == 200) return;
+      } catch (_) {}
+    }
     final res = await _client.delete(
       Uri.parse('$baseUrl/bookings/$bookingId?patientId=$parsedId'),
       headers: _headers,
-    );
+    ).timeout(const Duration(seconds: 8));
     if (res.statusCode != 204 && res.statusCode != 200) {
       String msg = 'Failed to cancel booking (${res.statusCode})';
       try {

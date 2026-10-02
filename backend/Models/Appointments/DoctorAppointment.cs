@@ -2,11 +2,9 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 using HealthBridge.Api.Models.Appointments;
-using Microsoft.EntityFrameworkCore;
 
 namespace HealthBridge.Api.Models;
 
-[Index(nameof(QrToken), IsUnique = true)]
 public class DoctorAppointment
 {
     public int Id { get; set; }

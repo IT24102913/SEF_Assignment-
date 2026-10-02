@@ -1,22 +1,25 @@
-using HealthBridge.Api.DTOs.Lab;
-using System.Net.Http.Headers;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using HealthBridge.Api.DTOs.Pharmacy;
 
 namespace HealthBridge.Api.Agents;
 
 /// <summary>
-/// PrescriptionValidatorAgent — Agentic AI Component (Student D's AI Contribution)
-/// 
-/// This agent uses Google Gemini Vision API to:
-/// 1. OCR-read an uploaded prescription image
-/// 2. Extract test names, doctor name, and prescription date
-/// 3. Determine whether the requested test is mentioned in the prescription
-/// 4. Return a structured validation result for the Lab Technician to review
-/// 
-/// NOTE: The agent NEVER auto-approves. It only provides a recommendation.
-/// The human Lab Technician always makes the final approval decision.
-/// This satisfies the "Human-in-the-Loop" requirement of the assignment.
+/// PrescriptionValidatorAgent — Hybrid 3-Stage Pharmacy Prescription Analyzer
+///
+/// Uses Google Gemini 3.8 Flash for vision and reasoning.
+///
+/// ARCHITECTURE:
+///   Stage 1 — Extraction: Image → Facts (JSON)
+///   Stage 2 — Verdict: Facts → AI suggestion (advisory only)
+///   Stage 3 — C# Safety: Hard rules override / add flags
+///
+/// DESIGN PRINCIPLE:
+///   AI = ADVISORY ONLY. Pharmacist = FINAL DECISION MAKER.
+///
+/// Verdict values:
+///   looks_valid | has_concerns | unclear | not_a_prescription
 /// </summary>
 public class PrescriptionValidatorAgent
 {
@@ -24,49 +27,339 @@ public class PrescriptionValidatorAgent
     private readonly ILogger<PrescriptionValidatorAgent> _logger;
     private readonly HttpClient _httpClient;
 
-    public PrescriptionValidatorAgent(IConfiguration config, ILogger<PrescriptionValidatorAgent> logger, IHttpClientFactory httpClientFactory)
+    // Model used for all calls — single model, no fallback loop
+    private const string ModelName = "gemini-3.8-flash";
+    private const string GeminiBaseUrl =
+        "https://generativelanguage.googleapis.com/v1beta/models";
+
+    // Old-prescription threshold (months)
+    private const int OldPrescriptionThresholdMonths = 6;
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  CONSTRUCTOR
+    // ═══════════════════════════════════════════════════════════════════
+    public PrescriptionValidatorAgent(
+        IConfiguration config,
+        ILogger<PrescriptionValidatorAgent> logger,
+        IHttpClientFactory httpClientFactory)
     {
         _config = config;
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient("GeminiClient");
     }
 
-    public async Task<AIVerificationResponse> ValidatePrescriptionAsync(string prescriptionImageUrl, string requestedTestName)
+    // ═══════════════════════════════════════════════════════════════════
+    //  PUBLIC ENTRY POINT
+    // ═══════════════════════════════════════════════════════════════════
+    public async Task<AIPpVerificationResponse> ValidatePrescriptionAsync(
+        string prescriptionImageUrl,
+        string requestedTestName)
     {
-        _logger.LogInformation("[AI Agent] Starting prescription validation for test: {TestName}", requestedTestName);
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "[PrescriptionValidatorAgent] Starting 3-stage validation for: {TestName}",
+            requestedTestName);
 
         try
         {
-            var apiKey = _config["Gemini:ApiKey"];
-            var model = "gemini-flash-latest";
-            var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+            // ─────────────────────────────────────────────────────────
+            // Load image as base64
+            // ─────────────────────────────────────────────────────────
+            var base64Data = await GetBase64ImageAsync(prescriptionImageUrl);
+            if (string.IsNullOrEmpty(base64Data))
+            {
+                return BuildFallbackResponse(
+                    requestedTestName,
+                    "Unable to load prescription image file.",
+                    sw.ElapsedMilliseconds);
+            }
 
-            // Build the prompt for Gemini Vision
-            var prompt = $@"You are a medical prescription validator for a hospital laboratory system.
-            
-Analyze the prescription image provided and extract the following information:
-1. All lab tests or medical investigations mentioned
-2. The prescribing doctor's name
-3. The prescription date
-4. The patient's name if visible
+            // ─────────────────────────────────────────────────────────
+            // STAGE 1 — Extract facts from image
+            // ─────────────────────────────────────────────────────────
+            var extractionJson = await RunStage1ExtractionAsync(
+                base64Data, requestedTestName, sw);
 
-Then determine if the following requested lab test is mentioned in the prescription:
-REQUESTED TEST: ""{requestedTestName}""
+            if (extractionJson == null)
+            {
+                return BuildFallbackResponse(
+                    requestedTestName,
+                    "Stage 1 extraction failed. Manual review required.",
+                    sw.ElapsedMilliseconds);
+            }
 
-Be lenient with minor spelling variations (e.g., 'Full Blood Count' matches 'Complete Blood Count (CBC)').
+            _logger.LogInformation("[Stage 1] Extraction succeeded.");
 
-Respond ONLY in the following JSON format (no markdown, no extra text):
+            // ─────────────────────────────────────────────────────────
+            // STAGE 2 — AI Verdict Reasoning (text-only Gemini call)
+            // ─────────────────────────────────────────────────────────
+            var stage2Result = await RunStage2VerdictAsync(
+                extractionJson.Value, requestedTestName, sw);
+
+            _logger.LogInformation(
+                "[Stage 2] AI suggested verdict: {Verdict}",
+                stage2Result?.Verdict ?? "unknown");
+
+            // ─────────────────────────────────────────────────────────
+            // STAGE 3 — C# Safety Rules (hard overrides + flag injection)
+            // ─────────────────────────────────────────────────────────
+            var safetyResult = ApplyStage3SafetyRules(
+                extractionJson.Value, stage2Result, requestedTestName);
+
+            _logger.LogInformation(
+                "[Stage 3] Final verdict after safety rules: {Verdict}",
+                safetyResult.Verdict);
+
+            // ─────────────────────────────────────────────────────────
+            // ASSEMBLE — Populate AIPpVerificationResponse
+            // ─────────────────────────────────────────────────────────
+            var finalResponse = AssembleFinalResponse(
+                extractionJson.Value,
+                stage2Result,
+                safetyResult,
+                requestedTestName,
+                sw.ElapsedMilliseconds);
+
+            _logger.LogInformation(
+                "[PrescriptionValidatorAgent] Completed in {ElapsedMs}ms — Verdict: {Verdict}",
+                sw.ElapsedMilliseconds, finalResponse.Verdict);
+
+            return finalResponse;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "[PrescriptionValidatorAgent] Fatal error during validation");
+            return BuildFallbackResponse(
+                requestedTestName,
+                $"AI processing error: {ex.Message}. Manual review required.",
+                sw.ElapsedMilliseconds);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  STAGE 1 — EXTRACTION (image → facts, no verdict)
+    // ═══════════════════════════════════════════════════════════════════
+    private async Task<JsonElement?> RunStage1ExtractionAsync(
+        string base64Data,
+        string requestedTestName,
+        Stopwatch sw)
+    {
+        var prompt = BuildStage1Prompt(requestedTestName);
+
+        var requestBody = new
+        {
+            contents = new[]
+            {
+                new
+                {
+                    parts = new object[]
+                    {
+                        new { text = prompt },
+                        new
+                        {
+                            inline_data = new
+                            {
+                                mime_type = "image/jpeg",
+                                data = base64Data
+                            }
+                        }
+                    }
+                }
+            },
+            generationConfig = new
+            {
+                temperature = 0.0,
+                maxOutputTokens = 4096
+            }
+        };
+
+        var result = await CallGeminiAsync(requestBody, "Stage 1", sw);
+        if (result == null)
+        {
+            _logger.LogWarning("[Stage 1] Initial Gemini call returned null. Retrying in 1000ms...");
+            await Task.Delay(1000);
+            result = await CallGeminiAsync(requestBody, "Stage 1 (Retry 1)", sw);
+        }
+
+        return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  STAGE 1 PROMPT — pure extraction, no verdict
+    // ═══════════════════════════════════════════════════════════════════
+    private static string BuildStage1Prompt(string requestedTestName) => $@"
+You are an OCR + visual extraction system for a pharmacy prescription verification pipeline.
+
+YOUR ONLY JOB: extract facts from this image.
+DO NOT judge authenticity. DO NOT give verdicts. DO NOT classify as fake/real.
+
+Return STRICT JSON matching the schema below. No markdown. No commentary.
+
+═══════════════════════════════════════════════════════════════════
+1. DOCUMENT CATEGORY (classification only — no judgment)
+═══════════════════════════════════════════════════════════════════
+document_category: exactly one of:
+  - ""handwritten_prescription""  (doctor handwritten on real paper)
+  - ""printed_prescription""      (computer-printed prescription form)
+  - ""unrelated_document""        (forms, exercises, receipts, non-medical text)
+  - ""random_photo""              (people, objects, anime, art, screenshots)
+
+═══════════════════════════════════════════════════════════════════
+2. WATERMARK / OVERLAY TEXT (exact strings only)
+═══════════════════════════════════════════════════════════════════
+Look for ANY overlaid / stamped / watermark text, e.g.:
+  ""SAMPLE"", ""SPECIMEN"", ""VOID"", ""DRAFT"", ""TRAINING DATA"",
+  ""DO NOT USE"", ""MOCKUP"", ""TEMPLATE"".
+Return EXACT strings. If none, return [].
+
+═══════════════════════════════════════════════════════════════════
+3. ANNOTATION ERROR LABELS (exact strings only)
+═══════════════════════════════════════════════════════════════════
+Look for colored annotation labels overlaid on fields, e.g.:
+  ""ERROR"", ""FORGERY"", ""MISMATCH"", ""DUPLICATE"", ""TYPO"",
+  ""DOSAGE ERROR"", ""SIG MISMATCH"".
+Return EXACT strings. If none, return [].
+
+═══════════════════════════════════════════════════════════════════
+4. DOCUMENT FIELDS (extract if present, else null)
+═══════════════════════════════════════════════════════════════════
+- doctor_name
+- doctor_license_number
+- clinic_name
+- clinic_phone           (as written, e.g. ""077-1234567"")
+- clinic_email
+- clinic_address
+- patient_name
+- date_written           (YYYY-MM-DD if possible)
+- drug_names             (array of strings)
+- has_signature          (boolean)
+- has_stamp_or_seal      (boolean)
+
+═══════════════════════════════════════════════════════════════════
+5. RENDERING STYLE (visual evidence only)
+═══════════════════════════════════════════════════════════════════
+rendering_style: exactly one of:
+  - ""photographed_paper""    (real photo: shadows, paper texture, lighting)
+  - ""scanned_document""      (flat scan: uniform lighting, no camera angle)
+  - ""flat_vector_graphic""   (computer graphic: no texture, clean edges)
+  - ""screenshot""            (software UI: window chrome, taskbar, buttons)
+
+rendering_reasoning: describe the specific visual cues you used.
+
+═══════════════════════════════════════════════════════════════════
+6. UI CHROME CHECK
+═══════════════════════════════════════════════════════════════════
+shows_ui_chrome: TRUE only if the DOCUMENT ITSELF is a screenshot of
+software (visible app window, browser tab, taskbar INSIDE the image frame).
+FALSE if the photo was taken with a phone/camera — even if camera UI
+is visible AROUND the document edges.
+
+ui_chrome_reasoning: describe what you saw.
+
+═══════════════════════════════════════════════════════════════════
+7. AUTHENTICITY SIGNALS
+═══════════════════════════════════════════════════════════════════
+- phone_looks_like_placeholder   (e.g. 555-XXXX, 000-0000, 123-4567)
+- phone_reasoning                (name the exact phone + reason)
+- email_looks_valid              (false if domain is garbled/nonsense)
+- email_reasoning
+- address_looks_plausible        (false if malformed)
+- address_reasoning
+
+═══════════════════════════════════════════════════════════════════
+OUTPUT SCHEMA (strict JSON)
+═══════════════════════════════════════════════════════════════════
 {{
-  ""extractedTests"": [""test1"", ""test2""],
-  ""doctorName"": ""Dr. Name or null"",
-  ""prescriptionDate"": ""YYYY-MM-DD or null"",
-  ""patientName"": ""name or null"",
-  ""matchFound"": true or false,
-  ""confidence"": 0.0 to 1.0,
-  ""notes"": ""brief explanation""
-}}";
+  ""document_category"": ""..."",
+  ""document_type_description"": ""brief description"",
+  ""visible_watermark_or_overlay_text"": [],
+  ""annotation_error_labels_present"": [],
+  ""doctor_name"": null,
+  ""doctor_license_number"": null,
+  ""clinic_name"": null,
+  ""clinic_phone"": null,
+  ""clinic_email"": null,
+  ""clinic_address"": null,
+  ""patient_name"": null,
+  ""date_written"": null,
+  ""drug_names"": [],
+  ""has_signature"": false,
+  ""has_stamp_or_seal"": false,
+  ""rendering_style"": ""..."",
+  ""rendering_reasoning"": ""..."",
+  ""shows_ui_chrome"": false,
+  ""ui_chrome_reasoning"": ""..."",
+  ""phone_looks_like_placeholder"": false,
+  ""phone_reasoning"": ""..."",
+  ""email_looks_valid"": true,
+  ""email_reasoning"": ""..."",
+  ""address_looks_plausible"": true,
+  ""address_reasoning"": ""..."",
+  ""extraction_confidence"": 0.0
+}}
 
-            // Gemini Vision API request with image URL
+REQUESTED ITEM (for reference only): ""{requestedTestName}""";
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  STAGE 2 — AI VERDICT REASONING (text-only)
+    // ═══════════════════════════════════════════════════════════════════
+    private async Task<Stage2VerdictResult?> RunStage2VerdictAsync(
+        JsonElement extraction,
+        string requestedTestName,
+        Stopwatch sw)
+    {
+        try
+        {
+            var factsJson = JsonSerializer.Serialize(extraction, new JsonSerializerOptions
+            {
+                WriteIndented = false
+            });
+
+            var prompt = $@"You are an AI verdict advisor for a pharmacy prescription verification pipeline.
+
+The pharmacist is the FINAL DECISION MAKER. You only provide an advisory suggestion.
+
+You will receive EXTRACTED FACTS from a prescription image (not the image itself).
+
+Your task: Analyze the facts and suggest ONE of these verdicts:
+  - ""looks_valid""         : No major concerns found
+  - ""has_concerns""        : Suspicious signals detected
+  - ""unclear""             : Cannot determine; needs human review
+  - ""not_a_prescription""  : Not a medical document at all
+
+═══════════════════════════════════════════════════════════════════
+EXTRACTED FACTS
+═══════════════════════════════════════════════════════════════════
+{factsJson}
+
+═══════════════════════════════════════════════════════════════════
+DECISION GUIDANCE (use judgment — not strict rules)
+═══════════════════════════════════════════════════════════════════
+- If document_category = ""random_photo"" or ""unrelated_document"" → not_a_prescription
+- If watermarks contain SAMPLE/VOID/TRAINING/DO NOT USE → has_concerns
+- If annotation error labels present (FORGERY/TYPO/ERROR) → has_concerns
+- If shows_ui_chrome = true → not_a_prescription
+- If rendering_style = flat_vector_graphic → has_concerns
+- If phone_looks_like_placeholder = true → has_concerns
+- If email_looks_valid = false → has_concerns
+- If has_signature = false AND has_stamp_or_seal = false → unclear
+- If doctor_name missing AND clinic_name missing → unclear
+- If everything looks reasonable → looks_valid
+- NOTE: Missing phone number alone is NOT a concern.
+
+═══════════════════════════════════════════════════════════════════
+OUTPUT SCHEMA (strict JSON)
+═══════════════════════════════════════════════════════════════════
+{{
+  ""verdict"": ""looks_valid"" | ""has_concerns"" | ""unclear"" | ""not_a_prescription"",
+  ""reasoning"": ""1-3 sentences explaining your verdict"",
+  ""confidence"": 0.0,
+  ""concerns"": [""specific concern 1"", ""specific concern 2""]
+}}
+
+REQUESTED ITEM: ""{requestedTestName}""";
+
             var requestBody = new
             {
                 contents = new[]
@@ -75,39 +368,414 @@ Respond ONLY in the following JSON format (no markdown, no extra text):
                     {
                         parts = new object[]
                         {
-                            new { text = prompt },
-                            new
-                            {
-                                inline_data = new
-                                {
-                                    mime_type = "image/jpeg",
-                                    data = await GetBase64ImageAsync(prescriptionImageUrl)
-                                }
-                            }
+                            new { text = prompt }
                         }
                     }
                 },
                 generationConfig = new
                 {
-                    temperature = 0.1, // Low temperature for deterministic output
-                    maxOutputTokens = 1024
+                    temperature = 0.0,
+                    maxOutputTokens = 2048,
+                    responseMimeType = "application/json"
                 }
             };
 
-            var json = JsonSerializer.Serialize(requestBody);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await _httpClient.PostAsync(endpoint, content);
-            var responseBody = await response.Content.ReadAsStringAsync();
+            var result = await CallGeminiAsync(requestBody, "Stage 2", sw);
+            if (result == null) return null;
 
-            _logger.LogInformation("[AI Agent] Gemini API response received. Status: {Status}", response.StatusCode);
+            var root = result.Value;
+            var stage2 = new Stage2VerdictResult
+            {
+                Verdict = root.TryGetProperty("verdict", out var v)
+                    ? v.GetString() ?? "unclear" : "unclear",
+                Reasoning = root.TryGetProperty("reasoning", out var r)
+                    ? r.GetString() ?? "" : "",
+                Confidence = root.TryGetProperty("confidence", out var c)
+                    && c.ValueKind == JsonValueKind.Number ? c.GetDouble() : 0.7,
+                Concerns = new List<string>()
+            };
+
+            if (root.TryGetProperty("concerns", out var concerns)
+                && concerns.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in concerns.EnumerateArray())
+                {
+                    if (item.GetString() is string s && !string.IsNullOrWhiteSpace(s))
+                        stage2.Concerns.Add(s);
+                }
+            }
+
+            return stage2;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Stage 2] Exception during verdict reasoning");
+            return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  STAGE 3 — C# SAFETY RULES (hard overrides)
+    // ═══════════════════════════════════════════════════════════════════
+    private Stage3SafetyResult ApplyStage3SafetyRules(
+        JsonElement extraction,
+        Stage2VerdictResult? stage2,
+        string requestedTestName)
+    {
+        var result = new Stage3SafetyResult();
+
+        // Start from Stage 2's suggestion, or default to unclear
+        result.Verdict = stage2?.Verdict ?? "unclear";
+        result.Reasoning = stage2?.Reasoning ?? "AI could not determine verdict.";
+        result.Confidence = stage2?.Confidence ?? 0.5;
+        result.Flags = new List<string>(stage2?.Concerns ?? new List<string>());
+
+        // ─────────────────────────────────────────────────────────────
+        // Read extraction facts
+        // ─────────────────────────────────────────────────────────────
+        string docCategory = GetString(extraction, "document_category");
+        string renderingStyle = GetString(extraction, "rendering_style");
+        bool showsUiChrome = GetBool(extraction, "shows_ui_chrome");
+        bool phoneFake = GetBool(extraction, "phone_looks_like_placeholder");
+        bool emailInvalid = !GetBool(extraction, "email_looks_valid", true);
+        bool hasSignature = GetBool(extraction, "has_signature");
+        bool hasStamp = GetBool(extraction, "has_stamp_or_seal");
+        string? doctorName = GetStringOrNull(extraction, "doctor_name");
+        string? clinicName = GetStringOrNull(extraction, "clinic_name");
+        string? dateWritten = GetStringOrNull(extraction, "date_written");
+
+        var watermarks = GetStringList(extraction, "visible_watermark_or_overlay_text");
+        var annotationLabels = GetStringList(extraction, "annotation_error_labels_present");
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 1: Watermark detected → force has_concerns
+        // ─────────────────────────────────────────────────────────────
+        if (watermarks.Count > 0)
+        {
+            foreach (var wm in watermarks)
+                result.Flags.Add($"⚠️ Watermark detected: \"{wm}\"");
+            result.Verdict = "has_concerns";
+            result.Reasoning = "Watermark/overlay text detected on the prescription.";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 2: Annotation error labels → force has_concerns
+        // ─────────────────────────────────────────────────────────────
+        if (annotationLabels.Count > 0)
+        {
+            foreach (var lbl in annotationLabels)
+                result.Flags.Add($"⚠️ Annotation label: \"{lbl}\"");
+            result.Verdict = "has_concerns";
+            result.Reasoning = "Annotation error labels detected — likely a training/tampered document.";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 3: UI chrome → not_a_prescription
+        // ─────────────────────────────────────────────────────────────
+        if (showsUiChrome)
+        {
+            result.Flags.Add("⚠️ UI chrome detected — looks like a screenshot, not a physical document.");
+            result.Verdict = "not_a_prescription";
+            result.Reasoning = "Image appears to be a screenshot of software, not a real prescription.";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 4: Random photo / unrelated document → not_a_prescription
+        // ─────────────────────────────────────────────────────────────
+        if (docCategory == "random_photo" || docCategory == "unrelated_document")
+        {
+            result.Flags.Add($"⚠️ Document type: {docCategory} — not a prescription.");
+            result.Verdict = "not_a_prescription";
+            result.Reasoning = "Document is not a medical prescription.";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 5: Flat vector graphic → has_concerns
+        // ─────────────────────────────────────────────────────────────
+        if (renderingStyle == "flat_vector_graphic")
+        {
+            result.Flags.Add("⚠️ Flat vector graphic — looks like a computer template, not a photographed document.");
+            result.Verdict = "has_concerns";
+            result.Reasoning = "Rendering style suggests a computer graphic, not a physical prescription.";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 6: Fake phone → add flag + bump risk
+        // ─────────────────────────────────────────────────────────────
+        if (phoneFake)
+        {
+            result.Flags.Add("⚠️ Phone number looks like a placeholder (e.g. 555-XXXX).");
+            if (result.Verdict == "looks_valid")
+                result.Verdict = "has_concerns";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 7: Invalid email → add flag
+        // ─────────────────────────────────────────────────────────────
+        if (emailInvalid && !string.IsNullOrWhiteSpace(GetStringOrNull(extraction, "clinic_email")))
+        {
+            result.Flags.Add("⚠️ Email domain looks invalid or garbled.");
+            if (result.Verdict == "looks_valid")
+                result.Verdict = "has_concerns";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 8: Blank paper fake handwriting
+        // (no doctor + no clinic + no signature + no stamp)
+        // ─────────────────────────────────────────────────────────────
+        bool noDoctor = string.IsNullOrWhiteSpace(doctorName);
+        bool noClinic = string.IsNullOrWhiteSpace(clinicName);
+
+        if (noDoctor && noClinic && !hasSignature && !hasStamp)
+        {
+            result.Flags.Add("⚠️ No doctor name, clinic name, signature, or stamp — handwritten on plain paper.");
+            result.Verdict = "has_concerns";
+            result.Reasoning = "Prescription lacks any identifying physician information or authentication marks.";
+        }
+        // Missing doctor name alone (but has signature/stamp) → needs review
+        else if (noDoctor && noClinic && (hasSignature || hasStamp))
+        {
+            result.Flags.Add("ℹ️ No doctor/clinic name visible, but signature/stamp present — manual review recommended.");
+            if (result.Verdict == "looks_valid")
+                result.Verdict = "unclear";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // RULE 9: Old prescription (> 6 months) → unclear
+        // ─────────────────────────────────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(dateWritten)
+            && DateTime.TryParse(dateWritten, out var parsedDate))
+        {
+            var monthsOld = (DateTime.UtcNow - parsedDate).TotalDays / 30.0;
+            if (monthsOld > OldPrescriptionThresholdMonths)
+            {
+                result.Flags.Add(
+                    $"ℹ️ Prescription is {(int)monthsOld} months old (threshold: {OldPrescriptionThresholdMonths} months).");
+                if (result.Verdict == "looks_valid")
+                    result.Verdict = "unclear";
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Missing phone alone is NOT fake — respect the rule
+        // (intentionally no rule for missing phone)
+        // ─────────────────────────────────────────────────────────────
+
+        // Deduplicate flags
+        result.Flags = result.Flags.Distinct().ToList();
+
+        return result;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  ASSEMBLE — build final response
+    // ═══════════════════════════════════════════════════════════════════
+    private AIPpVerificationResponse AssembleFinalResponse(
+        JsonElement extraction,
+        Stage2VerdictResult? stage2,
+        Stage3SafetyResult safety,
+        string requestedTestName,
+        long elapsedMs)
+    {
+        // ─────────────────────────────────────────────────────────────
+        // Extract fields
+        // ─────────────────────────────────────────────────────────────
+        string docCategory = GetString(extraction, "document_category");
+        string docClass = MapCategoryToClass(docCategory);
+        string docDesc = GetString(extraction, "document_type_description");
+
+        var watermarks = GetStringList(extraction, "visible_watermark_or_overlay_text");
+        var annotationLabels = GetStringList(extraction, "annotation_error_labels_present");
+        var drugNames = GetStringList(extraction, "drug_names");
+
+        string? doctorName = GetStringOrNull(extraction, "doctor_name");
+        string? doctorLicense = GetStringOrNull(extraction, "doctor_license_number");
+        string? clinicName = GetStringOrNull(extraction, "clinic_name");
+        string? clinicPhone = GetStringOrNull(extraction, "clinic_phone");
+        string? clinicEmail = GetStringOrNull(extraction, "clinic_email");
+        string? clinicAddress = GetStringOrNull(extraction, "clinic_address");
+        string? patientName = GetStringOrNull(extraction, "patient_name");
+        string? dateWritten = GetStringOrNull(extraction, "date_written");
+
+        bool hasSignature = GetBool(extraction, "has_signature");
+        bool hasStamp = GetBool(extraction, "has_stamp_or_seal");
+
+        string renderingStyle = GetString(extraction, "rendering_style");
+        string renderingReasoning = GetString(extraction, "rendering_reasoning");
+        bool showsUiChrome = GetBool(extraction, "shows_ui_chrome");
+        string uiChromeReasoning = GetString(extraction, "ui_chrome_reasoning");
+
+        bool phoneFake = GetBool(extraction, "phone_looks_like_placeholder");
+        string phoneReasoning = GetString(extraction, "phone_reasoning");
+        bool emailValid = GetBool(extraction, "email_looks_valid", true);
+        string emailReasoning = GetString(extraction, "email_reasoning");
+        bool addressPlausible = GetBool(extraction, "address_looks_plausible", true);
+        string addressReasoning = GetString(extraction, "address_reasoning");
+
+        double confidence = GetDouble(extraction, "extraction_confidence", 0.75);
+
+        // ─────────────────────────────────────────────────────────────
+        // Derive status from verdict
+        // ─────────────────────────────────────────────────────────────
+        string status = safety.Verdict switch
+        {
+            "looks_valid" => "PRE_APPROVED",
+            "has_concerns" => "FLAGGED",
+            "not_a_prescription" => "REJECTED",
+            _ => "FLAGGED"
+        };
+
+        // ─────────────────────────────────────────────────────────────
+        // Derive risk score (0-100)
+        // ─────────────────────────────────────────────────────────────
+        int riskScore = safety.Verdict switch
+        {
+            "looks_valid" => 15,
+            "unclear" => 50,
+            "has_concerns" => 75,
+            "not_a_prescription" => 95,
+            _ => 50
+        };
+        riskScore += Math.Min(safety.Flags.Count * 3, 15);
+        riskScore = Math.Clamp(riskScore, 0, 100);
+
+        string riskLevel = riskScore switch
+        {
+            <= 25 => "LOW",
+            <= 60 => "MEDIUM",
+            _ => "HIGH"
+        };
+
+        // ─────────────────────────────────────────────────────────────
+        // Violation notice (only for REJECTED / high concern)
+        // ─────────────────────────────────────────────────────────────
+        string violationNotice = "";
+        if (safety.Verdict == "not_a_prescription" || safety.Verdict == "has_concerns")
+        {
+            violationNotice =
+                $"We detected that you uploaded an image that may not be a valid medical prescription " +
+                $"for order verification. If this is a mistake, please re-upload a clear photo of your " +
+                $"prescription or contact support at healthbridgeyourpharmacy@gmail.com.";
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Build authenticity signals DTO
+        // ─────────────────────────────────────────────────────────────
+        var authSignals = new AuthenticitySignalsPpDto
+        {
+            PhoneLooksLikePlaceholder = phoneFake,
+            PhoneReasoning = phoneReasoning,
+            EmailLooksValid = emailValid,
+            EmailReasoning = emailReasoning,
+            AddressLooksPlausible = addressPlausible,
+            AddressReasoning = addressReasoning,
+            ShowsUiChrome = showsUiChrome,
+            UiChromeReasoning = uiChromeReasoning,
+            RenderingStyle = renderingStyle,
+            RenderingReasoning = renderingReasoning
+        };
+
+        // ─────────────────────────────────────────────────────────────
+        // Build final response
+        // ─────────────────────────────────────────────────────────────
+        return new AIPpVerificationResponse
+        {
+            // Primary status
+            Status = status,
+            Confidence = confidence,
+
+            // Classification
+            DocumentClassification = docClass,
+            DocumentCategory = docCategory,
+            DocumentTypeDescription = string.IsNullOrWhiteSpace(docDesc)
+                ? docClass.Replace('_', ' ')
+                : docDesc,
+            IsValidMedicalPrescription = safety.Verdict == "looks_valid",
+            IsForgeryOrTrainingSample =
+                watermarks.Count > 0 || annotationLabels.Count > 0,
+
+            // Overlay detection
+            VisibleWatermarkOrOverlayText = watermarks,
+            AnnotationErrorLabelsPresent = annotationLabels,
+
+            // Clinical data
+            ExtractedTests = drugNames,
+            DrugNames = drugNames,
+
+            // Document fields
+            RequestedTest = requestedTestName,
+            MatchFound = false,
+            DoctorName = doctorName,
+            DoctorLicenseNumber = doctorLicense,
+            ClinicName = clinicName,
+            ClinicPhone = clinicPhone,
+            ClinicEmail = clinicEmail,
+            ClinicAddress = clinicAddress,
+            PatientName = patientName,
+            DateWritten = dateWritten,
+            PrescriptionDate = dateWritten,
+            HasSignature = hasSignature,
+            HasStampOrSeal = hasStamp,
+
+            // Authenticity signals
+            AuthenticitySignals = authSignals,
+
+            // AI verdict (advisory)
+            Verdict = safety.Verdict,
+            VerdictReasoning = safety.Reasoning,
+            AiRiskScore = riskScore,
+            AiRiskLevel = riskLevel,
+            SecurityFlags = safety.Flags,
+            AiViolationNotice = violationNotice,
+
+            // Metadata
+            ProcessingStage = "stage3_complete",
+            ProcessingTimeMs = elapsedMs,
+            AiModelUsed = ModelName,
+
+            // Developer-facing
+            Notes = $"AI SUGGESTION [{safety.Verdict}]: {safety.Reasoning}",
+            AuditLog = $"Processed at {DateTime.UtcNow:O} — Verdict: {safety.Verdict}, Risk: {riskScore}/100"
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  SHARED GEMINI CALL HELPER
+    // ═══════════════════════════════════════════════════════════════════
+    private async Task<JsonElement?> CallGeminiAsync(
+        object requestBody,
+        string stage,
+        Stopwatch sw)
+    {
+        var apiKey = _config["Gemini:ApiKey"];
+        var model = _config["Gemini:Model"] ?? ModelName;
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            _logger.LogError("[{Stage}] Gemini API key is missing.", stage);
+            return null;
+        }
+
+        var endpoint = $"{GeminiBaseUrl}/{model}:generateContent?key={apiKey}";
+        var json = JsonSerializer.Serialize(requestBody);
+        var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        string responseBody = "";
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var response = await _httpClient.PostAsync(endpoint, content, cts.Token);
+            responseBody = await response.Content.ReadAsStringAsync(cts.Token);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("[AI Agent] Gemini API error: {Body}", responseBody);
-                return BuildFallbackResponse(requestedTestName, "AI service temporarily unavailable. Manual review required.");
+                _logger.LogError(
+                    "[{Stage}] Gemini API error ({Status}): {Body}",
+                    stage, response.StatusCode, responseBody);
+                return null;
             }
 
-            // Parse Gemini response
             var geminiResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
             var textContent = geminiResponse
                 .GetProperty("candidates")[0]
@@ -116,63 +784,244 @@ Respond ONLY in the following JSON format (no markdown, no extra text):
                 .GetProperty("text")
                 .GetString() ?? "";
 
-            // Parse the structured JSON from Gemini
-            var aiResult = JsonSerializer.Deserialize<JsonElement>(textContent.Trim());
+            var cleaned = CleanJsonText(textContent);
 
-            var matchFound = aiResult.GetProperty("matchFound").GetBoolean();
-            var confidence = aiResult.GetProperty("confidence").GetDouble();
-            var extractedTests = aiResult.GetProperty("extractedTests").EnumerateArray()
-                                         .Select(t => t.GetString() ?? "").ToList();
-            var doctorName = aiResult.TryGetProperty("doctorName", out var doc) ? doc.GetString() : null;
-            var prescriptionDate = aiResult.TryGetProperty("prescriptionDate", out var pd) ? pd.GetString() : null;
-            var notes = aiResult.GetProperty("notes").GetString() ?? "";
-
-            var status = matchFound && confidence >= 0.7 ? "PRE_APPROVED" : "FLAGGED";
-
-            _logger.LogInformation("[AI Agent] Validation complete. Status: {Status}, Confidence: {Confidence}", status, confidence);
-
-            return new AIVerificationResponse
+            if (string.IsNullOrWhiteSpace(cleaned))
             {
-                Status = status,
-                Confidence = confidence,
-                ExtractedTests = extractedTests,
-                RequestedTest = requestedTestName,
-                MatchFound = matchFound,
-                DoctorName = doctorName,
-                PrescriptionDate = prescriptionDate,
-                Notes = notes,
-                AuditLog = $"Processed at {DateTime.UtcNow:O} by PrescriptionValidatorAgent v1.0 using Gemini Vision"
-            };
+                _logger.LogWarning("[{Stage}] Gemini returned empty response.", stage);
+                return null;
+            }
+
+            using var doc = JsonDocument.Parse(cleaned);
+            _logger.LogInformation(
+                "[{Stage}] Completed in {ElapsedMs}ms",
+                stage, sw.ElapsedMilliseconds);
+
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException jex)
+        {
+            var preview = responseBody.Length > 500 ? responseBody.Substring(0, 500) + "..." : responseBody;
+            _logger.LogError(jex, "[{Stage}] JSON parsing exception calling Gemini. Response preview (first 500 chars): {Preview}", stage, preview);
+            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[AI Agent] Unexpected error during prescription validation");
-            return BuildFallbackResponse(requestedTestName, $"AI processing error: {ex.Message}. Manual review required.");
+            var preview = responseBody.Length > 500 ? responseBody.Substring(0, 500) + "..." : responseBody;
+            _logger.LogError(ex, "[{Stage}] Exception calling Gemini. Response preview (first 500 chars): {Preview}", stage, preview);
+            return null;
         }
     }
 
-    private async Task<string> GetBase64ImageAsync(string imageUrl)
+    // ═══════════════════════════════════════════════════════════════════
+    //  HELPERS
+    // ═══════════════════════════════════════════════════════════════════
+    private async Task<string?> GetBase64ImageAsync(string imageUrl)
     {
-        if (imageUrl.StartsWith("data:image"))
+        if (string.IsNullOrWhiteSpace(imageUrl)) return null;
+
+        // Data URI: data:image/jpeg;base64,XXXX
+        if (imageUrl.StartsWith("data:image", StringComparison.OrdinalIgnoreCase))
         {
-            return imageUrl.Substring(imageUrl.IndexOf(",") + 1);
+            var comma = imageUrl.IndexOf(",");
+            return comma >= 0 ? imageUrl.Substring(comma + 1) : null;
         }
 
-        var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
-        return Convert.ToBase64String(bytes);
+        // HTTP / HTTPS URL
+        if (Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            try
+            {
+                var bytes = await _httpClient.GetByteArrayAsync(imageUrl);
+                return Convert.ToBase64String(bytes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[GetBase64ImageAsync] Failed to download: {Url}", imageUrl);
+                return null;
+            }
+        }
+
+        return null;
     }
 
-    private static AIVerificationResponse BuildFallbackResponse(string requestedTestName, string notes)
+    private static string CleanJsonText(string text)
     {
-        return new AIVerificationResponse
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+
+        var trimmed = text.Trim();
+
+        if (trimmed.StartsWith("```json", StringComparison.OrdinalIgnoreCase))
+            trimmed = trimmed.Substring(7);
+        else if (trimmed.StartsWith("```"))
+            trimmed = trimmed.Substring(3);
+
+        if (trimmed.EndsWith("```"))
+            trimmed = trimmed.Substring(0, trimmed.Length - 3);
+
+        trimmed = trimmed.Trim();
+
+        int firstBrace = trimmed.IndexOf('{');
+        if (firstBrace >= 0)
+        {
+            int braceCount = 0;
+            int lastBrace = -1;
+            bool inString = false;
+            bool isEscaped = false;
+
+            for (int i = firstBrace; i < trimmed.Length; i++)
+            {
+                char c = trimmed[i];
+
+                if (isEscaped)
+                {
+                    isEscaped = false;
+                    continue;
+                }
+
+                if (c == '\\')
+                {
+                    isEscaped = true;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (!inString)
+                {
+                    if (c == '{')
+                    {
+                        braceCount++;
+                    }
+                    else if (c == '}')
+                    {
+                        braceCount--;
+                        if (braceCount == 0)
+                        {
+                            lastBrace = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (lastBrace > firstBrace)
+            {
+                return trimmed.Substring(firstBrace, lastBrace - firstBrace + 1);
+            }
+        }
+
+        return trimmed;
+    }
+
+    private static AIPpVerificationResponse BuildFallbackResponse(
+        string requestedTestName,
+        string notes,
+        long elapsedMs)
+    {
+        return new AIPpVerificationResponse
         {
             Status = "FLAGGED",
-            Confidence = 0,
+            Confidence = 0.40,
+            DocumentClassification = "PENDING_INSPECTION",
+            DocumentTypeDescription = "Manual Review Required",
+            IsValidMedicalPrescription = false,
+            IsForgeryOrTrainingSample = false,
             ExtractedTests = new List<string>(),
+            DrugNames = new List<string>(),
             RequestedTest = requestedTestName,
             MatchFound = false,
+            Verdict = "unclear",
+            VerdictReasoning = notes,
+            AiRiskScore = 50,
+            AiRiskLevel = "MEDIUM",
+            SecurityFlags = new List<string> { notes },
             Notes = notes,
-            AuditLog = $"Fallback response generated at {DateTime.UtcNow:O}"
+            ProcessingStage = "fallback",
+            ProcessingTimeMs = elapsedMs,
+            AiModelUsed = ModelName,
+            AuditLog = $"Fallback at {DateTime.UtcNow:O} by PrescriptionValidatorAgent"
         };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  INTERNAL HELPER METHODS
+    // ═══════════════════════════════════════════════════════════════════
+    private static string MapCategoryToClass(string category) => category switch
+    {
+        "handwritten_prescription" => "HANDWRITTEN_PRESCRIPTION",
+        "printed_prescription" => "COMPUTER_PRINTED_PRESCRIPTION",
+        "unrelated_document" => "NON_PRESCRIPTION_DOCUMENT",
+        "random_photo" => "NON_MEDICAL_IMAGE",
+        _ => "UNKNOWN"
+    };
+
+    private static string GetString(JsonElement el, string name)
+    {
+        return el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String
+            ? p.GetString() ?? "" : "";
+    }
+
+    private static string? GetStringOrNull(JsonElement el, string name)
+    {
+        if (el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String)
+        {
+            var s = p.GetString();
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        return null;
+    }
+
+    private static bool GetBool(JsonElement el, string name, bool defaultValue = false)
+    {
+        return el.TryGetProperty(name, out var p)
+            && (p.ValueKind == JsonValueKind.True || p.ValueKind == JsonValueKind.False)
+            ? p.GetBoolean()
+            : defaultValue;
+    }
+
+    private static double GetDouble(JsonElement el, string name, double defaultValue)
+    {
+        return el.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number
+            ? p.GetDouble() : defaultValue;
+    }
+
+    private static List<string> GetStringList(JsonElement el, string name)
+    {
+        var list = new List<string>();
+        if (el.TryGetProperty(name, out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.GetString() is string s && !string.IsNullOrWhiteSpace(s))
+                    list.Add(s);
+            }
+        }
+        return list;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  INTERNAL RESULT CLASSES
+    // ═══════════════════════════════════════════════════════════════════
+    private class Stage2VerdictResult
+    {
+        public string Verdict { get; set; } = "unclear";
+        public string Reasoning { get; set; } = "";
+        public double Confidence { get; set; } = 0.5;
+        public List<string> Concerns { get; set; } = new();
+    }
+
+    private class Stage3SafetyResult
+    {
+        public string Verdict { get; set; } = "unclear";
+        public string Reasoning { get; set; } = "";
+        public double Confidence { get; set; } = 0.5;
+        public List<string> Flags { get; set; } = new();
     }
 }

@@ -20,6 +20,22 @@ class MedicineModel {
   final String? storageCondition;
   final String? additionalImagesJson;
 
+  final String sellingUnit;
+  final int? bottleSize;
+  final int? volumeMl;
+  final int? tubeWeight;
+  final int? sachetsPerBox;
+  final int? vialsPerBox;
+  final int? puffsPerInhaler;
+  final double? pricePerBottle;
+  final double? pricePerTube;
+  final double? pricePerSachet;
+  final double? pricePerVial;
+  final double? boxPrice;
+  final double? pricePerInhaler;
+  final String? unitName;
+  final double? pricePerUnit;
+
   MedicineModel({
     required this.id,
     required this.name,
@@ -36,6 +52,21 @@ class MedicineModel {
     this.imageUrl,
     this.storageCondition,
     this.additionalImagesJson,
+    this.sellingUnit = 'PILLS',
+    this.bottleSize,
+    this.volumeMl,
+    this.tubeWeight,
+    this.sachetsPerBox,
+    this.vialsPerBox,
+    this.puffsPerInhaler,
+    this.pricePerBottle,
+    this.pricePerTube,
+    this.pricePerSachet,
+    this.pricePerVial,
+    this.boxPrice,
+    this.pricePerInhaler,
+    this.unitName,
+    this.pricePerUnit,
   }) : cardPrice = cardPrice ?? (price * (pillsPerCard > 0 ? pillsPerCard : 10));
 
   List<String> get galleryImages {
@@ -81,6 +112,9 @@ class MedicineModel {
         ? (json['cardPrice'] as num).toDouble()
         : (uPrice * pills);
 
+    double? parseD(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '');
+    int? parseI(dynamic v) => v is int ? v : int.tryParse(v?.toString() ?? '');
+
     return MedicineModel(
       id: json['id'] is int ? json['id'] : int.tryParse(json['id']?.toString() ?? '0') ?? 0,
       name: json['name']?.toString() ?? 'Unknown Medicine',
@@ -91,12 +125,27 @@ class MedicineModel {
       price: uPrice,
       pillsPerCard: pills,
       cardPrice: cPrice,
-      stockQuantity: json['stockQuantity'] is int ? json['stockQuantity'] : int.tryParse(json['stockQuantity']?.toString() ?? '0') ?? 0,
+      stockQuantity: parseI(json['stockQuantity'] ?? json['StockQuantity'] ?? json['quantity'] ?? json['Quantity']) ?? 0,
       requiresPrescription: json['requiresPrescription'] == true || json['requiresPrescription']?.toString().toLowerCase() == 'true',
       expiryDate: json['expiryDate'] != null ? DateTime.tryParse(json['expiryDate'].toString()) : null,
       imageUrl: json['imageUrl']?.toString(),
       storageCondition: json['storageCondition']?.toString() ?? json['StorageCondition']?.toString(),
       additionalImagesJson: json['additionalImagesJson']?.toString() ?? json['AdditionalImagesJson']?.toString(),
+      sellingUnit: json['sellingUnit']?.toString() ?? json['SellingUnit']?.toString() ?? 'PILLS',
+      bottleSize: parseI(json['bottleSize'] ?? json['BottleSize']),
+      volumeMl: parseI(json['volumeMl'] ?? json['VolumeMl']),
+      tubeWeight: parseI(json['tubeWeight'] ?? json['TubeWeight']),
+      sachetsPerBox: parseI(json['sachetsPerBox'] ?? json['SachetsPerBox']),
+      vialsPerBox: parseI(json['vialsPerBox'] ?? json['VialsPerBox']),
+      puffsPerInhaler: parseI(json['puffsPerInhaler'] ?? json['PuffsPerInhaler']),
+      pricePerBottle: parseD(json['pricePerBottle'] ?? json['PricePerBottle']),
+      pricePerTube: parseD(json['pricePerTube'] ?? json['PricePerTube']),
+      pricePerSachet: parseD(json['pricePerSachet'] ?? json['PricePerSachet']),
+      pricePerVial: parseD(json['pricePerVial'] ?? json['PricePerVial']),
+      boxPrice: parseD(json['boxPrice'] ?? json['BoxPrice']),
+      pricePerInhaler: parseD(json['pricePerInhaler'] ?? json['PricePerInhaler']),
+      unitName: json['unitName']?.toString() ?? json['UnitName']?.toString(),
+      pricePerUnit: parseD(json['pricePerUnit'] ?? json['PricePerUnit']),
     );
   }
 }
@@ -369,6 +418,31 @@ class PharmacyService {
     return [];
   }
 
+  /// Check if user is blocked from pharmacy services
+  static Future<bool> isUserBlocked(String email) async {
+    if (email.isEmpty) return false;
+    final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
+    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
+
+    for (final host in hosts) {
+      try {
+        final response = await http
+            .get(Uri.parse('$host/api/PharmacyOrders/check-blocked/${Uri.encodeComponent(email)}'))
+            .timeout(const Duration(seconds: 3));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data is Map && data['isPharmacyBlocked'] == true) {
+            return true;
+          }
+        }
+      } catch (e) {
+        print('Check blocked status error on $host: $e');
+      }
+    }
+    return false;
+  }
+
   /// Submit a prescription to backend database API
   static Future<PrescriptionSubmission> submitPrescription({
     required String patientName,
@@ -462,6 +536,9 @@ class PharmacyService {
           final resObj = jsonDecode(response.body) as Map<String, dynamic>;
           _localOrders.insert(0, PharmacyOrderModel.fromJson(resObj));
           return resObj;
+        } else {
+          final errBody = jsonDecode(response.body);
+          throw Exception(errBody['message'] ?? 'Failed to place order.');
         }
       } catch (e) {
         print('Place order error on $host: $e');
@@ -498,22 +575,18 @@ class PharmacyService {
   static Future<List<PharmacyOrderModel>> getPatientOrders(String email) async {
     List<PharmacyOrderModel> remoteOrders = [];
     final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
-    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
 
-    for (final host in hosts) {
-      try {
-        final response = await http
-            .get(Uri.parse('$host/api/PharmacyOrders'))
-            .timeout(const Duration(seconds: 5));
+    try {
+      final response = await http
+          .get(Uri.parse('$activeBaseUrl/PharmacyOrders'))
+          .timeout(const Duration(seconds: 3));
 
-        if (response.statusCode == 200) {
-          final List<dynamic> data = jsonDecode(response.body);
-          remoteOrders = data.map((item) => PharmacyOrderModel.fromJson(item)).toList();
-          break;
-        }
-      } catch (e) {
-        print('Fetch patient orders error on $host: $e');
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        remoteOrders = data.map((item) => PharmacyOrderModel.fromJson(item)).toList();
       }
+    } catch (e) {
+      print('Fetch patient orders error: $e');
     }
 
     final normalizedEmail = email.trim().toLowerCase();

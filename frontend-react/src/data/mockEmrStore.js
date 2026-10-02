@@ -5,6 +5,51 @@ const INITIAL_PATIENTS = [];
 const INITIAL_CONSULTATIONS = [];
 const INITIAL_LAB_REPORTS = [];
 const INITIAL_PRESCRIPTIONS = [];
+const INITIAL_STAFF_NOTIFICATIONS = [
+  {
+    id: 'req-lab-1',
+    type: 'Lab Report',
+    role: 'Laboratorian',
+    requesterName: 'LAB-01 (Lab Staff)',
+    targetId: 'LAB-01',
+    targetTitle: 'Full Blood Count (FBC)',
+    patientId: 'PAT-1004',
+    patientName: 'samith udayanga',
+    actionRequested: 'Edit / Delete Permission',
+    reason: 'Correction required for platelet count entry.',
+    timestamp: new Date(Date.now() - 3600000).toLocaleString(),
+    status: 'Pending'
+  },
+  {
+    id: 'req-pharm-1',
+    type: 'Prescription',
+    role: 'Pharmacist',
+    requesterName: 'Lead Pharmacist (PHARM-01)',
+    targetId: 'RX-01',
+    targetTitle: 'Metformin 500mg',
+    patientId: 'PAT-1004',
+    patientName: 'samith udayanga',
+    actionRequested: 'Delete Permission',
+    reason: 'Discontinued medication by attending physician.',
+    timestamp: new Date(Date.now() - 7200000).toLocaleString(),
+    status: 'Pending'
+  },
+  {
+    id: 'req-doc-1',
+    type: 'Consultation Note',
+    role: 'Doctor',
+    requesterName: 'Dr. Sarah Jenkins (DOC-01)',
+    targetId: 'CN-01',
+    targetTitle: 'Hypertension Clinical Assessment',
+    patientId: 'PAT-1004',
+    patientName: 'samith udayanga',
+    actionRequested: 'Edit Permission',
+    reason: 'Update notes with latest blood pressure monitoring results.',
+    timestamp: new Date(Date.now() - 14400000).toLocaleString(),
+    status: 'Completed',
+    completedAt: new Date(Date.now() - 3600000).toLocaleString()
+  }
+];
 
 class EmrStore {
   constructor() {
@@ -29,6 +74,7 @@ class EmrStore {
     this.consultations = JSON.parse(localStorage.getItem('emr_consultations')) || INITIAL_CONSULTATIONS;
     this.labReports = JSON.parse(localStorage.getItem('emr_labReports')) || INITIAL_LAB_REPORTS;
     this.prescriptions = JSON.parse(localStorage.getItem('emr_prescriptions')) || INITIAL_PRESCRIPTIONS;
+    this.staffNotifications = JSON.parse(localStorage.getItem('emr_staff_notifications')) || INITIAL_STAFF_NOTIFICATIONS;
   }
 
   saveData() {
@@ -50,6 +96,9 @@ class EmrStore {
     try {
       localStorage.setItem('emr_prescriptions', JSON.stringify(this.prescriptions));
     } catch (e) { console.warn('[EmrStore] localStorage prescriptions full:', e.name); }
+    try {
+      localStorage.setItem('emr_staff_notifications', JSON.stringify(this.staffNotifications || []));
+    } catch (e) { console.warn('[EmrStore] localStorage staffNotifications full:', e.name); }
     this.notify();
   }
 
@@ -151,7 +200,13 @@ class EmrStore {
           startDate: p.startDate ? p.startDate.split('T')[0] : '',
           endDate: p.endDate ? p.endDate.split('T')[0] : '',
           prescribedDoctor: p.prescribedDoctor,
-          status: p.status
+          status: p.status,
+          hasAuthorizationRequest: Boolean(p.hasAuthorizationRequest),
+          authorizationType: p.authorizationType || null,
+          authorizationReason: p.authorizationReason || null,
+          authorizationRequestedBy: p.authorizationRequestedBy || null,
+          authorizationRequestedAt: p.authorizationRequestedAt || null,
+          authorizationStatus: p.authorizationStatus || null
         }));
       }
 
@@ -386,6 +441,110 @@ class EmrStore {
     } catch (e) {
       console.warn('[EmrStore] Error deleting prescription from API:', e);
     }
+  }
+
+  async requestPrescriptionAuthorization(id, { requestType = 'Delete', reason = '', requestedBy = 'Pharmacist' }) {
+    this.prescriptions = this.prescriptions.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          hasAuthorizationRequest: true,
+          authorizationType: requestType,
+          authorizationReason: reason,
+          authorizationRequestedBy: requestedBy,
+          authorizationRequestedAt: new Date().toISOString(),
+          authorizationStatus: 'Pending'
+        };
+      }
+      return p;
+    });
+    this.saveData();
+
+    try {
+      await emrApi.requestPrescriptionAuthorization(id, { requestType, reason, requestedBy });
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error requesting authorization from API:', e);
+    }
+  }
+
+  async approveAndDeletePrescription(id, adminNote = '') {
+    this.prescriptions = this.prescriptions.filter(p => p.id !== id);
+    this.saveData();
+
+    try {
+      await emrApi.approveAndDeletePrescription(id, adminNote);
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error approving delete prescription in API:', e);
+    }
+  }
+
+  async rejectPrescriptionAuthorization(id, adminNote = '') {
+    this.prescriptions = this.prescriptions.map(p => {
+      if (p.id === id) {
+        return {
+          ...p,
+          hasAuthorizationRequest: false,
+          authorizationStatus: 'Rejected'
+        };
+      }
+      return p;
+    });
+    this.saveData();
+
+    try {
+      await emrApi.rejectPrescriptionAuthorization(id, adminNote);
+      await this.syncFromBackend();
+    } catch (e) {
+      console.warn('[EmrStore] Error rejecting prescription authorization in API:', e);
+    }
+  }
+
+  // ── Staff Permission Notifications Management ──────────────────────────────
+  getStaffNotifications() {
+    return this.staffNotifications || [];
+  }
+
+  addStaffNotification(notification) {
+    const newNotif = {
+      id: `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      status: 'Pending',
+      timestamp: new Date().toLocaleString(),
+      ...notification
+    };
+    this.staffNotifications = [newNotif, ...(this.staffNotifications || [])];
+    try {
+      localStorage.setItem('emr_staff_notifications', JSON.stringify(this.staffNotifications));
+    } catch (e) { console.warn('[EmrStore] Error saving staff notification:', e); }
+    this.notify();
+    return newNotif;
+  }
+
+  markStaffNotificationCompleted(id, note = '') {
+    this.staffNotifications = (this.staffNotifications || []).map(n => {
+      if (n.id === id) {
+        return {
+          ...n,
+          status: 'Completed',
+          completedAt: new Date().toLocaleString(),
+          resolutionNote: note || 'Resolved by Super Admin'
+        };
+      }
+      return n;
+    });
+    try {
+      localStorage.setItem('emr_staff_notifications', JSON.stringify(this.staffNotifications));
+    } catch (e) { console.warn('[EmrStore] Error updating staff notification:', e); }
+    this.notify();
+  }
+
+  clearCompletedStaffNotifications() {
+    this.staffNotifications = (this.staffNotifications || []).filter(n => n.status !== 'Completed');
+    try {
+      localStorage.setItem('emr_staff_notifications', JSON.stringify(this.staffNotifications));
+    } catch (e) { console.warn('[EmrStore] Error clearing completed staff notifications:', e); }
+    this.notify();
   }
 }
 

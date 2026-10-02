@@ -128,7 +128,6 @@ public class DoctorSessionQueueDto
     public string? DelayReason { get; set; }
     public List<AppointmentDto> Queue { get; set; } = new();
 }
-
 public class AppointmentDto
 {
     public int Id { get; set; }
@@ -165,7 +164,7 @@ public class AppointmentDto
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public string QrCodeText { get; set; } = string.Empty;
-    public string? DisplaySummary { get; set; }
+    public string DisplaySummary { get; set; } = string.Empty;
 }
 
 public class DoctorStatsDto

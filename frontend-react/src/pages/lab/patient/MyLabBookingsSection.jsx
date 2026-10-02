@@ -168,18 +168,9 @@ export default function MyLabBookingsSection({
       // Tab filter
       let matchTab = true;
       if (activeTab === 'ACTIVE') {
-        matchTab = [
-          'PendingLabApproval', 
-          'PendingPrescriptionUpload', 
-          'PendingAIVerification', 
-          'PendingPayment',
-          'Confirmed', 
-          'SampleCollected', 
-          'TestingInProgress', 
-          'ResultVerification'
-        ].includes(status);
+        matchTab = !['Completed', 'Cancelled', 'Rejected'].includes(status);
       } else if (activeTab === 'RESULTS') {
-        matchTab = ['ResultsReady', 'ReportDelivered', 'Completed'].includes(status) || Boolean(b.resultFileUrl);
+        matchTab = ['ReportDelivered', 'Completed'].includes(status) && Boolean(b.resultFileUrl);
       } else if (activeTab === 'HISTORY') {
         matchTab = ['Completed', 'Cancelled', 'Rejected'].includes(status);
       } else if (activeTab === 'ALL') {
@@ -264,10 +255,10 @@ export default function MyLabBookingsSection({
 
   const counts = useMemo(() => {
     const active = bookings.filter(b => 
-      ['PendingLabApproval', 'PendingPrescriptionUpload', 'PendingAIVerification', 'PendingPayment', 'Confirmed', 'SampleCollected', 'TestingInProgress', 'ResultVerification'].includes(b.status)
+      !['Completed', 'Cancelled', 'Rejected'].includes(b.status)
     ).length;
     const results = bookings.filter(b => 
-      ['ResultsReady', 'ReportDelivered', 'Completed'].includes(b.status) || Boolean(b.resultFileUrl)
+      ['ReportDelivered', 'Completed'].includes(b.status) && Boolean(b.resultFileUrl)
     ).length;
     const history = bookings.filter(b => 
       ['Completed', 'Cancelled', 'Rejected'].includes(b.status)
@@ -720,7 +711,7 @@ export default function MyLabBookingsSection({
 
                     {/* Download Report Buttons */}
                     {siblingBookings.map(sb => {
-                      const hasReport = Boolean(sb.resultFileUrl) || ['ResultsReady', 'ReportDelivered', 'Completed'].includes(sb.status);
+                      const hasReport = Boolean(sb.resultFileUrl) && ['ReportDelivered', 'Completed'].includes(sb.status);
                       if (!hasReport) return null;
                       return (
                         <button

@@ -67,6 +67,21 @@ public class MedicineService : IMedicineService
             PillsPerCard = request.PillsPerCard > 0 ? request.PillsPerCard : 10,
             CardPrice = request.CardPrice > 0 ? request.CardPrice : (request.Price * (request.PillsPerCard > 0 ? request.PillsPerCard : 10)),
             AdditionalImagesJson = request.AdditionalImagesJson?.Trim(),
+            SellingUnit = request.SellingUnit ?? "PILLS",
+            BottleSize = request.BottleSize,
+            VolumeMl = request.VolumeMl,
+            TubeWeight = request.TubeWeight,
+            SachetsPerBox = request.SachetsPerBox,
+            VialsPerBox = request.VialsPerBox,
+            PuffsPerInhaler = request.PuffsPerInhaler,
+            PricePerBottle = request.PricePerBottle,
+            PricePerTube = request.PricePerTube,
+            PricePerSachet = request.PricePerSachet,
+            PricePerVial = request.PricePerVial,
+            BoxPrice = request.BoxPrice,
+            PricePerInhaler = request.PricePerInhaler,
+            UnitName = request.UnitName,
+            PricePerUnit = request.PricePerUnit,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -117,10 +132,55 @@ public class MedicineService : IMedicineService
         medicine.PillsPerCard = request.PillsPerCard > 0 ? request.PillsPerCard : medicine.PillsPerCard;
         medicine.CardPrice = request.CardPrice > 0 ? request.CardPrice : medicine.CardPrice;
         medicine.AdditionalImagesJson = request.AdditionalImagesJson?.Trim() ?? medicine.AdditionalImagesJson;
+        medicine.SellingUnit = request.SellingUnit ?? medicine.SellingUnit;
+        medicine.BottleSize = request.BottleSize ?? medicine.BottleSize;
+        medicine.VolumeMl = request.VolumeMl ?? medicine.VolumeMl;
+        medicine.TubeWeight = request.TubeWeight ?? medicine.TubeWeight;
+        medicine.SachetsPerBox = request.SachetsPerBox ?? medicine.SachetsPerBox;
+        medicine.VialsPerBox = request.VialsPerBox ?? medicine.VialsPerBox;
+        medicine.PuffsPerInhaler = request.PuffsPerInhaler ?? medicine.PuffsPerInhaler;
+        medicine.PricePerBottle = request.PricePerBottle ?? medicine.PricePerBottle;
+        medicine.PricePerTube = request.PricePerTube ?? medicine.PricePerTube;
+        medicine.PricePerSachet = request.PricePerSachet ?? medicine.PricePerSachet;
+        medicine.PricePerVial = request.PricePerVial ?? medicine.PricePerVial;
+        medicine.BoxPrice = request.BoxPrice ?? medicine.BoxPrice;
+        medicine.PricePerInhaler = request.PricePerInhaler ?? medicine.PricePerInhaler;
+        medicine.UnitName = request.UnitName ?? medicine.UnitName;
+        medicine.PricePerUnit = request.PricePerUnit ?? medicine.PricePerUnit;
         medicine.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
+        return MapToMedicineResponse(medicine);
+    }
+
+    public async Task<MedicineResponse?> RestockMedicineAsync(int id, int additionalQuantity)
+    {
+        var medicine = await _context.Medicines
+            .Include(m => m.Category)
+            .FirstOrDefaultAsync(m => m.Id == id);
+
+        if (medicine == null) return null;
+
+        medicine.StockQuantity = Math.Max(0, medicine.StockQuantity + additionalQuantity);
+        medicine.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return MapToMedicineResponse(medicine);
+    }
+
+    public async Task<MedicineResponse?> SetStockQuantityAsync(int id, int newQuantity)
+    {
+        var medicine = await _context.Medicines
+            .Include(m => m.Category)
+            .FirstOrDefaultAsync(m => m.Id == id);
+
+        if (medicine == null) return null;
+
+        medicine.StockQuantity = Math.Max(0, newQuantity);
+        medicine.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
         return MapToMedicineResponse(medicine);
     }
 
@@ -153,6 +213,21 @@ public class MedicineService : IMedicineService
             PillsPerCard = medicine.PillsPerCard > 0 ? medicine.PillsPerCard : 10,
             CardPrice = medicine.CardPrice > 0 ? medicine.CardPrice : (medicine.Price * (medicine.PillsPerCard > 0 ? medicine.PillsPerCard : 10)),
             AdditionalImagesJson = medicine.AdditionalImagesJson,
+            SellingUnit = medicine.SellingUnit ?? "PILLS",
+            BottleSize = medicine.BottleSize,
+            VolumeMl = medicine.VolumeMl,
+            TubeWeight = medicine.TubeWeight,
+            SachetsPerBox = medicine.SachetsPerBox,
+            VialsPerBox = medicine.VialsPerBox,
+            PuffsPerInhaler = medicine.PuffsPerInhaler,
+            PricePerBottle = medicine.PricePerBottle,
+            PricePerTube = medicine.PricePerTube,
+            PricePerSachet = medicine.PricePerSachet,
+            PricePerVial = medicine.PricePerVial,
+            BoxPrice = medicine.BoxPrice,
+            PricePerInhaler = medicine.PricePerInhaler,
+            UnitName = medicine.UnitName,
+            PricePerUnit = medicine.PricePerUnit,
             CreatedAt = medicine.CreatedAt,
             UpdatedAt = medicine.UpdatedAt
         };

@@ -20,11 +20,12 @@ if (!string.IsNullOrEmpty(port))
 }
 
 // 1. Configure Database (PostgreSQL EF Core)
-// Supports local DefaultConnection as well as Railway DATABASE_URL / DATABASE_PUBLIC_URL
+// Supports Railway DATABASE_URL / DATABASE_PUBLIC_URL as well as local DefaultConnection
 var rawConnectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_PUBLIC_URL")
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' or 'DATABASE_URL' not found.");
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' or 'DATABASE_URL' not found. In Railway, ensure DATABASE_URL is set in Variables.");
 
 var connectionString = ProgramHelper.ParsePostgreSqlConnectionString(rawConnectionString);
 
@@ -40,8 +41,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // 2. Configure JWT Settings & Authentication
 var jwtSettingsSection = builder.Configuration.GetSection(JwtSettings.SectionName);
 builder.Services.Configure<JwtSettings>(jwtSettingsSection);
-var jwtSettings = jwtSettingsSection.Get<JwtSettings>()
-    ?? throw new InvalidOperationException("JwtSettings section is missing in configuration.");
+var jwtSettings = jwtSettingsSection.Get<JwtSettings>() ?? new JwtSettings
+{
+    Secret = Environment.GetEnvironmentVariable("JwtSettings__Secret") ?? "SuperSecretHealthBridgeJwtKey_MustBeAtLeast32BytesLongForHmacSha256Security!",
+    Issuer = Environment.GetEnvironmentVariable("JwtSettings__Issuer") ?? "HealthBridgeApi",
+    Audience = Environment.GetEnvironmentVariable("JwtSettings__Audience") ?? "HealthBridgeClients",
+    ExpiryInMinutes = 1440
+};
 
 if (jwtSettings.Secret.Length < 32)
 {
@@ -99,17 +105,28 @@ builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
+// ✅ Register Vision AI Agents — PrescriptionValidatorAgent MUST be registered BEFORE PrescriptionSafetyAgent
+// so it is correctly injected into PrescriptionSafetyAgent's constructor (not resolved as null)
+builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionValidatorAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.QwenVisionAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.InventoryForecastingAgent>();
+builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("GeminiClient");
 
 // ✅ Register EMR Service
 builder.Services.AddScoped<HealthBridge.Api.Services.EMR.IEMRService, HealthBridge.Api.Services.EMR.EMRService>();
 
+// ✅ Register Patient Analytics Service
+builder.Services.AddScoped<IPatientAnalyticsService, PatientAnalyticsService>();
+
 // ✅ Register Lab Management Multi-Agent System (2 Distinct Agents + Orchestrator)
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.PrescriptionVerificationAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.LabQueueAndSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Lab.LabAgentOrchestrator>();
+
+// ✅ Register EMR Agentic AI — Clinical Insight Agent (uses Gemini API for medical analysis)
+builder.Services.AddScoped<HealthBridge.Api.Agents.EMR.EMRClinicalInsightAgent>();
 
 // 5. Add Controllers and DISABLE Antiforgery
 builder.Services.AddControllers(options =>

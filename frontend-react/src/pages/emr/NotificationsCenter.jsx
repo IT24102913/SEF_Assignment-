@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
-  Bell, CheckCircle2, AlertCircle, Clock, Shield, ArrowRight, CheckCheck, Filter
+  Bell, CheckCircle2, AlertCircle, Clock, Shield, ArrowRight, CheckCheck, Filter, Trash2, X
 } from 'lucide-react';
 import { emrApi } from '../../api/emrApi';
 
@@ -18,12 +18,15 @@ export default function NotificationsCenter() {
     fetchLiveNotifications();
   }, []);
 
+  const getDismissedNotifKey = () => `emr_dismissed_notifs_${storedUser.id || storedUser.email || 'guest'}`;
+
   const fetchLiveNotifications = async () => {
     setLoading(true);
     try {
       const data = await emrApi.getMyNotifications();
+      const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
       if (Array.isArray(data)) {
-        setNotifications(data);
+        setNotifications(data.filter(n => !dismissed.includes(n.id)));
       } else {
         setNotifications([]);
       }
@@ -40,6 +43,24 @@ export default function NotificationsCenter() {
 
   const handleMarkAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+  };
+
+  const handleDismiss = (id) => {
+    const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
+    if (!dismissed.includes(id)) {
+      dismissed.push(id);
+      localStorage.setItem(getDismissedNotifKey(), JSON.stringify(dismissed));
+    }
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const handleClearAll = () => {
+    const dismissed = JSON.parse(localStorage.getItem(getDismissedNotifKey()) || '[]');
+    notifications.forEach(n => {
+      if (!dismissed.includes(n.id)) dismissed.push(n.id);
+    });
+    localStorage.setItem(getDismissedNotifKey(), JSON.stringify(dismissed));
+    setNotifications([]);
   };
 
   const filtered = notifications.filter(n => {
@@ -89,28 +110,54 @@ export default function NotificationsCenter() {
           </p>
         </div>
 
-        {unreadCount > 0 && (
-          <button
-            onClick={handleMarkAllRead}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              backgroundColor: '#ffffff',
-              border: '1.5px solid #cbd5e1',
-              borderRadius: '10px',
-              padding: '8px 16px',
-              color: '#334155',
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-            }}
-          >
-            <CheckCheck size={16} color="#095e51" />
-            Mark All as Read ({unreadCount})
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: '#ffffff',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: '10px',
+                padding: '8px 16px',
+                color: '#334155',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              <CheckCheck size={16} color="#095e51" />
+              Mark All as Read ({unreadCount})
+            </button>
+          )}
+
+          {notifications.length > 0 && (
+            <button
+              onClick={handleClearAll}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: '#fee2e2',
+                border: '1.5px solid #fca5a5',
+                borderRadius: '10px',
+                padding: '8px 16px',
+                color: '#b91c1c',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              title="Remove all notifications"
+            >
+              <Trash2 size={16} />
+              Clear All ({notifications.length})
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter Tabs */}
@@ -190,10 +237,10 @@ export default function NotificationsCenter() {
                 key={n.id}
                 style={{
                   backgroundColor: '#ffffff',
-                  border: isUnread ? '1.5px solid #cce8e3' : '1px solid #e2e8f0',
+                  border: isUnread ? '2px solid #0d7c6b' : '1.5px solid #cbd5e1',
                   borderRadius: '14px',
                   padding: '18px 22px',
-                  boxShadow: isUnread ? '0 3px 12px -2px rgba(9,94,81,0.06)' : '0 1px 4px rgba(0,0,0,0.02)',
+                  boxShadow: isUnread ? '0 4px 16px -2px rgba(9,94,81,0.12)' : '0 4px 14px -2px rgba(15,23,42,0.06)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',
@@ -277,29 +324,49 @@ export default function NotificationsCenter() {
                   </div>
                 </div>
 
-                {/* Right Action: Mark Read */}
-                {isUnread && (
+                {/* Right Actions: Mark Read & Remove */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                  {isUnread && (
+                    <button
+                      onClick={() => handleMarkRead(n.id)}
+                      title="Mark as read"
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#94a3b8',
+                        cursor: 'pointer',
+                        padding: '6px',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        transition: 'color 0.2s',
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#095e51'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
+                    >
+                      <CheckCircle2 size={18} />
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleMarkRead(n.id)}
-                    title="Mark as read"
+                    onClick={() => handleDismiss(n.id)}
+                    title="Remove notification"
                     style={{
                       background: 'transparent',
                       border: 'none',
                       color: '#94a3b8',
                       cursor: 'pointer',
-                      padding: '4px',
+                      padding: '6px',
                       borderRadius: '6px',
                       display: 'flex',
                       alignItems: 'center',
                       transition: 'color 0.2s',
-                      flexShrink: 0
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#095e51'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#dc2626'}
                     onMouseLeave={(e) => e.currentTarget.style.color = '#94a3b8'}
                   >
-                    <CheckCircle2 size={18} />
+                    <Trash2 size={17} />
                   </button>
-                )}
+                </div>
               </div>
             );
           })}

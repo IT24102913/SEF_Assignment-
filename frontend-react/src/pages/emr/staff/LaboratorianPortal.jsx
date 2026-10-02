@@ -15,6 +15,7 @@ import {
   X,
   Plus,
   ShieldCheck,
+  ShieldAlert,
   Download,
   Clock
 } from 'lucide-react';
@@ -113,7 +114,7 @@ export default function LaboratorianPortal({ staffSession }) {
     setSaving(true);
     try {
       const staffIdentifier = `${staffSession?.staffId || user?.fullName || 'LAB-202'} (Lab Staff)`;
-      const defaultSummary = resultsSummary.trim() || 'Diagnostic evaluation conducted under standardized laboratory protocols. Parameters within acceptable clinical variance.';
+      const defaultSummary = resultsSummary.trim();
 
       if (attachedFiles.length > 0) {
         // Upload each attached file as a report record
@@ -177,12 +178,26 @@ export default function LaboratorianPortal({ staffSession }) {
     }
   };
 
-  const handleRequestPermission = () => {
-    toast('Edit/Delete restricted for Lab Staff. Request sent to Super Admin.', {
+  const handleRequestPermission = (report = null) => {
+    const targetText = report?.testTitle ? ` for "${report.testTitle}"` : '';
+
+    emrStore.addStaffNotification({
+      type: 'Lab Report',
+      role: 'Laboratorian',
+      requesterName: staffSession?.staffId || user?.fullName || 'LAB-01 (Lab Staff)',
+      targetId: report?.id || 'LAB-GEN',
+      targetTitle: report?.testTitle || 'General Lab Report',
+      patientId: report?.patientId || selectedPatient?.id || 'PAT-1004',
+      patientName: report?.patientName || selectedPatient?.name || 'Patient',
+      actionRequested: 'Edit / Delete Permission',
+      reason: report?.fileName ? `Permission requested for file: ${report.fileName}` : 'Laboratorian requested administrative clearance to update or delete report.',
+    });
+
+    toast(`Edit/Delete restricted for Lab Staff. Request sent to Super Admin${targetText}.`, {
       icon: '🛡️',
       style: {
         borderRadius: '10px',
-        background: '#334155',
+        background: '#1e293b',
         color: '#fff',
       }
     });
@@ -834,6 +849,28 @@ export default function LaboratorianPortal({ staffSession }) {
                   >
                     <Download size={15} /> Download
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRequestPermission(report)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 14px',
+                      backgroundColor: '#fff7ed',
+                      border: '1.5px solid #fed7aa',
+                      borderRadius: '8px',
+                      color: '#ea580c',
+                      fontWeight: 700,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s'
+                    }}
+                    title="Request administrative permission to edit or delete this report"
+                  >
+                    <ShieldAlert size={15} /> Request Edit / Delete Permission
+                  </button>
                 </div>
               </div>
             ))}
@@ -988,6 +1025,28 @@ export default function LaboratorianPortal({ staffSession }) {
                           title="Download document"
                         >
                           <Download size={15} /> Download
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRequestPermission(report)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '8px 14px',
+                            backgroundColor: '#fff7ed',
+                            border: '1.5px solid #fed7aa',
+                            borderRadius: '8px',
+                            color: '#ea580c',
+                            fontWeight: 700,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            transition: 'background 0.2s'
+                          }}
+                          title="Request administrative permission to edit or delete this report"
+                        >
+                          <ShieldAlert size={15} /> Request Edit / Delete Permission
                         </button>
                       </div>
                     </div>

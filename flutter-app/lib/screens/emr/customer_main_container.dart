@@ -9,6 +9,7 @@ import 'customer_pharmacy_screen.dart';
 import '../../screens/doctor/doctor_search_screen.dart';
 import '../../screens/lab/lab_hub_screen.dart';
 import 'emr_patient_screen.dart';
+import 'ai_clinical_advisor_screen.dart';
 import '../../my_pharmacy_orders_page.dart';
 
 import '../../widgets/draggable_floating_support_buttons.dart';
@@ -27,6 +28,7 @@ class CustomerMainContainer extends StatefulWidget {
 
 class _CustomerMainContainerState extends State<CustomerMainContainer> {
   late int _currentIndex;
+  final Set<String> _dismissedNotificationIds = {};
 
   @override
   void initState() {
@@ -109,13 +111,15 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      // ─── HEALTH BRIDGE WEB STYLED APP BAR (Screenshot 2) ────────────────
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 1,
-        foregroundColor: const Color(0xFF0F172A),
-        shadowColor: Colors.black.withValues(alpha: 0.05),
-        titleSpacing: 0,
+      // ─── HEALTH BRIDGE WEB STYLED APP BAR (Hidden on EMR screen to avoid double AppBar) ──
+      appBar: _currentIndex == 1
+          ? null
+          : AppBar(
+              backgroundColor: Colors.white,
+              elevation: 1,
+              foregroundColor: const Color(0xFF0F172A),
+              shadowColor: Colors.black.withValues(alpha: 0.05),
+              titleSpacing: 0,
         title: Row(
           children: [
             // Logo Image / Container
@@ -170,18 +174,19 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
                 icon: const Icon(Icons.notifications_none, color: Color(0xFF475569)),
                 onPressed: () => _showNotificationsBottomSheet(context),
               ),
-              Positioned(
-                right: 12,
-                top: 14,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF0D9488),
-                    shape: BoxShape.circle,
+              if (_dismissedNotificationIds.length < 2)
+                Positioned(
+                  right: 12,
+                  top: 14,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0D9488),
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
 
@@ -336,6 +341,16 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const MyPharmacyOrdersPage()));
+                    },
+                  ),
+                  _buildDrawerItem(
+                    icon: Icons.psychology,
+                    label: 'AI Health Advisor',
+                    selected: false,
+                    color: const Color(0xFF7C3AED),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AIClinicalAdvisorScreen()));
                     },
                   ),
                   _buildDrawerItem(
@@ -689,7 +704,7 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
   }
 
   void _showNotificationsBottomSheet(BuildContext context) {
-    final notificationsList = [
+    final allNotifications = [
       {
         'id': 'notif-7862',
         'title': '⚠️ URGENT PRESCRIPTION VIOLATION WARNING: #ORD-20260923-7862',
@@ -715,111 +730,163 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final activeList = allNotifications
+                .where((n) => !_dismissedNotificationIds.contains(n['id']))
+                .toList();
+
+            return Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Notifications Center',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Notifications Center',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      ),
+                      Row(
+                        children: [
+                          if (activeList.isNotEmpty)
+                            TextButton(
+                              onPressed: () {
+                                setSheetState(() {
+                                  for (final n in activeList) {
+                                    _dismissedNotificationIds.add(n['id'] as String);
+                                  }
+                                });
+                                setState(() {});
+                              },
+                              child: const Text(
+                                'Clear All',
+                                style: TextStyle(color: Color(0xFFEF4444), fontSize: 12, fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFFCA5A5)),
+                            ),
+                            child: Text(
+                              '${activeList.length} New',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFFDC2626)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF2F2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFFCA5A5)),
-                    ),
-                    child: Text(
-                      '${notificationsList.length} New',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFFDC2626)),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              const Divider(height: 1),
-              const SizedBox(height: 14),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: notificationsList.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 10),
-                  itemBuilder: (ctx, idx) {
-                    final item = notificationsList[idx];
-                    final isWarning = item['isViolationWarning'] == true;
-                    return InkWell(
-                      onTap: () {
-                        Navigator.pop(context);
-                        if (isWarning) {
-                          _showPrescriptionViolationModal(context, item);
-                        } else {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyPharmacyOrdersPage()));
-                        }
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: isWarning ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  isWarning ? Icons.warning_amber_rounded : Icons.info_outline,
-                                  color: isWarning ? const Color(0xFFDC2626) : const Color(0xFF0D9488),
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    item['title'].toString(),
+                  const SizedBox(height: 14),
+                  const Divider(height: 1),
+                  const SizedBox(height: 14),
+                  if (activeList.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 30),
+                      alignment: Alignment.center,
+                      child: Column(
+                        children: const [
+                          Icon(Icons.notifications_off_outlined, size: 40, color: Color(0xFF94A3B8)),
+                          SizedBox(height: 10),
+                          Text('No new notifications', style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: activeList.length,
+                        separatorBuilder: (context, index) => const SizedBox(height: 10),
+                        itemBuilder: (ctx, idx) {
+                          final item = activeList[idx];
+                          final isWarning = item['isViolationWarning'] == true;
+                          return InkWell(
+                            onTap: () {
+                              Navigator.pop(context);
+                              if (isWarning) {
+                                _showPrescriptionViolationModal(context, item);
+                              } else {
+                                Navigator.push(context, MaterialPageRoute(builder: (_) => const MyPharmacyOrdersPage()));
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: isWarning ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: isWarning ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isWarning ? Icons.warning_amber_rounded : Icons.info_outline,
+                                        color: isWarning ? const Color(0xFFDC2626) : const Color(0xFF0D9488),
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          item['title'].toString(),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                            color: isWarning ? const Color(0xFF991B1B) : const Color(0xFF0F172A),
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.close, size: 16, color: Color(0xFF94A3B8)),
+                                        tooltip: 'Dismiss',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                        onPressed: () {
+                                          setSheetState(() {
+                                            _dismissedNotificationIds.add(item['id'] as String);
+                                          });
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    item['message'].toString(),
                                     style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13,
-                                      color: isWarning ? const Color(0xFF991B1B) : const Color(0xFF0F172A),
+                                      fontSize: 12,
+                                      color: isWarning ? const Color(0xFF7F1D1D) : const Color(0xFF64748B),
+                                      height: 1.4,
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              item['message'].toString(),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isWarning ? const Color(0xFF7F1D1D) : const Color(0xFF64748B),
-                                height: 1.4,
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '${item['time']} • 🔍 Tap to Open Warning Window',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: isWarning ? const Color(0xFFDC2626) : const Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '${item['time']} • 🔍 Tap to Open Warning Window',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
-                                color: isWarning ? const Color(0xFFDC2626) : const Color(0xFF94A3B8),
-                              ),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
+                    ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );

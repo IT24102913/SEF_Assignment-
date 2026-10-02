@@ -18,7 +18,9 @@ import Categories from './pages/pharmacy/staff/Categories';
 import Inventory from './pages/pharmacy/staff/Inventory';
 import Sales from './pages/pharmacy/staff/Sales';
 import AIForecast from './pages/pharmacy/staff/AIForecast';
+import AIForecastNotes from './pages/pharmacy/staff/AIForecastNotes';
 import Orders from './pages/pharmacy/staff/Orders';
+import PatientAnalytics from './pages/pharmacy/staff/PatientAnalytics';
 import CustomerPharmacyStore from './pages/pharmacy/patient/CustomerPharmacyStore';
 
 // ✅ Import Doctor Appointments & Channeling Module
@@ -45,6 +47,7 @@ import LabReports from './pages/emr/patient/LabReports';
 import Prescriptions from './pages/emr/patient/Prescriptions';
 import ChannelingHistory from './pages/emr/patient/ChannelingHistory';
 import HealthPassport from './pages/emr/patient/HealthPassport';
+import AIClinicalAdvisor from './pages/emr/patient/AIClinicalAdvisor';
 import EmrStaffPortal from './pages/emr/staff/StaffPortal';
 import NotificationsCenter from './pages/emr/NotificationsCenter';
 
@@ -128,9 +131,45 @@ function App() {
                         </ProtectedRoute>
                     } />
 
+                    <Route path="/admin/pharmacy/ai-forecast" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecast />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacy/staff/ai-forecast-notes" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecastNotes />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacist/ai-forecast-notes" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecastNotes />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/admin/pharmacy/ai-forecast-notes" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <AIForecastNotes />
+                        </ProtectedRoute>
+                    } />
+
                     <Route path="/pharmacist/orders" element={
                         <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
                             <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacy/staff/patient-analytics" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <PatientAnalytics />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacist/patient-analytics" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                            <PatientAnalytics />
                         </ProtectedRoute>
                     } />
 
@@ -278,6 +317,8 @@ function App() {
                     }>
                         <Route index element={<Navigate to="/emr/overview" replace />} />
                         <Route path="overview" element={<EmrOverview />} />
+                        <Route path="ai-insights" element={<AIClinicalAdvisor />} />
+                        <Route path="ai-advisor" element={<AIClinicalAdvisor />} />
                         <Route path="consultation-notes" element={<ConsultationNotes />} />
                         <Route path="lab-reports" element={<LabReports />} />
                         <Route path="pharmacy" element={<Prescriptions />} />

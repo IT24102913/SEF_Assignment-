@@ -1,3 +1,4 @@
+using HealthBridge.Api.Agents;
 using HealthBridge.Api.DTOs.Medicine;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Services;
@@ -13,10 +14,14 @@ namespace HealthBridge.Api.Controllers;
 public class MedicinesController : ControllerBase
 {
     private readonly IMedicineService _medicineService;
+    private readonly InventoryForecastingAgent _forecastAgent;
 
-    public MedicinesController(IMedicineService medicineService)
+    public MedicinesController(
+        IMedicineService medicineService,
+        InventoryForecastingAgent forecastAgent)
     {
         _medicineService = medicineService;
+        _forecastAgent = forecastAgent;
     }
 
     /// <summary>
@@ -63,6 +68,7 @@ public class MedicinesController : ControllerBase
         try
         {
             var medicine = await _medicineService.CreateMedicineAsync(request);
+            _forecastAgent.InvalidateForecastCache();
             return CreatedAtAction(nameof(GetById), new { id = medicine.Id }, medicine);
         }
         catch (KeyNotFoundException ex)
@@ -97,6 +103,7 @@ public class MedicinesController : ControllerBase
                 return NotFound(new { message = $"Medicine with ID {id} was not found." });
             }
 
+            _forecastAgent.InvalidateForecastCache();
             return Ok(updatedMedicine);
         }
         catch (KeyNotFoundException ex)
@@ -107,6 +114,40 @@ public class MedicinesController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Restocks medicine quantity.
+    /// </summary>
+    [HttpPost("{id:int}/restock")]
+    [ProducesResponseType(typeof(MedicineResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MedicineResponse>> Restock(int id, [FromBody] RestockRequest request)
+    {
+        var updated = await _medicineService.RestockMedicineAsync(id, request.AdditionalQuantity);
+        if (updated == null)
+        {
+            return NotFound(new { message = $"Medicine with ID {id} was not found." });
+        }
+        _forecastAgent.InvalidateForecastCache();
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// Sets exact warehouse stock quantity (for correcting/adjusting stock mistakes).
+    /// </summary>
+    [HttpPost("{id:int}/adjust-stock")]
+    [ProducesResponseType(typeof(MedicineResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MedicineResponse>> AdjustStock(int id, [FromBody] AdjustStockRequest request)
+    {
+        var updated = await _medicineService.SetStockQuantityAsync(id, request.NewQuantity);
+        if (updated == null)
+        {
+            return NotFound(new { message = $"Medicine with ID {id} was not found." });
+        }
+        _forecastAgent.InvalidateForecastCache();
+        return Ok(updated);
     }
 
     /// <summary>
@@ -123,6 +164,17 @@ public class MedicinesController : ControllerBase
             return NotFound(new { message = $"Medicine with ID {id} was not found." });
         }
 
+        _forecastAgent.InvalidateForecastCache();
         return NoContent();
     }
+}
+
+public class RestockRequest
+{
+    public int AdditionalQuantity { get; set; } = 10;
+}
+
+public class AdjustStockRequest
+{
+    public int NewQuantity { get; set; }
 }
