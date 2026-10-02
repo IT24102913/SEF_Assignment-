@@ -113,6 +113,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   String? _notificationName;
   double? _notificationPrice;
   bool _showCartToast = false;
+  bool _isBlocked = false;
 
   @override
   void initState() {
@@ -124,11 +125,14 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
     setState(() => _isLoading = true);
     final medicines = await PharmacyService.getMedicines();
     final categories = await PharmacyService.getCategories();
+    final userEmail = AuthState.email ?? AppSession.loggedInUserEmail ?? '';
+    final blocked = await PharmacyService.isUserBlocked(userEmail);
 
     if (mounted) {
       setState(() {
         _allMedicines = medicines;
         _categories = categories;
+        _isBlocked = blocked;
         _applyFilters();
         _isLoading = false;
       });
@@ -149,6 +153,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _addToCart(MedicineModel med, {String defaultUnitType = 'Pill'}) {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     final isRx = med.requiresPrescription;
     final unitType = isRx ? 'RxQuote' : defaultUnitType;
 
@@ -221,6 +229,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   double get _cartTotal => _cartSubtotal + _deliveryFee;
 
   void _openCheckoutModal({bool isDirectRxMode = false}) {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -240,6 +252,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _openMedicineDetailModal(MedicineModel med) {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -256,6 +272,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _openCartDrawer() {
+    if (_isBlocked) {
+      _showToastSnackBar('🚫 Your account is BLOCKED from pharmacy ordering by administration.');
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1026,9 +1046,63 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                     ),
                   ),
 
+                  // Account Blocked Alert Banner
+                  if (_isBlocked)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF7F1D1D), Color(0xFF991B1B)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFEF4444), width: 1.5),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFEF4444).withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: const BoxDecoration(
+                                color: Color(0x33FFFFFF),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.shield_outlined, color: Color(0xFFFCA5A5), size: 26),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '🚫 PHARMACY & PRESCRIPTION SUSPENDED',
+                                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Your account has been suspended by administration from ordering or prescription uploads. Other services remain available.',
+                                    style: TextStyle(color: Color(0xFFFECACA), fontSize: 11, height: 1.3),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // Search Bar
                   SliverToBoxAdapter(
-
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                       child: Container(
@@ -1148,10 +1222,16 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                 delegate: SliverChildBuilderDelegate(
                                   (context, index) {
                                     final med = _filteredMedicines[index];
-                                    return ProductCard(
-                                      medicine: med,
-                                      onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
-                                      onOpenDetail: () => _openMedicineDetailModal(med),
+                                    return Opacity(
+                                      opacity: _isBlocked ? 0.45 : 1.0,
+                                      child: AbsorbPointer(
+                                        absorbing: _isBlocked,
+                                        child: ProductCard(
+                                          medicine: med,
+                                          onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
+                                          onOpenDetail: () => _openMedicineDetailModal(med),
+                                        ),
+                                      ),
                                     );
                                   },
                                   childCount: _filteredMedicines.length,
@@ -1749,6 +1829,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _nameCtrl;
+  late TextEditingController _emailCtrl;
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
   late TextEditingController _notesCtrl;
@@ -1766,6 +1847,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: AppSession.userName ?? 'Patient Customer');
+    _emailCtrl = TextEditingController(text: AppSession.loggedInUserEmail ?? AuthState.email ?? '');
     _phoneCtrl = TextEditingController(text: '0771234567');
     _addressCtrl = TextEditingController(text: 'No 12, Hospital Road, Colombo 03');
     _notesCtrl = TextEditingController();
@@ -1779,6 +1861,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _emailCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     _notesCtrl.dispose();
@@ -1863,7 +1946,9 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
 
     final resData = await PharmacyService.placeOrder(
       customerName: _nameCtrl.text.trim(),
-      customerEmail: AppSession.loggedInUserEmail ?? AuthState.email ?? '',
+      customerEmail: _emailCtrl.text.trim().isNotEmpty
+          ? _emailCtrl.text.trim()
+          : (AppSession.loggedInUserEmail ?? AuthState.email ?? ''),
       customerPhone: _phoneCtrl.text.trim(),
       deliveryAddress: _addressCtrl.text.trim(),
       deliveryMethod: widget.deliveryMethod,
@@ -1947,6 +2032,17 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
                   controller: _nameCtrl,
                   decoration: const InputDecoration(labelText: 'Full Name *', border: OutlineInputBorder()),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Enter full name' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email Address (Order Confirmation Sent Here) *',
+                    hintText: 'e.g. yourname@gmail.com',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) => v == null || v.trim().isEmpty || !v.contains('@') ? 'Enter a valid email address (@ required)' : null,
                 ),
                 const SizedBox(height: 10),
                 TextFormField(

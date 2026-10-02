@@ -418,6 +418,31 @@ class PharmacyService {
     return [];
   }
 
+  /// Check if user is blocked from pharmacy services
+  static Future<bool> isUserBlocked(String email) async {
+    if (email.isEmpty) return false;
+    final activeBaseUrl = await ApiConfig.getWorkingBaseUrl();
+    final hosts = [activeBaseUrl.replaceAll('/api', ''), ...ApiConfig.candidateHosts];
+
+    for (final host in hosts) {
+      try {
+        final response = await http
+            .get(Uri.parse('$host/api/PharmacyOrders/check-blocked/${Uri.encodeComponent(email)}'))
+            .timeout(const Duration(seconds: 3));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data is Map && data['isPharmacyBlocked'] == true) {
+            return true;
+          }
+        }
+      } catch (e) {
+        print('Check blocked status error on $host: $e');
+      }
+    }
+    return false;
+  }
+
   /// Submit a prescription to backend database API
   static Future<PrescriptionSubmission> submitPrescription({
     required String patientName,
@@ -511,6 +536,9 @@ class PharmacyService {
           final resObj = jsonDecode(response.body) as Map<String, dynamic>;
           _localOrders.insert(0, PharmacyOrderModel.fromJson(resObj));
           return resObj;
+        } else {
+          final errBody = jsonDecode(response.body);
+          throw Exception(errBody['message'] ?? 'Failed to place order.');
         }
       } catch (e) {
         print('Place order error on $host: $e');
