@@ -4,6 +4,7 @@ import LabLayout from '../../../components/layout/LabLayout';
 import { useAuth } from '../../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { FlaskConical, Search, RefreshCw, Microscope, FileText, Send, Check, Trash2, CheckCircle, Upload, X, FileUp, CheckCircle2, Link as LinkIcon, ShieldCheck } from 'lucide-react';
+import emptyImg from '../../../assets/lab_empty_microscope.jpg';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -270,10 +271,8 @@ export default function AllBookings() {
 
         {loading ? <div className="spinner" /> : filtered.length === 0 ? (
           <div className="empty-state animate-fade-in" style={{ padding: '40px 20px', textAlign: 'center' }}>
-            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg, rgba(37,99,235,0.1), rgba(59,130,246,0.15))', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', color: '#2563eb' }}>
-              <Microscope size={44} />
-            </div>
-            <p style={{ fontSize: 18, fontWeight: 600, marginTop: 20, color: 'var(--primary-dark)' }}>No bookings found.</p>
+            <img src={emptyImg} alt="No bookings" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 20, boxShadow: 'var(--shadow)' }} />
+            <p style={{ fontSize: 18, fontWeight: 600, marginTop: 24, color: 'var(--primary-dark)' }}>No bookings found.</p>
           </div>
         ) : (
           <div className="table-wrapper">
