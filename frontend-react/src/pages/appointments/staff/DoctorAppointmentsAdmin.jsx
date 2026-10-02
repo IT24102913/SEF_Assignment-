@@ -1100,7 +1100,7 @@ const DoctorAppointmentsAdmin = () => {
                       </div>
 
                       <div style={{ display: 'flex', gap: '8px' }}>
-                        {(primaryTodaySession.sessionStatus === 'Scheduled' || primaryTodaySession.sessionStatus === 'Delayed') && (
+                        {(primaryTodaySession.sessionStatus === 'Scheduled' || primaryTodaySession.sessionStatus === 'Delayed' || primaryTodaySession.sessionStatus === 'Expired') && (
                           <button
                             type="button"
                             onClick={() => handleStartSession(primaryTodaySession.id)}
@@ -1206,7 +1206,7 @@ const DoctorAppointmentsAdmin = () => {
                         </div>
                         {isDelayed && <div style={{ fontSize: '11px', color: '#B45309', marginBottom: '8px', backgroundColor: '#FEF9C3', padding: '4px 8px', borderRadius: '4px' }}>Delay: {session.expectedStartTime ? `Expected at ${session.expectedStartTime}` : ''} ({session.delayReason || 'Doctor running late'})</div>}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                          {(isScheduled || isDelayed) && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={12} /> Start</button>}
+                          {(isScheduled || isDelayed || session.sessionStatus === 'Expired') && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={12} /> Start</button>}
                           {!isCompleted && !isCancelled && (<><button type="button" onClick={() => setDelayModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={12} /> Cancel</button></>)}
                         </div>
                       </div>
@@ -1285,7 +1285,7 @@ const DoctorAppointmentsAdmin = () => {
                                       {isDelayed && <span style={{ fontSize: '11px', color: '#B45309', fontStyle: 'italic' }}>⚠ {session.delayReason || 'Delayed'}</span>}
                                     </div>
                                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                      {(isScheduled || isDelayed) && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={11} /> Start</button>}
+                                      {(isScheduled || isDelayed || session.sessionStatus === 'Expired') && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={11} /> Start</button>}
                                       {!isCompleted && !isCancelled && (<><button type="button" onClick={() => setDelayModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={11} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={11} /> Cancel</button></>)}
                                     </div>
                                   </div>

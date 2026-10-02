@@ -115,7 +115,7 @@ export const delaySession = (sessionId, expectedStartTime, reason = '') =>
 export const callNextPatient = (sessionId) =>
   api.post(`/doctorsessions/${sessionId}/callnext`);
 
-export const cancelSession = (sessionId) =>
-  api.post(`/doctorsessions/${sessionId}/cancel`);
+export const cancelSession = (sessionId, reason = '') =>
+  api.post(`/doctorsessions/${sessionId}/cancel`, { reason });
 
 export default api;
