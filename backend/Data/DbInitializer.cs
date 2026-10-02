@@ -34,6 +34,23 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationTokenExpiresAt\" timestamp with time zone;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"NicNumber\" text;");
             await context.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"IsEmailVerified\" = true;");
+            await context.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""RecommendationWorkflows"" (
+                    ""Id"" uuid NOT NULL CONSTRAINT ""PK_RecommendationWorkflows"" PRIMARY KEY,
+                    ""PatientId"" integer NULL,
+                    ""InputText"" text NOT NULL,
+                    ""Objective"" text NOT NULL,
+                    ""PlanJson"" text NOT NULL,
+                    ""StepResultsJson"" text NOT NULL,
+                    ""StatusPath"" text NOT NULL,
+                    ""FinalStatus"" text NOT NULL,
+                    ""Specialty"" text NULL,
+                    ""Confidence"" double precision NOT NULL,
+                    ""Retries"" integer NOT NULL,
+                    ""Errors"" text NULL,
+                    ""DurationMs"" bigint NOT NULL,
+                    ""CreatedAt"" timestamp with time zone NOT NULL
+                );");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
             await context.Database.ExecuteSqlRawAsync(@"

@@ -108,6 +108,7 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IPharmacyEmailService, PharmacyEmailService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
+// ✅ Register full-pipeline Doctor Recommendation Agent (triage router, not a diagnostician)
 // ✅ Register Vision AI Agents — PrescriptionValidatorAgent MUST be registered BEFORE PrescriptionSafetyAgent
 // so it is correctly injected into PrescriptionSafetyAgent's constructor (not resolved as null)
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionValidatorAgent>();

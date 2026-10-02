@@ -44,7 +44,7 @@ export const getDoctorSessions = (id, date = '') => {
 // ─── Agentic AI Symptom Recommendation ───────────────────────────────────────
 
 export const recommendSpecialty = (symptoms) =>
-  api.post('/doctors/recommend-specialty', { symptoms });
+  api.post('/appointments/recommend-doctor', { symptoms });
 
 // ─── Appointments Management ─────────────────────────────────────────────────
 

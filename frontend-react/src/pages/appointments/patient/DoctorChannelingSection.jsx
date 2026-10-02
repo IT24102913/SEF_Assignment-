@@ -11,6 +11,7 @@ import {
   bookAppointment, payAppointment, getMyAppointments, cancelAppointment,
   rescheduleAppointment
 } from '../../../api/doctorApi';
+import doctorAgent from '../../../assets/doctor-agent.png';
 
 const DoctorChannelingSection = ({ user, showToast }) => {
   // Wizard Steps:
@@ -167,21 +168,34 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     }
   };
 
-  // ─── AI Symptom Recommendation ───────────────────────────────────────────
+  // ─── AI Symptom Recommendation ────────────────────────────
 
   const handleAiSymptomTriage = async () => {
-    if (!symptomInput.trim()) {
-      notify('Please describe your symptoms first', 'error');
+    const trimmed = symptomInput.trim();
+    if (!trimmed) {
+      notify('Please describe your symptoms first.', 'error');
+      return;
+    }
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length < 2) {
+      notify('Please describe your symptoms in 2 or more words (e.g., "throbbing headache" or "chest discomfort").', 'warning');
       return;
     }
     setAiLoading(true);
+    setAiRecommendations(null);
     try {
-      const res = await recommendSpecialty(symptomInput.trim());
-      setAiRecommendations(res.data);
-      notify('AI specialist recommendations generated!', 'success');
+      const res = await recommendSpecialty(trimmed);
+      const data = res.data;
+      setAiRecommendations(data);
+      if (data.status === 'RECOMMENDATION_READY') {
+        notify(`AI suggests: ${data.specialty}`, 'success');
+      }
     } catch (err) {
       console.error('AI triage error', err);
-      notify('Could not retrieve AI recommendations. Please pick a specialty manually.', 'error');
+      setAiRecommendations({
+        status: 'SAFE_FAILURE',
+        reason: 'Please select a specialty manually.'
+      });
     } finally {
       setAiLoading(false);
     }
@@ -880,110 +894,311 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               </div>
             </form>
 
-            {/* Agentic AI Symptom Assistant Box */}
+            {/* Agentic AI Symptom Assistant Box — polished */}
             <div style={{
-              marginTop: '20px',
-              padding: '16px',
-              borderRadius: '10px',
-              backgroundColor: '#F0FDF4',
-              border: '1px solid #BBF7D0'
+              position: 'relative',
+              marginTop: '24px',
+              padding: '20px 24px',
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, rgba(236,253,245,0.95) 0%, rgba(240,253,250,0.85) 60%, rgba(204,251,241,0.6) 100%)',
+              border: '1px solid rgba(167,243,208,0.7)',
+              boxShadow: '0 4px 24px rgba(16,185,129,0.08), 0 1px 4px rgba(0,0,0,0.04)',
+              overflow: 'hidden'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                <Sparkles size={18} color="#15803D" />
-                <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '700', color: '#166534' }}>
-                  Agentic AI Specialist Recommender (Human-in-the-Loop Triage)
-                </h3>
-              </div>
-              <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#14532D' }}>
-                Unsure which department to consult? Describe your symptoms below and our clinical agent will recommend the most appropriate specialty.
-              </p>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="e.g. chest tightness, palpitations and mild shortness of breath..."
-                  value={symptomInput}
-                  onChange={(e) => setSymptomInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAiSymptomTriage(); }}
-                  style={{
-                    flex: 1,
-                    padding: '9px 12px',
-                    border: '1px solid #86EFAC',
-                    borderRadius: '6px',
-                    fontSize: '13px',
-                    outline: 'none',
-                    backgroundColor: '#FFFFFF'
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={handleAiSymptomTriage}
-                  disabled={aiLoading}
-                  style={{
-                    padding: '9px 16px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    backgroundColor: '#16A34A',
-                    color: '#FFFFFF',
-                    fontSize: '12px',
-                    fontWeight: '700',
-                    cursor: aiLoading ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  {aiLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  {aiLoading ? 'Analyzing...' : 'Ask AI'}
-                </button>
-              </div>
+              {/* keyframes injected once */}
+              <style>{`
+                @keyframes aiMascotIdle {
+                  0%,100% { transform: translateY(0px) rotate(-1.5deg); }
+                  50%      { transform: translateY(-10px) rotate(1.5deg); }
+                }
+                @keyframes aiMascotHover {
+                  0%,100% { transform: translateY(-3px) scale(1.08) rotate(-1deg); }
+                  50%      { transform: translateY(-15px) scale(1.08) rotate(1deg); }
+                }
+                @keyframes aiAuraPulse {
+                  0%,100% { transform: scale(1);   opacity: 0.55; }
+                  50%      { transform: scale(1.18); opacity: 0.2;  }
+                }
+                .ai-mascot-img {
+                  animation: aiMascotIdle 3.6s ease-in-out infinite;
+                  filter:
+                    drop-shadow(0 0 8px rgba(16,185,129,0.7))
+                    drop-shadow(0 0 20px rgba(52,211,153,0.45))
+                    drop-shadow(0 8px 16px rgba(6,78,59,0.3));
+                  transition: filter 0.25s;
+                }
+                .ai-mascot-img:hover {
+                  animation: aiMascotHover 1.1s ease-in-out infinite;
+                  filter:
+                    drop-shadow(0 0 12px rgba(16,185,129,0.95))
+                    drop-shadow(0 0 28px rgba(52,211,153,0.7))
+                    drop-shadow(0 0 48px rgba(110,231,183,0.4))
+                    drop-shadow(0 10px 22px rgba(6,78,59,0.35)) !important;
+                }
+                .ai-mascot-aura {
+                  animation: aiAuraPulse 2.8s ease-in-out infinite;
+                }
+                @keyframes aiSpinnerSpin {
+                  to { transform: rotate(360deg); }
+                }
+                .ai-spinner { animation: aiSpinnerSpin 0.9s linear infinite; }
+                @media (prefers-reduced-motion: reduce) {
+                  .ai-mascot-img  { animation: none !important; filter: none !important; }
+                  .ai-mascot-aura { animation: none !important; }
+                  .ai-spinner     { animation: none !important; }
+                }
+              `}</style>
 
-              {/* AI Recommendations Results */}
-              {aiRecommendations && aiRecommendations.recommendations?.length > 0 && (
-                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px dashed #86EFAC' }}>
-                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#166534', marginBottom: '6px' }}>
-                    Recommended Specialties:
+              {/* Layout: content left, mascot right */}
+              <div style={{ display: 'flex', alignItems: 'stretch', gap: '0' }}>
+
+                {/* Left: all text + controls */}
+                <div style={{ flex: 1, minWidth: 0, paddingRight: '16px' }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{
+                      width: '28px', height: '28px', borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      boxShadow: '0 2px 8px rgba(16,185,129,0.35)'
+                    }}>
+                      <Sparkles size={14} color="#FFFFFF" />
+                    </div>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '800', color: '#064E3B', letterSpacing: '-0.01em' }}>
+                        Agentic AI Specialist Recommender
+                      </h3>
+                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Human-in-the-Loop Triage
+                      </span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {aiRecommendations.recommendations.map((rec, i) => (
-                      <div
-                        key={i}
-                        onClick={() => handleApplyAiSpecialty(rec.specialty)}
-                        style={{
-                          backgroundColor: '#FFFFFF',
-                          border: '1px solid #16A34A',
-                          borderRadius: '8px',
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.04)'
-                        }}
-                      >
-                        <span style={{
-                          backgroundColor: '#DCFCE7',
-                          color: '#15803D',
-                          fontSize: '11px',
-                          fontWeight: '800',
-                          padding: '2px 6px',
-                          borderRadius: '4px'
-                        }}>
-                          {Math.round(rec.matchScore * 100)}% Match
-                        </span>
+
+                  <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#065F46', lineHeight: '1.6' }}>
+                    Unsure which department to consult? Describe your symptoms in <strong>2 or more words</strong> (e.g. <em>&ldquo;severe chest tightness&rdquo;</em> or <em>&ldquo;skin rash with itching&rdquo;</em>) and our clinical agent will suggest the most appropriate specialty.
+                  </p>
+
+                  {/* Input row */}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      placeholder="Describe in 2+ words (e.g. severe chest pressure, knee pain when walking)..."
+                      value={symptomInput}
+                      onChange={(e) => setSymptomInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleAiSymptomTriage(); }}
+                      disabled={aiLoading}
+                      style={{
+                        flex: 1,
+                        padding: '10px 14px',
+                        border: '1.5px solid rgba(110,231,183,0.8)',
+                        borderRadius: '10px',
+                        fontSize: '13px',
+                        outline: 'none',
+                        backgroundColor: 'rgba(255,255,255,0.9)',
+                        color: '#064E3B',
+                        boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.05)',
+                        transition: 'border-color 0.2s, box-shadow 0.2s',
+                        opacity: aiLoading ? 0.65 : 1
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#10B981';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.12), inset 0 1px 3px rgba(0,0,0,0.04)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = 'rgba(110,231,183,0.8)';
+                        e.target.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.05)';
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAiSymptomTriage}
+                      disabled={aiLoading}
+                      style={{
+                        padding: '10px 18px',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: aiLoading
+                          ? 'linear-gradient(135deg, #6EE7B7 0%, #34D399 100%)'
+                          : 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+                        color: '#FFFFFF',
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        cursor: aiLoading ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: aiLoading ? 'none' : '0 3px 10px rgba(16,185,129,0.35)',
+                        transition: 'all 0.2s',
+                        whiteSpace: 'nowrap'
+                      }}
+                      onMouseEnter={(e) => { if (!aiLoading) e.currentTarget.style.boxShadow = '0 5px 16px rgba(16,185,129,0.5)'; }}
+                      onMouseLeave={(e) => { if (!aiLoading) e.currentTarget.style.boxShadow = '0 3px 10px rgba(16,185,129,0.35)'; }}
+                    >
+                      {aiLoading
+                        ? <RefreshCw size={14} className="ai-spinner" />
+                        : <Sparkles size={14} />}
+                      {aiLoading ? 'Analyzing...' : 'Ask AI'}
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: '7px', fontSize: '11px', color: '#047857', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ fontSize: '12px' }}>💡</span>
+                    <span>Please describe your condition in <strong>2 or more words</strong> for accurate triage (single words like &ldquo;fever&rdquo; or &ldquo;pain&rdquo; lack medical context).</span>
+                  </div>
+
+                  {/* ── Status-aware result panel ── */}
+                  {aiRecommendations && (() => {
+                    const s = aiRecommendations.status;
+
+                    if (s === 'SAFETY_ESCALATION') return (
+                      <div style={{
+                        marginTop: '14px', padding: '12px 14px',
+                        borderRadius: '10px', backgroundColor: '#FEF2F2',
+                        border: '2px solid #F87171',
+                        display: 'flex', gap: '10px', alignItems: 'flex-start'
+                      }}>
+                        <AlertCircle size={20} color="#DC2626" style={{ flexShrink: 0, marginTop: '1px' }} />
                         <div>
-                          <div style={{ fontSize: '13px', fontWeight: '700', color: '#14532D' }}>
-                            {rec.specialty}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#4B5563' }}>
-                            {rec.reasoning}
-                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: '800', color: '#991B1B', marginBottom: '4px' }}>⚠️ Emergency Alert</div>
+                          <div style={{ fontSize: '12px', color: '#7F1D1D', lineHeight: '1.65' }}>{aiRecommendations.safetyMessage}</div>
                         </div>
-                        <ChevronRight size={14} color="#16A34A" />
                       </div>
-                    ))}
-                  </div>
+                    );
+
+                    if (s === 'INPUT_INVALID') return (
+                      <div style={{
+                        marginTop: '14px', padding: '10px 14px',
+                        borderRadius: '10px', backgroundColor: '#FFFBEB',
+                        border: '1px solid #FCD34D', fontSize: '12px', color: '#92400E', lineHeight: '1.6'
+                      }}>
+                        💬 {aiRecommendations.reason}
+                      </div>
+                    );
+
+                    if (s === 'NEED_MORE_CONTEXT') return (
+                      <div style={{
+                        marginTop: '14px', padding: '12px 14px',
+                        borderRadius: '10px', backgroundColor: '#EFF6FF',
+                        border: '1px solid #BFDBFE'
+                      }}>
+                        <div style={{ fontSize: '12px', fontWeight: '700', color: '#1E40AF', marginBottom: '6px' }}>
+                          🤔 A few more details will help:
+                        </div>
+                        {aiRecommendations.reason && (
+                          <div style={{ fontSize: '12px', color: '#1E3A8A', marginBottom: '8px', lineHeight: '1.6' }}>{aiRecommendations.reason}</div>
+                        )}
+                        <ul style={{ margin: 0, paddingLeft: '18px' }}>
+                          {(aiRecommendations.followUpQuestions || []).map((q, i) => (
+                            <li key={i} style={{ fontSize: '12px', color: '#1D4ED8', marginBottom: '4px', lineHeight: '1.5' }}>{q}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+
+                    if (s === 'SAFE_FAILURE') return (
+                      <div style={{
+                        marginTop: '14px', padding: '10px 14px',
+                        borderRadius: '10px', backgroundColor: 'rgba(248,250,252,0.9)',
+                        border: '1px solid #CBD5E1', fontSize: '12px', color: '#475569'
+                      }}>
+                        ℹ️ Please select a specialty manually using the cards below.
+                      </div>
+                    );
+
+                    if (s === 'RECOMMENDATION_READY') return (
+                      <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed rgba(110,231,183,0.7)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: '700', color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                          AI Suggested Specialty
+                        </div>
+                        <div
+                          onClick={() => handleApplyAiSpecialty(aiRecommendations.specialty)}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '12px',
+                            backgroundColor: 'rgba(255,255,255,0.95)',
+                            border: '2px solid #10B981',
+                            borderRadius: '12px', padding: '10px 16px', cursor: 'pointer',
+                            boxShadow: '0 3px 12px rgba(16,185,129,0.15)',
+                            transition: 'all 0.18s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow = '0 6px 20px rgba(16,185,129,0.28)';
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = '0 3px 12px rgba(16,185,129,0.15)';
+                            e.currentTarget.style.transform = 'translateY(0)';
+                          }}
+                        >
+                          <span style={{
+                            background: 'linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%)',
+                            color: '#065F46',
+                            fontSize: '11px', fontWeight: '800',
+                            padding: '3px 9px', borderRadius: '6px',
+                            border: '1px solid rgba(16,185,129,0.2)',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {Math.round((aiRecommendations.confidence ?? 0) * 100)}% match
+                          </span>
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: '800', color: '#064E3B', letterSpacing: '-0.01em' }}>
+                              {aiRecommendations.specialty}
+                            </div>
+                            {aiRecommendations.reason && (
+                              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '2px', lineHeight: '1.5' }}>
+                                {aiRecommendations.reason}
+                              </div>
+                            )}
+                          </div>
+                          <ChevronRight size={16} color="#10B981" />
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '8px' }}>
+                          ✨ AI suggestion only — you always choose your doctor.
+                        </div>
+                      </div>
+                    );
+
+                    return null;
+                  })()}
                 </div>
-              )}
+
+                {/* Right: mascot column */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  width: '150px',
+                  paddingLeft: '12px',
+                  position: 'relative'
+                }}>
+                  {/* Pulsing aura ring behind mascot */}
+                  <div
+                    className="ai-mascot-aura"
+                    style={{
+                      position: 'absolute',
+                      width: '115px',
+                      height: '115px',
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(52,211,153,0.32) 0%, rgba(16,185,129,0.14) 55%, transparent 75%)',
+                      pointerEvents: 'none',
+                      zIndex: 0
+                    }}
+                  />
+                  <img
+                    src={doctorAgent}
+                    alt=""
+                    aria-hidden="true"
+                    className="ai-mascot-img"
+                    style={{
+                      width: '130px',
+                      height: 'auto',
+                      display: 'block',
+                      position: 'relative',
+                      zIndex: 1
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
