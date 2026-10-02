@@ -82,4 +82,5 @@ public class AskAIAgentResponse
     public string Answer { get; set; } = string.Empty;
     public List<string> ClinicalReferences { get; set; } = new();
     public DateTime AnsweredAt { get; set; } = DateTime.UtcNow;
+    public string EngineUsed { get; set; } = "Google Gemini LLM (Agentic Clinical Intelligence)";
 }

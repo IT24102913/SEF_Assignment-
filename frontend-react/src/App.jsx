@@ -280,6 +280,7 @@ function App() {
                         <Route index element={<Navigate to="/emr/overview" replace />} />
                         <Route path="overview" element={<EmrOverview />} />
                         <Route path="ai-insights" element={<AIClinicalAdvisor />} />
+                        <Route path="ai-advisor" element={<AIClinicalAdvisor />} />
                         <Route path="consultation-notes" element={<ConsultationNotes />} />
                         <Route path="lab-reports" element={<LabReports />} />
                         <Route path="pharmacy" element={<Prescriptions />} />

@@ -263,45 +263,45 @@ export default function HealthPassport() {
       {/* Account Info Card (Read-only) */}
       <div style={{
         backgroundColor: '#ffffff',
-        border: '1px solid #e2e8f0',
+        border: '1.5px solid #cbd5e1',
         borderRadius: '18px',
         padding: '24px',
         marginBottom: '24px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+        boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)',
       }}>
-        <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <h2 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <UserCheck size={20} color={T.accent} /> Account Registration Details
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0 }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>FULL NAME</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={profile.fullName}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1.5px solid #cbd5e1', minWidth: 0 }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>FULL NAME</div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={profile.fullName}>
               {profile.fullName || '—'}
             </div>
           </div>
-          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', minWidth: 0 }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>EMAIL ADDRESS</div>
-            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#0f172a', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.3' }} title={profile.email}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1.5px solid #cbd5e1', minWidth: 0 }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>EMAIL ADDRESS</div>
+            <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0f172a', wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal', lineHeight: '1.3' }} title={profile.email}>
               {profile.email || '—'}
             </div>
           </div>
-          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>PHONE NUMBER</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: profile.contactPhone ? '#0f172a' : '#94a3b8' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>PHONE NUMBER</div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 800, color: profile.contactPhone ? '#0f172a' : '#94a3b8' }}>
               {profile.contactPhone || '—'}
             </div>
           </div>
-          <div style={{ padding: '14px 18px', backgroundColor: '#f0fdf9', borderRadius: '12px', border: '1.5px solid #cce8e3' }}>
-            <div style={{ fontSize: '0.75rem', color: '#0d7c6b', fontWeight: 700, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f0fdf9', borderRadius: '12px', border: '1.5px solid #6ee7b7' }}>
+            <div style={{ fontSize: '0.75rem', color: '#0d7c6b', fontWeight: 800, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <CreditCard size={14} color="#0d7c6b" /> NATIONAL ID (NIC)
             </div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 800, color: profile.nicNumber ? '#095e51' : '#94a3b8', letterSpacing: profile.nicNumber ? '0.5px' : 'normal' }}>
+            <div style={{ fontSize: '0.98rem', fontWeight: 900, color: profile.nicNumber ? '#095e51' : '#94a3b8', letterSpacing: profile.nicNumber ? '0.5px' : 'normal' }}>
               {profile.nicNumber || '—'}
             </div>
           </div>
-          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>GENDER</div>
-            <div style={{ fontSize: '0.98rem', fontWeight: 700, color: '#0f172a' }}>
+          <div style={{ padding: '14px 18px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1.5px solid #cbd5e1' }}>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, marginBottom: '4px' }}>GENDER</div>
+            <div style={{ fontSize: '0.98rem', fontWeight: 800, color: '#0f172a' }}>
               {profile.gender || '—'}
             </div>
           </div>
@@ -311,10 +311,10 @@ export default function HealthPassport() {
       {/* Editable Medical Details Form */}
       <form onSubmit={handleSave} style={{
         backgroundColor: '#ffffff',
-        border: '1px solid #e2e8f0',
+        border: '1.5px solid #cbd5e1',
         borderRadius: '18px',
         padding: '28px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.03)',
+        boxShadow: '0 4px 16px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -1px rgba(15, 23, 42, 0.04)',
       }}>
         <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#0f172a', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Heart size={20} color={T.accent} /> Medical &amp; Emergency Information
