@@ -24,5 +24,11 @@ public class User
 
     public bool IsActive { get; set; } = true;
 
+    public bool IsPharmacyBlocked { get; set; } = false;
+
+    public string? BlockReason { get; set; }
+
+    public string? ProfileImage { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
