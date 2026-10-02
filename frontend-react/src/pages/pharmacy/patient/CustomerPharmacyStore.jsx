@@ -106,6 +106,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
 
     // Checkout Form state
     const [customerName, setCustomerName] = useState(user?.fullName || '');
+    const [customerEmail, setCustomerEmail] = useState(user?.email || '');
     const [customerPhone, setCustomerPhone] = useState(user?.phoneNumber || '0771234567');
     const [deliveryAddress, setDeliveryAddress] = useState('No 12, Hospital Road, Colombo 03');
     const [deliveryMethod, setDeliveryMethod] = useState('HomeDelivery'); // 'HomeDelivery' | 'Pickup'
@@ -125,6 +126,27 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [showNotifsDropdown, setShowNotifsDropdown] = useState(false);
     const [notificationsList, setNotificationsList] = useState([]);
     const [selectedViolationNotif, setSelectedViolationNotif] = useState(null);
+
+    const [isBlocked, setIsBlocked] = useState(() => {
+        if (user?.isPharmacyBlocked) return true;
+        try {
+            const blocked = JSON.parse(localStorage.getItem('medix_blocked_users') || '[]');
+            return user?.email ? blocked.includes(user.email) : false;
+        } catch (e) { return false; }
+    });
+
+    useEffect(() => {
+        const checkUserBlockedStatus = async () => {
+            if (!user?.email) return;
+            try {
+                const res = await api.get(`/PharmacyOrders/check-blocked/${encodeURIComponent(user.email)}`);
+                if (res.data && typeof res.data.isPharmacyBlocked === 'boolean') {
+                    setIsBlocked(res.data.isPharmacyBlocked);
+                }
+            } catch (e) { }
+        };
+        checkUserBlockedStatus();
+    }, [user]);
 
     useEffect(() => {
         try {
@@ -379,6 +401,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const handlePlaceOrder = async (e) => {
         e.preventDefault();
 
+        if (isBlocked) {
+            showToastMessage('Your account is BLOCKED from pharmacy & prescription ordering due to an administrative restriction.', 'error');
+            return;
+        }
+
         if (isDirectRxOnly && !prescriptionPreview && !prescriptionFile) {
             showToastMessage('Doctor prescription photo is mandatory for prescription orders! Please upload your doctor prescription.', 'error');
             return;
@@ -414,11 +441,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             }
 
             const isRx = requiresVerification;
-            const userEmail = (user?.email && user.email.includes('@'))
+            const finalCustomerEmail = customerEmail.trim() || ((user?.email && user.email.includes('@'))
                 ? user.email
                 : (user?.username && user.username.includes('@'))
                     ? user.username
-                    : `patient+${user?.id || Date.now()}@healthbridge.lk`;
+                    : `patient+${user?.id || Date.now()}@healthbridge.lk`);
 
             const rawPid = Number(user?.id);
             const validPatientId = (Number.isInteger(rawPid) && rawPid > 0 && rawPid <= 2147483647) ? rawPid : null;
@@ -448,7 +475,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             const orderPayload = {
                 patientId: validPatientId,
                 customerName: customerName.trim() || user?.fullName || 'Patient',
-                customerEmail: userEmail,
+                customerEmail: finalCustomerEmail,
                 customerPhone: customerPhone ? customerPhone.trim() : '',
                 deliveryAddress: deliveryAddress ? deliveryAddress.trim() : '',
                 deliveryMethod: deliveryMethod, // 'HomeDelivery' or 'Pickup'
@@ -625,9 +652,14 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             ...ps.cartBtn,
                             backgroundColor: 'rgba(255, 255, 255, 0.15)',
                             color: '#FFFFFF',
-                            border: '1px solid rgba(255, 255, 255, 0.4)'
+                            border: '1px solid rgba(255, 255, 255, 0.4)',
+                            ...(isBlocked ? { opacity: 0.4, cursor: 'not-allowed' } : {})
                         }}
                         onClick={() => {
+                            if (isBlocked) {
+                                showToastMessage('🚫 Your account is BLOCKED from pharmacy & prescription ordering by administration.', 'error');
+                                return;
+                            }
                             setIsDirectRxMode(true);
                             setShowCheckoutModal(true);
                         }}
@@ -635,13 +667,53 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                         <FileCheck size={20} color="#A7F3D0" />
                         <span>Upload Prescription Order</span>
                     </button>
-                    <button style={ps.cartBtn} onClick={() => setShowCartDrawer(true)}>
+                    <button
+                        style={{
+                            ...ps.cartBtn,
+                            ...(isBlocked ? { opacity: 0.4, cursor: 'not-allowed' } : {})
+                        }}
+                        onClick={() => {
+                            if (isBlocked) {
+                                showToastMessage('🚫 Your account is BLOCKED from pharmacy & prescription ordering by administration.', 'error');
+                                return;
+                            }
+                            setShowCartDrawer(true);
+                        }}
+                    >
                         <ShoppingBag size={20} />
                         <span>View Cart ({cart.reduce((a, b) => a + b.quantity, 0)})</span>
                         <span style={ps.cartBadgeCount}>Rs. {cartTotal.toFixed(2)}</span>
                     </button>
                 </div>
             </div>
+
+            {/* Account Blocked Alert Banner */}
+            {isBlocked && (
+                <div style={{
+                    background: 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%)',
+                    borderRadius: '20px',
+                    padding: '22px 28px',
+                    color: '#FFFFFF',
+                    marginBottom: '24px',
+                    border: '2px solid #EF4444',
+                    boxShadow: '0 12px 30px rgba(239,68,68,0.35)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '20px'
+                }}>
+                    <div style={{ width: '54px', height: '54px', borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <ShieldAlert size={30} color="#FCA5A5" />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '17px', fontWeight: 900, color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            🚫 PHARMACY & PRESCRIPTION ACCESS SUSPENDED
+                        </div>
+                        <p style={{ fontSize: '13px', color: '#FECACA', margin: '4px 0 0', lineHeight: 1.5 }}>
+                            Your patient account has been blocked by administration from placing pharmacy orders or uploading prescriptions due to a safety violation. <strong>You can still access Doctor Channeling, Lab Reports, and EMR Records.</strong>
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* Toolbar & Categories */}
             <div style={ps.toolbar}>
@@ -682,7 +754,15 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             </div>
 
             {/* Products Grid */}
-            <div style={ps.grid}>
+            <div style={{
+                ...ps.grid,
+                ...(isBlocked ? {
+                    filter: 'blur(3.5px)',
+                    opacity: 0.45,
+                    pointerEvents: 'none',
+                    userSelect: 'none'
+                } : {})
+            }}>
                 {loading ? (
                     <div style={ps.loadingBox}>
                         <div className="spinner" />
@@ -1057,6 +1137,17 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         required
                                         value={customerName}
                                         onChange={e => setCustomerName(e.target.value)}
+                                        style={ps.input}
+                                    />
+                                </div>
+                                <div style={ps.formGroup}>
+                                    <label style={ps.label}>Email Address (Order Confirmation Sent Here) *</label>
+                                    <input
+                                        type="email"
+                                        required
+                                        placeholder="e.g. nirwandulaksha@gmail.com"
+                                        value={customerEmail}
+                                        onChange={e => setCustomerEmail(e.target.value)}
                                         style={ps.input}
                                     />
                                 </div>
