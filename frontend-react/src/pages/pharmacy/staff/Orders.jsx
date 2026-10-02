@@ -286,7 +286,22 @@ const Orders = () => {
 
     useEffect(() => {
         fetchOrders();
+        fetchBlockedUsers();
     }, []);
+
+    const fetchBlockedUsers = async () => {
+        try {
+            const res = await api.get('/PharmacyOrders/blocked-users');
+            if (res.data && Array.isArray(res.data)) {
+                setBlockedUsers(res.data);
+                try {
+                    localStorage.setItem('medix_blocked_users', JSON.stringify(res.data));
+                } catch (e) { }
+            }
+        } catch (e) {
+            console.warn('Unable to load blocked users from API:', e);
+        }
+    };
 
 
     const showToastMessage = (message, type = 'success') => {
@@ -430,20 +445,32 @@ const Orders = () => {
         }
     };
 
-    const handleToggleBlockUser = (patientEmail) => {
+    const handleToggleBlockUser = async (patientEmail) => {
         if (!patientEmail) return;
+        const isCurrentlyBlocked = blockedUsers.includes(patientEmail);
+        const shouldBlock = !isCurrentlyBlocked;
         let updated;
-        if (blockedUsers.includes(patientEmail)) {
+        if (isCurrentlyBlocked) {
             updated = blockedUsers.filter(e => e !== patientEmail);
-            showToastMessage(`Patient account ${patientEmail} UNBLOCKED.`, 'success');
         } else {
             updated = [...blockedUsers, patientEmail];
-            showToastMessage(`Patient account ${patientEmail} BLOCKED 🚫!`, 'error');
         }
         setBlockedUsers(updated);
         try {
             localStorage.setItem('medix_blocked_users', JSON.stringify(updated));
         } catch (e) { }
+
+        try {
+            await api.post('/PharmacyOrders/block-user', {
+                email: patientEmail,
+                block: shouldBlock,
+                reason: "Prescription anti-abuse violation"
+            });
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+        } catch (e) {
+            console.warn('Failed to update block state on backend:', e);
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+        }
     };
 
     const filteredOrders = orders.filter(o => {

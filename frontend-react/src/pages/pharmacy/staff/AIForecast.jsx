@@ -543,7 +543,7 @@ const AIForecast = () => {
                         </button>
                         <div style={s.statusPill}>
                             <Zap size={13} color="#059669" />
-                            <span>AI Agent Active (Gemini 3.5 Flash)</span>
+                            <span>AI Agent Active (HealthBridge AI)</span>
                         </div>
                         <div style={s.userSection}>
                             <span style={s.userName}>{user?.fullName || 'Nirwan Admin'}</span>
@@ -566,7 +566,7 @@ const AIForecast = () => {
                         </div>
                         <h2 style={s.heroTitle}>AI Demand &amp; Stockout Risk Forecasting</h2>
                         <p style={s.heroSub}>
-                            Real-time stockout risk predictions, expiry date alerts, and seasonal demand intelligence powered by Gemini 3.5 Flash.
+                            Real-time stockout risk predictions, expiry date alerts, and seasonal demand intelligence.
                         </p>
                         <div style={s.heroActions}>
                             <button onClick={handleRunAnalysis} style={s.runAnalysisBtn} disabled={isRefreshing || loading}>
@@ -638,7 +638,7 @@ const AIForecast = () => {
                             <Brain size={24} color="#A7F3D0" />
                             <div>
                                 <h3 style={s.advisoryTitle}>AI AGENT SEASONAL ADVISORY</h3>
-                                <p style={s.advisorySub}>Gemini 3.5 Flash Sri Lanka Pharmacy Intelligence</p>
+                                <p style={s.advisorySub}>HealthBridge Sri Lanka Pharmacy Intelligence</p>
                             </div>
                         </div>
                         <span style={s.realtimePill}>Real-Time Intelligence</span>

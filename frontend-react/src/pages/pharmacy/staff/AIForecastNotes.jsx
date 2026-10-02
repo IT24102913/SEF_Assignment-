@@ -280,7 +280,7 @@ const AIForecastNotes = () => {
                                                     {urg.label}
                                                 </span>
                                                 <span style={styles.confBadge}>
-                                                    Gemini Confidence: {Math.round((note.confidence || 0.88) * 100)}%
+                                                    AI Confidence: {Math.round((note.confidence || 0.88) * 100)}%
                                                 </span>
                                                 <span style={{ ...styles.statusBadge, color: status.color, background: status.bg }}>
                                                     {status.label}
