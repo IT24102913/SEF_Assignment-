@@ -160,9 +160,10 @@ public class PharmacyOrderService : IPharmacyOrderService
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(request.CustomerEmail))
+        string effectiveEmail = request.CustomerEmail?.Trim().ToLowerInvariant() ?? "";
+        if (!string.IsNullOrWhiteSpace(effectiveEmail))
         {
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == request.CustomerEmail.Trim().ToLower());
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == effectiveEmail);
             if (user != null)
             {
                 if (!patientId.HasValue) patientId = user.Id;
@@ -175,9 +176,16 @@ public class PharmacyOrderService : IPharmacyOrderService
         else if (patientId.HasValue)
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == patientId.Value);
-            if (user != null && user.IsPharmacyBlocked)
+            if (user != null)
             {
-                throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
+                if (user.IsPharmacyBlocked)
+                {
+                    throw new InvalidOperationException("Your account has been suspended from Pharmacy & Prescription services by administration due to a violation.");
+                }
+                if (!string.IsNullOrWhiteSpace(user.Email))
+                {
+                    effectiveEmail = user.Email.Trim().ToLowerInvariant();
+                }
             }
         }
 
@@ -190,7 +198,7 @@ public class PharmacyOrderService : IPharmacyOrderService
             OrderNumber = orderNumber,
             PatientId = patientId,
             CustomerName = request.CustomerName.Trim(),
-            CustomerEmail = request.CustomerEmail.Trim().ToLowerInvariant(),
+            CustomerEmail = effectiveEmail,
             CustomerPhone = request.CustomerPhone?.Trim(),
             DeliveryAddress = request.DeliveryAddress?.Trim(),
             PaymentMethod = request.PaymentMethod,

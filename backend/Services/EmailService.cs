@@ -31,12 +31,13 @@ public class EmailService : IEmailService
 
     private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
     {
-        var smtpServer = _config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com";
-        var smtpPort = int.Parse(_config["Brevo:SmtpPort"] ?? "587");
-        var smtpUser = _config["Brevo:SmtpUser"];
-        var smtpPass = _config["Brevo:SmtpPass"];
-        var fromEmail = _config["Brevo:FromEmail"] ?? "noreply@labsystem.com";
-        var fromName = _config["Brevo:FromName"] ?? "Health Bridge Pharmacy";
+        var smtpServer = _config["Brevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer") ?? "smtp.gmail.com";
+        var smtpPortStr = _config["Brevo:SmtpPort"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPort");
+        var smtpPort = !string.IsNullOrEmpty(smtpPortStr) && int.TryParse(smtpPortStr, out int p) ? p : 587;
+        var smtpUser = _config["Brevo:SmtpUser"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpUser") ?? "Healthbridgeyourpharmacy@gmail.com";
+        var smtpPass = _config["Brevo:SmtpPass"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPass") ?? "yquswsakkintccqc";
+        var fromEmail = _config["Brevo:FromEmail"] ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") ?? "Healthbridgeyourpharmacy@gmail.com";
+        var fromName = _config["Brevo:FromName"] ?? Environment.GetEnvironmentVariable("Brevo__FromName") ?? "Health Bridge Pharmacy";
 
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(fromName, fromEmail));
@@ -51,12 +52,12 @@ public class EmailService : IEmailService
             _logger.LogInformation("[Email] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
             
             using var client = new SmtpClient();
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.StartTls);
-            await client.AuthenticateAsync(smtpUser ?? string.Empty, smtpPass ?? string.Empty);
+            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.Auto);
+            await client.AuthenticateAsync(smtpUser, smtpPass);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
             
-            _logger.LogInformation("[Email] ✅ Email sent successfully to {Email} via Brevo SMTP", toEmail);
+            _logger.LogInformation("[Email] ✅ Email sent successfully to {Email}", toEmail);
         }
         catch (Exception ex)
         {
