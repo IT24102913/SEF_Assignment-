@@ -201,8 +201,8 @@ export default function HealthPassport() {
         address: profile.address
       };
       sessionStorage.setItem('user', JSON.stringify(updatedUser));
-      localStorage.setItem('hb_user', JSON.stringify(updatedUser));
-      localStorage.setItem('user', JSON.stringify(updatedUser));
+      // Keep sessionStorage in sync — this is the only key the auth system reads
+
     } catch (err) {
       setError(err.message || 'Error saving profile. Please check server.');
     } finally {
