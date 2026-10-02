@@ -3,6 +3,7 @@ using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.Appointments;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -82,6 +83,28 @@ public class DoctorsController : ControllerBase
 
         var sessions = await _appointmentService.GetDoctorSessionsAsync(id, parsedDate);
         return Ok(sessions);
+    }
+
+    /// <summary>
+    /// Gets recurring weekly schedule templates for a doctor.
+    /// </summary>
+    [HttpGet("{id}/schedules")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetDoctorSchedules(int id)
+    {
+        var schedules = await _appointmentService.GetDoctorSchedulesAsync(id);
+        return Ok(schedules);
+    }
+
+    /// <summary>
+    /// Updates recurring weekly schedule templates for a doctor.
+    /// </summary>
+    [HttpPut("{id}/schedules")]
+    [Authorize(Roles = "Admin,Doctor")]
+    public async Task<IActionResult> UpdateDoctorSchedules(int id, [FromBody] List<DoctorScheduleDto> schedules)
+    {
+        var result = await _appointmentService.UpdateDoctorSchedulesAsync(id, schedules);
+        return Ok(result);
     }
 
     /// <summary>
