@@ -1,9 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
-import { getAllBookings, uploadResult, updateBookingStatus, uploadFile } from '../../../api/labApi';
+import { getActiveQueue, uploadResult, updateBookingStatus, uploadFile } from '../../../api/labApi';
 import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
-import { Upload, TestTube, FileText, CheckCircle2, Search, Microscope, Send, FileUp, Link as LinkIcon, Check } from 'lucide-react';
-import emptyImg from '../../../assets/lab_empty_microscope.jpg';
+import { Upload, TestTube, FileText, CheckCircle2, Search, Microscope, Send, FileUp, Link as LinkIcon, Check, FlaskConical } from 'lucide-react';
 
 const TECHNICIAN_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -19,7 +18,7 @@ export default function UploadResults() {
 
   const load = () => {
     setLoading(true);
-    getAllBookings('')
+    getActiveQueue()
       .then(r => { 
         const all = r.data || [];
         const relevant = all.filter(b => 
@@ -159,9 +158,11 @@ export default function UploadResults() {
         <div className="spinner" />
       ) : filtered.length === 0 ? (
         <div className="card">
-          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px' }}>
-            <img src={emptyImg} alt="No samples" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 20, boxShadow: 'var(--shadow)' }} />
-            <p style={{ fontSize: 18, fontWeight: 700, marginTop: 24, color: 'var(--primary-dark)' }}>No active tests in this stage</p>
+          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#CCFBF1', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <FlaskConical size={36} color="#0D9488" />
+            </div>
+            <p style={{ fontSize: 18, fontWeight: 700, margin: '8px 0 4px', color: 'var(--primary-dark)' }}>No active tests in this stage</p>
             <p className="text-muted">Collected samples and in-progress laboratory tests will appear here ready for result upload.</p>
           </div>
         </div>
