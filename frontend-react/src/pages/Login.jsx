@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
-import { register as apiRegister } from '../api/authApi';
+import { register as apiRegister, resendVerification } from '../api/authApi';
 import loginBg from '../assets/hut.png';
 import logoImg from '../assets/mediz.png';
 import {
@@ -279,6 +280,10 @@ const Login = () => {
     const [siShowPw, setSiShowPw] = useState(false);
     const [siLoading, setSiLoading] = useState(false);
     const [siError, setSiError] = useState('');
+    const [emailUnverified, setEmailUnverified] = useState(false);
+    const [resendLoading, setResendLoading] = useState(false);
+    const [resendStatus, setResendStatus] = useState('idle'); // 'idle' | 'success' | 'error'
+    const [resendMsg, setResendMsg] = useState('');
 
     // Register state
     const [form, setForm] = useState({
@@ -295,14 +300,58 @@ const Login = () => {
     const handleSignIn = async (e) => {
         e.preventDefault();
         setSiError('');
+        setEmailUnverified(false);
+        setResendStatus('idle');
+        setResendMsg('');
         setSiLoading(true);
         try {
             const data = await login(siEmail, siPass);
             navigate(`/${data.user.role.toLowerCase()}/dashboard`, { replace: true });
         } catch (err) {
-            setSiError(err.message || 'Invalid email or password.');
+            const msg = err.message || 'Invalid email or password.';
+            if (msg.includes('EMAIL_NOT_VERIFIED')) {
+                setEmailUnverified(true);
+                setSiError('Please verify your email address before signing in. Check your inbox for the verification link.');
+            } else {
+                setSiError(msg);
+            }
         } finally {
             setSiLoading(false);
+        }
+    };
+
+    const handleResendVerification = async () => {
+        if (!siEmail.trim()) {
+            setResendStatus('error');
+            setResendMsg('Enter your email above first.');
+            toast.error('Enter your email above first.');
+            return;
+        }
+        setResendLoading(true);
+        setResendStatus('idle');
+        setResendMsg('');
+        try {
+            const res = await resendVerification(siEmail.trim().toLowerCase());
+            // Only display "Verification email resent!" if the backend returns HTTP 200 OK
+            if (res.status === 200 || !res.status) {
+                setResendStatus('success');
+                setResendMsg('Verification email resent!');
+                toast.success('Verification email resent! Please check your inbox.');
+            }
+        } catch (err) {
+            setResendStatus('error');
+            // If the API returns HTTP 500, display a red error toast/badge
+            if (err.status === 500) {
+                const errMsg = 'Could not send verification email. Check server SMTP credentials.';
+                setResendMsg(errMsg);
+                toast.error(errMsg);
+            } else {
+                const errMsg = err.message || 'Could not send verification email. Check server SMTP credentials.';
+                setResendMsg(errMsg);
+                toast.error(errMsg);
+            }
+        } finally {
+            setResendLoading(false);
         }
     };
 
@@ -440,34 +489,47 @@ const Login = () => {
                                     <XCircle size={15} color="#B91C1C" style={{ marginTop: '2px', flexShrink: 0 }} />
                                     <div style={{ flex: 1 }}>
                                         <div>{siError}</div>
-                                        {siError.toLowerCase().includes('verif') && siEmail && (
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    try {
-                                                        const res = await apiRegister; // or api call
-                                                        const authApi = (await import('../api/authApi')).default;
-                                                        await authApi.post('/auth/resend-verification', { email: siEmail.trim() });
-                                                        setSiError('Verification email resent! Please check your inbox.');
-                                                    } catch {
-                                                        setSiError('Failed to resend verification email.');
-                                                    }
-                                                }}
-                                                style={{
-                                                    marginTop: '6px',
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    color: '#00796B',
-                                                    fontWeight: '700',
-                                                    fontSize: '11px',
-                                                    textDecoration: 'underline',
-                                                    cursor: 'pointer',
-                                                    padding: 0,
-                                                    display: 'block'
-                                                }}
-                                            >
-                                                Resend Verification Email →
-                                            </button>
+                                        {emailUnverified && (
+                                            <div style={{ marginTop: '8px' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleResendVerification}
+                                                    disabled={resendLoading}
+                                                    style={{ background: 'none', border: 'none', color: '#00796B', fontWeight: 700, fontSize: '12px', textDecoration: 'underline', cursor: resendLoading ? 'wait' : 'pointer', padding: 0, display: 'block', fontFamily: 'inherit' }}
+                                                >
+                                                    {resendLoading ? 'Sending...' : 'Resend Verification Email →'}
+                                                </button>
+                                                {resendMsg && (
+                                                    <div
+                                                        id="resend-verification-status-badge"
+                                                        style={{
+                                                            marginTop: '8px',
+                                                            padding: '6px 10px',
+                                                            borderRadius: '8px',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px',
+                                                            fontSize: '12px',
+                                                            fontWeight: '600',
+                                                            backgroundColor: resendStatus === 'success' ? '#ECFDF5' : '#FEF2F2',
+                                                            color: resendStatus === 'success' ? '#065F46' : '#991B1B',
+                                                            border: `1px solid ${resendStatus === 'success' ? '#A7F3D0' : '#FECACA'}`
+                                                        }}
+                                                    >
+                                                        {resendStatus === 'success' ? (
+                                                            <>
+                                                                <CheckCircle size={14} color="#059669" />
+                                                                <span>Verification email resent!</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <AlertCircle size={14} color="#DC2626" />
+                                                                <span>{resendMsg}</span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 </div>

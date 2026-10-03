@@ -34,7 +34,12 @@ export default function StaffPortal() {
         alignItems: 'center',
         boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <Link
+          to="/dashboard"
+          style={{ display: 'flex', alignItems: 'center', gap: '16px', textDecoration: 'none', color: '#ffffff', cursor: 'pointer', transition: 'opacity 0.2s ease' }}
+          className="cursor-pointer hover:opacity-90 transition-opacity"
+          title="Return to Main Dashboard"
+        >
           <div style={{
             width: '36px',
             height: '36px',
@@ -50,14 +55,14 @@ export default function StaffPortal() {
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <h2 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Health Bridge Staff Portal</h2>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 800, margin: 0 }}>Health Bridge Staff Portal</h2>
               <span style={{ fontSize: '0.75rem', backgroundColor: staffSession.accentColor, color: '#ffffff', fontWeight: 700, padding: '2px 10px', borderRadius: '12px' }}>
                 {staffSession.role.toUpperCase()}
               </span>
             </div>
             <span style={{ fontSize: '0.8rem', color: '#a8d5ce' }}>Staff ID: <strong>{staffSession.staffId}</strong></span>
           </div>
-        </div>
+        </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Link to="/emr/overview" style={{ color: '#b2ddd6', textDecoration: 'none', fontSize: '0.88rem', fontWeight: 600 }}>

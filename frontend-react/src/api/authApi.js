@@ -66,6 +66,21 @@ export const logout = () => {
     sessionStorage.removeItem('user');
 };
 
+export const resendVerification = async (email) => {
+    try {
+        const response = await api.post('/Auth/resend-verification', { email });
+        return { data: response.data, status: response.status };
+    } catch (error) {
+        const message = extractErrorMessage(error, 'Failed to resend verification email.');
+        const status = error.response?.status || 500;
+        const err = new Error(message);
+        err.status = status;
+        err.response = error.response;
+        throw err;
+    }
+};
+
+
 // Named exports so components can do: import { api, getErrorMessage } from '../../api/authApi'
 export { api };
 export const getErrorMessage = extractErrorMessage;

@@ -57,7 +57,7 @@ public class AuthService : IAuthService
             PasswordHash = passwordHash,
             Role = UserRole.Patient,
             IsActive = true,
-            IsEmailVerified = true,
+            IsEmailVerified = false,
             EmailVerificationToken = verificationToken,
             EmailVerificationTokenExpiresAt = DateTime.UtcNow.AddHours(24),
             NicNumber = normalizedNic,
@@ -104,6 +104,11 @@ public class AuthService : IAuthService
         _context.Patients.Add(emrPatient);
         await _context.SaveChangesAsync();
 
+        // Send verification email asynchronously (fire-and-forget — don't block registration)
+        var baseUrl = _configuration["AppUrl"] ?? "http://localhost:5173";
+        var verificationUrl = $"{baseUrl}/verify-email?token={user.EmailVerificationToken}";
+        _ = _emailSender.SendVerificationEmailAsync(user.Email, user.FullName, user.EmailVerificationToken!, verificationUrl);
+
         return await MapToUserResponseAsync(user);
     }
 
@@ -122,6 +127,11 @@ public class AuthService : IAuthService
         if (!user.IsActive)
         {
             throw new UnauthorizedAccessException("Account has been deactivated. Please contact support.");
+        }
+
+        if (!user.IsEmailVerified)
+        {
+            throw new InvalidOperationException("EMAIL_NOT_VERIFIED: Please verify your email address before signing in. Check your inbox for the verification link.");
         }
 
         var token = _jwtTokenGenerator.GenerateToken(user);
@@ -249,7 +259,11 @@ public class AuthService : IAuthService
         var verificationUrl = $"{baseUrl}/verify-email?token={user.EmailVerificationToken}";
 
         var sent = await _emailSender.SendVerificationEmailAsync(user.Email, user.FullName, user.EmailVerificationToken, verificationUrl);
-        return sent;
+        if (!sent)
+        {
+            throw new System.Net.Mail.SmtpException("Failed to send verification email. Please verify SMTP settings.");
+        }
+        return true;
     }
 
     private async Task<UserResponse> MapToUserResponseAsync(User user)

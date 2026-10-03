@@ -5,6 +5,9 @@ using HealthBridge.Api.Models.Appointments;
 using Microsoft.EntityFrameworkCore;
 using MimeKit;
 using MailKit.Net.Smtp;
+using QRCoder;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace HealthBridge.Api.Services;
 
@@ -473,22 +476,35 @@ public class AppointmentService : IAppointmentService
         _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}, BookingType={Type}",
             appointment.AppointmentNumber, doctor.Id, appointment.QueueNumber, appointment.BookingType);
 
-        // Send booking confirmation email asynchronously (fire-and-forget safe)
-        _ = SendChannelingEmailAsync(
-            appointment.PatientEmail,
-            appointment.PatientName,
-            isReservation ? $"Reservation Confirmed: {appointment.AppointmentNumber}" : $"Appointment Booking Created: {appointment.AppointmentNumber}",
-            $@"<h2>HealthBridge Channeling {(isReservation ? "Reservation" : "Booking")}</h2>
-               <p>Dear {appointment.PatientName},</p>
-               <p>Your appointment with <strong>{appointment.DoctorName}</strong> ({appointment.Specialization}) has been {(isReservation ? "reserved" : "created")}.</p>
-               <ul>
-                 <li><strong>Appointment Ref:</strong> {appointment.AppointmentNumber}</li>
-                 <li><strong>Queue Number:</strong> #{appointment.QueueNumber}</li>
-                 <li><strong>Date & Time:</strong> {appointment.AppointmentDate:yyyy-MM-dd} at {appointment.TimeSlot}</li>
-                 <li><strong>Status:</strong> {appointment.Status}</li>
-                 <li><strong>Fee:</strong> LKR {appointment.TotalAmount:N2}</li>
-               </ul>
-               <p>Please present your Check-in QR Token on arrival at the hospital channeling desk: <code>{appointment.QrToken}</code></p>");
+        // Send booking confirmation email with embedded QR code (fire-and-forget)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var qrBase64 = GenerateQrCodeBase64(appointment.QrToken.ToString());
+                var statusLabel = isReservation ? "Reserved (Pay on Arrival)" : "Pending Payment";
+                var emailSubject = isReservation
+                    ? $"\u2705 Reservation Confirmed \u2014 {appointment.AppointmentNumber}"
+                    : $"\uD83D\uDCCB Booking Created \u2014 {appointment.AppointmentNumber}";
+                var html = BuildAppointmentEmailHtml(
+                    appointment.PatientName,
+                    appointment.AppointmentNumber,
+                    appointment.DoctorName,
+                    appointment.Specialization,
+                    appointment.AppointmentDate.ToString("dddd, MMMM d yyyy"),
+                    appointment.TimeSlot,
+                    appointment.QueueNumber,
+                    appointment.TotalAmount,
+                    statusLabel,
+                    appointment.QrToken.ToString(),
+                    qrBase64);
+                await SendChannelingEmailAsync(appointment.PatientEmail, appointment.PatientName, emailSubject, html);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Email] Failed to send booking confirmation to {Email}", appointment.PatientEmail);
+            }
+        });
 
         return MapToDto(appointment, doctor.HospitalBranch);
     }
@@ -541,16 +557,36 @@ public class AppointmentService : IAppointmentService
         await _context.SaveChangesAsync();
         _logger.LogInformation("Payment processed for Appointment {AptNo}, Status Confirmed", apt.AppointmentNumber);
 
-        // Send confirmation email
-        _ = SendChannelingEmailAsync(
-            apt.PatientEmail,
-            apt.PatientName,
-            $"Payment Confirmed - HealthBridge Appointment #{apt.QueueNumber}",
-            $@"<h2>Payment Confirmation</h2>
-               <p>Dear {apt.PatientName},</p>
-               <p>Your payment of <strong>LKR {apt.TotalAmount:N2}</strong> for Appointment <strong>{apt.AppointmentNumber}</strong> has been successfully received.</p>
-               <p>Doctor: {apt.DoctorName} | Queue: #{apt.QueueNumber}</p>
-               <p>Your check-in QR Token is: <code>{apt.QrToken}</code></p>");
+        // Send payment confirmation email with embedded QR code (fire-and-forget)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var qrBase64 = GenerateQrCodeBase64(apt.QrToken.ToString());
+                var html = BuildAppointmentEmailHtml(
+                    apt.PatientName,
+                    apt.AppointmentNumber,
+                    apt.DoctorName,
+                    apt.Specialization,
+                    apt.AppointmentDate.ToString("dddd, MMMM d yyyy"),
+                    apt.TimeSlot,
+                    apt.QueueNumber,
+                    apt.TotalAmount,
+                    "Confirmed & Paid",
+                    apt.QrToken.ToString(),
+                    qrBase64,
+                    apt.PaymentReference);
+                await SendChannelingEmailAsync(
+                    apt.PatientEmail,
+                    apt.PatientName,
+                    $"\u2705 Payment Confirmed \u2014 Health Bridge Appointment #{apt.QueueNumber:D2}",
+                    html);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Email] Failed to send payment confirmation to {Email}", apt.PatientEmail);
+            }
+        });
 
         return MapToDto(apt, apt.Doctor?.HospitalBranch);
     }
@@ -1335,6 +1371,89 @@ public class AppointmentService : IAppointmentService
             QrCodeText = qrPayload,
             DisplaySummary = summary
         };
+    }
+
+    private static string GenerateQrCodeBase64(string payload)
+    {
+        try
+        {
+            using var qrGenerator = new QRCodeGenerator();
+            using var qrCodeData = qrGenerator.CreateQrCode(payload, QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new PngByteQRCode(qrCodeData);
+            var pngBytes = qrCode.GetGraphic(5);
+            return Convert.ToBase64String(pngBytes);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string BuildAppointmentEmailHtml(
+        string patientName,
+        string appointmentNumber,
+        string doctorName,
+        string specialization,
+        string dateStr,
+        string timeSlot,
+        int queueNumber,
+        decimal totalAmount,
+        string status,
+        string qrToken,
+        string qrBase64,
+        string? paymentRef = null)
+    {
+        var qrImgTag = !string.IsNullOrWhiteSpace(qrBase64)
+            ? $"<img src='data:image/png;base64,{qrBase64}' alt='Check-in QR Code' style='width:180px;height:180px;display:block;margin:0 auto;border:6px solid #e2e8f0;border-radius:8px;' />"
+            : $"<p style='font-family:monospace;font-size:11px;word-break:break-all;color:#334155;'>{qrToken}</p>";
+
+        var paymentSection = paymentRef != null
+            ? $"<li><strong>Payment Reference:</strong> {paymentRef}</li>"
+            : "";
+
+        return $"""
+            <div style='font-family:Arial,sans-serif;max-width:600px;margin:auto;background:#f8fafc;padding:0;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;'>
+              <!-- Header -->
+              <div style='background:linear-gradient(135deg,#0d9488 0%,#0369a1 100%);padding:28px 32px;text-align:center;'>
+                <h1 style='margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;'>&#x1F3E5; Health Bridge</h1>
+                <p style='margin:4px 0 0;color:rgba(255,255,255,0.85);font-size:13px;'>Appointment Confirmation</p>
+              </div>
+              <!-- Body -->
+              <div style='padding:28px 32px;background:#ffffff;'>
+                <p style='margin:0 0 16px;color:#1e293b;font-size:15px;'>Dear <strong>{patientName}</strong>,</p>
+                <p style='margin:0 0 20px;color:#475569;font-size:14px;line-height:1.6;'>Your appointment has been <strong style='color:#059669;'>{status}</strong>. Please find your booking details and check-in QR code below.</p>
+
+                <!-- Appointment details card -->
+                <div style='background:#f1f5f9;border-radius:12px;padding:20px;margin-bottom:24px;'>
+                  <table style='width:100%;border-collapse:collapse;font-size:14px;'>
+                    <tr><td style='padding:5px 0;color:#64748b;width:40%;'>Reference No.</td><td style='padding:5px 0;color:#1e293b;font-weight:700;font-family:monospace;'>{appointmentNumber}</td></tr>
+                    <tr><td style='padding:5px 0;color:#64748b;'>Doctor</td><td style='padding:5px 0;color:#1e293b;font-weight:600;'>Dr. {doctorName}</td></tr>
+                    <tr><td style='padding:5px 0;color:#64748b;'>Specialization</td><td style='padding:5px 0;color:#1e293b;'>{specialization}</td></tr>
+                    <tr><td style='padding:5px 0;color:#64748b;'>Date</td><td style='padding:5px 0;color:#1e293b;font-weight:600;'>{dateStr}</td></tr>
+                    <tr><td style='padding:5px 0;color:#64748b;'>Time Slot</td><td style='padding:5px 0;color:#1e293b;'>{timeSlot}</td></tr>
+                    <tr><td style='padding:5px 0;color:#64748b;'>Queue Number</td><td style='padding:5px 0;'><span style='background:#0d9488;color:#fff;padding:2px 10px;border-radius:999px;font-weight:700;font-size:15px;'>#{queueNumber:D2}</span></td></tr>
+                    <tr><td style='padding:5px 0;color:#64748b;'>Total Fee</td><td style='padding:5px 0;color:#1e293b;font-weight:700;'>LKR {totalAmount:N2}</td></tr>
+                    {paymentSection}
+                  </table>
+                </div>
+
+                <!-- QR Code section -->
+                <div style='text-align:center;padding:20px;background:#f0fdfa;border:2px dashed #99f6e4;border-radius:12px;margin-bottom:20px;'>
+                  <p style='margin:0 0 12px;font-size:13px;color:#0f766e;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;'>&#x1F4F1; Your Check-in QR Code</p>
+                  {qrImgTag}
+                  <p style='margin:10px 0 0;font-size:11px;color:#64748b;'>Present this QR code at the hospital reception desk to check in.</p>
+                </div>
+
+                <div style='background:#fff7ed;border-left:4px solid #f97316;border-radius:6px;padding:12px 16px;font-size:13px;color:#7c2d12;'>
+                  &#x26A0; Please arrive at least 10 minutes before your scheduled appointment time.
+                </div>
+              </div>
+              <!-- Footer -->
+              <div style='padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;'>
+                <p style='margin:0;font-size:11px;color:#94a3b8;'>Health Bridge Hospital &bull; Colombo, Sri Lanka<br/>This is an automated message. Do not reply to this email.</p>
+              </div>
+            </div>
+            """;
     }
 
     private async Task SendChannelingEmailAsync(string toEmail, string toName, string subject, string htmlBody)

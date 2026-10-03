@@ -332,7 +332,14 @@ const Dashboard = () => {
                 </div>
 
                 <div style={styles.footerBottom}>
-                    <p>© 2026 Health Bridge (Pvt) Ltd. All rights reserved.</p>
+                    <Link
+                        to="/admin/dashboard"
+                        className="cursor-pointer hover:opacity-90 transition-opacity"
+                        style={{ textDecoration: 'none', color: 'inherit' }}
+                        title="Return to Main Dashboard"
+                    >
+                        <p>© 2026 Health Bridge (Pvt) Ltd. All rights reserved.</p>
+                    </Link>
                     <div style={styles.footerBadges}>
                         <span style={styles.footerTag}>ISO 9001:2015</span>
                         <span style={styles.footerTag}>AI Vision Active</span>

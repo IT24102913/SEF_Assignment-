@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import logoImage from '../../../assets/mediz.png';
 import { Stethoscope, Microscope, Pill, ShieldAlert, KeyRound, ArrowRight, Lock, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { emrApi } from '../../../api/emrApi';
 
@@ -97,10 +99,18 @@ export default function RoleSelector({ onLogin }) {
   return (
     <div style={{ maxWidth: '860px', margin: '40px auto', padding: '0 20px' }}>
       <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 800, color: '#0d2b27', marginBottom: '8px' }}>
-          Health Bridge Staff & Admin Portal
-        </h1>
-        <p style={{ color: '#4d7a73', fontSize: '1rem', maxWidth: '600px', margin: '0 auto' }}>
+        <Link
+          to="/dashboard"
+          style={{ textDecoration: 'none', display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+          className="cursor-pointer hover:opacity-90 transition-opacity"
+          title="Return to Main Dashboard"
+        >
+          <img src={logoImage} alt="Health Bridge" style={{ height: '46px', objectFit: 'contain' }} />
+          <h1 style={{ fontSize: '2rem', fontWeight: 800, color: '#0d2b27', margin: 0 }}>
+            Health Bridge Staff & Admin Portal
+          </h1>
+        </Link>
+        <p style={{ color: '#4d7a73', fontSize: '1rem', maxWidth: '600px', margin: '8px auto 0' }}>
           Role-protected access: Staff can only log into portals matching their designated role or hospital administrator credentials.
         </p>
       </div>

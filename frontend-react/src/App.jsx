@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 import Login from './pages/Login';
+import VerifyEmail from './pages/VerifyEmail';
 import ProtectedRoute from './routes/ProtectedRoute';
 import AdminDashboard from './pages/admin/Dashboard';
 import PatientDashboard from './pages/patient/Dashboard';
@@ -72,8 +73,9 @@ function App() {
             />
             <Router>
                 <Routes>
-                    {/* Public Route */}
+                    {/* Public Routes */}
                     <Route path="/login" element={<Login />} />
+                    <Route path="/verify-email" element={<VerifyEmail />} />
                     <Route path="/" element={<RoleRedirect />} />
                     <Route path="/dashboard" element={<RoleRedirect />} />
 

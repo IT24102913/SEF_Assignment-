@@ -1,3 +1,4 @@
+using System.Net.Mail;
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs;
 using HealthBridge.Api.DTOs.Auth;
@@ -198,17 +199,20 @@ public class AuthController : ControllerBase
 
         try
         {
-            var sent = await _authService.ResendVerificationEmailAsync(normalizedEmail);
-            if (!sent)
-            {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Email delivery failed. Please verify server SMTP configuration." });
-            }
-
-            return Ok(new { message = "Verification link has been sent to your email address." });
+            await _authService.ResendVerificationEmailAsync(normalizedEmail);
+            return Ok(new { message = "Verification email resent! Please check your inbox." });
+        }
+        catch (SmtpException)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Failed to send verification email. Please verify SMTP settings." });
+        }
+        catch (MailKit.Net.Smtp.SmtpCommandException)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Failed to send verification email. Please verify SMTP settings." });
         }
         catch (Exception)
         {
-            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Email delivery failed. Please verify server SMTP configuration." });
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Failed to send verification email. Please verify SMTP settings." });
         }
     }
 }
