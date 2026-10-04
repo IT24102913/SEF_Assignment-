@@ -220,7 +220,7 @@ class PrescriptionSubmission {
       doctorName: json['doctorName']?.toString() ?? 'Consultant Doctor',
       notes: json['notes']?.toString() ?? '',
       imageUrl: json['imageUrl']?.toString(),
-      dateSubmitted: json['submittedAt'] != null ? DateTime.tryParse(json['submittedAt'].toString()) ?? DateTime.now() : DateTime.now(),
+      dateSubmitted: json['submittedAt'] != null ? DateTime.tryParse(json['submittedAt'].toString())?.toLocal() ?? DateTime.now() : DateTime.now(),
       status: json['status']?.toString() ?? 'Pending',
     );
   }
@@ -332,7 +332,7 @@ class PharmacyOrderModel {
       status: json['status']?.toString() ?? 'PendingVerification',
       totalAmount: (json['totalAmount'] is num) ? (json['totalAmount'] as num).toDouble() : double.tryParse(json['totalAmount']?.toString() ?? '0.0') ?? 0.0,
       adminNote: json['adminNote']?.toString(),
-      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now() : DateTime.now(),
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt'].toString())?.toLocal() ?? DateTime.now() : DateTime.now(),
       items: rawItems.map((i) => PharmacyOrderItemModel.fromJson(i)).toList(),
       patientConfirmed: json['patientConfirmed'] == true || json['patientConfirmed']?.toString().toLowerCase() == 'true',
     );

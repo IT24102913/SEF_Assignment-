@@ -58,7 +58,7 @@ import {
 } from 'lucide-react';
 
 const Orders = () => {
-    const { logout } = useAuth();
+    const { user, logout } = useAuth();
     const navigate = useNavigate();
 
     const [orders, setOrders] = useState([]);

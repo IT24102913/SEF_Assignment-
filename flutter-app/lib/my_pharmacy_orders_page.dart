@@ -609,7 +609,12 @@ class OrderCardItem extends StatelessWidget {
                         const Icon(Icons.calendar_today_outlined, size: 11, color: Color(0xFF64748B)),
                         const SizedBox(width: 4),
                         Text(
-                          '${order.createdAt.month}/${order.createdAt.day}/${order.createdAt.year} ${order.createdAt.hour}:${order.createdAt.minute.toString().padLeft(2, '0')}',
+                          () {
+                            final dt = order.createdAt.toLocal();
+                            final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+                            final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+                            return '${dt.month}/${dt.day}/${dt.year} $h:${dt.minute.toString().padLeft(2, '0')} $ampm';
+                          }(),
                           style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                         ),
                       ],
