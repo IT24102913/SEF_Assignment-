@@ -156,7 +156,31 @@ function App() {
                     } />
 
                     <Route path="/pharmacist/orders" element={
-                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist']}>
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist', 'HospitalAdmin', 'Staff']}>
+                            <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/admin/pharmacy/orders" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist', 'HospitalAdmin', 'Staff']}>
+                            <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacy/orders" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist', 'HospitalAdmin', 'Staff']}>
+                            <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/pharmacy/staff/orders" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist', 'HospitalAdmin', 'Staff']}>
+                            <Orders />
+                        </ProtectedRoute>
+                    } />
+
+                    <Route path="/admin/orders" element={
+                        <ProtectedRoute allowedRoles={['Admin', 'Pharmacist', 'HospitalAdmin', 'Staff']}>
                             <Orders />
                         </ProtectedRoute>
                     } />
