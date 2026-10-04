@@ -19,9 +19,9 @@ public class PharmacyEmailService : IPharmacyEmailService
 
     private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
     {
-        var fromEmail = _config["Brevo:FromEmail"] ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") ?? "Healthbridgeyourpharmacy@gmail.com";
-        var fromName = _config["Brevo:FromName"] ?? Environment.GetEnvironmentVariable("Brevo__FromName") ?? "Health Bridge Pharmacy";
-        var apiKey = _config["Brevo:ApiKey"];
+        var fromEmail = _config["PharmacyBrevo:FromEmail"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromEmail") ?? _config["Brevo:FromEmail"] ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") ?? "Healthbridgeyourpharmacy@gmail.com";
+        var fromName = _config["PharmacyBrevo:FromName"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromName") ?? _config["Brevo:FromName"] ?? Environment.GetEnvironmentVariable("Brevo__FromName") ?? "Health Bridge Pharmacy";
+        var apiKey = _config["PharmacyBrevo:ApiKey"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__ApiKey") ?? _config["Brevo:ApiKey"] ?? Environment.GetEnvironmentVariable("Brevo__ApiKey");
 
         _logger.LogInformation("[PharmacyEmail] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
 
@@ -63,14 +63,14 @@ public class PharmacyEmailService : IPharmacyEmailService
             }
         }
 
-        // 2. SMTP fallback (for local development or environments where port 587 is open)
+        // 2. SMTP fallback (uses existing Gmail appsettings.json configs with Port 587 -> Port 465 SSL fallback)
         try
         {
-            var smtpServer = _config["Brevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer") ?? "smtp.gmail.com";
-            var smtpPortStr = _config["Brevo:SmtpPort"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPort");
+            var smtpServer = _config["PharmacyBrevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpServer") ?? _config["Brevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer") ?? "smtp.gmail.com";
+            var smtpPortStr = _config["PharmacyBrevo:SmtpPort"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpPort") ?? _config["Brevo:SmtpPort"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPort");
             var smtpPort = !string.IsNullOrEmpty(smtpPortStr) && int.TryParse(smtpPortStr, out int p) ? p : 587;
-            var smtpUser = _config["Brevo:SmtpUser"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpUser") ?? "Healthbridgeyourpharmacy@gmail.com";
-            var smtpPass = _config["Brevo:SmtpPass"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPass") ?? "yquswsakkintccqc";
+            var smtpUser = _config["PharmacyBrevo:SmtpUser"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpUser") ?? _config["Brevo:SmtpUser"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpUser") ?? "Healthbridgeyourpharmacy@gmail.com";
+            var smtpPass = _config["PharmacyBrevo:SmtpPass"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpPass") ?? _config["Brevo:SmtpPass"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpPass") ?? "yquswsakkintccqc";
 
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(fromName, fromEmail));
@@ -80,14 +80,37 @@ public class PharmacyEmailService : IPharmacyEmailService
             var bodyBuilder = new BodyBuilder { HtmlBody = htmlContent };
             message.Body = bodyBuilder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            await client.ConnectAsync(smtpServer, smtpPort, MailKit.Security.SecureSocketOptions.Auto, cts.Token);
-            await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
-            await client.SendAsync(message, cts.Token);
-            await client.DisconnectAsync(true, cts.Token);
+            try
+            {
+                using var client = new SmtpClient();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var socketOptions = smtpPort == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls;
+                await client.ConnectAsync(smtpServer, smtpPort, socketOptions, cts.Token);
+                await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
+                await client.SendAsync(message, cts.Token);
+                await client.DisconnectAsync(true, cts.Token);
 
-            _logger.LogInformation("[PharmacyEmail] ✅ Email sent successfully to {Email} via SMTP", toEmail);
+                _logger.LogInformation("[PharmacyEmail] ✅ Email sent successfully to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, smtpPort);
+                return;
+            }
+            catch (Exception primaryEx)
+            {
+                _logger.LogWarning("[PharmacyEmail] ⚠️ Primary SMTP connection on port {Port} failed: {Msg}. Retrying via SSL Port 465...", smtpPort, primaryEx.Message);
+
+                if (smtpPort != 465)
+                {
+                    using var fallbackClient = new SmtpClient();
+                    using var fallbackCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    await fallbackClient.ConnectAsync(smtpServer, 465, MailKit.Security.SecureSocketOptions.SslOnConnect, fallbackCts.Token);
+                    await fallbackClient.AuthenticateAsync(smtpUser, smtpPass, fallbackCts.Token);
+                    await fallbackClient.SendAsync(message, fallbackCts.Token);
+                    await fallbackClient.DisconnectAsync(true, fallbackCts.Token);
+
+                    _logger.LogInformation("[PharmacyEmail] ✅ Email sent successfully to {Email} via SMTP SSL Port 465 fallback", toEmail);
+                    return;
+                }
+                throw;
+            }
         }
         catch (Exception ex)
         {
