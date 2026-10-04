@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Component } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { getDashboardPath } from '../../../utils/navigation';
 import { api, getErrorMessage } from '../../../api/authApi';
