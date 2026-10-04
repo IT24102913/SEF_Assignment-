@@ -13,12 +13,82 @@ namespace HealthBridge.Api.Controllers;
 public class DoctorAppointmentsController : ControllerBase
 {
     private readonly IAppointmentService _appointmentService;
+    private readonly IEmailSender _emailSender;
+    private readonly IConfiguration _config;
     private readonly ILogger<DoctorAppointmentsController> _logger;
 
-    public DoctorAppointmentsController(IAppointmentService appointmentService, ILogger<DoctorAppointmentsController> logger)
+    public DoctorAppointmentsController(
+        IAppointmentService appointmentService,
+        IEmailSender emailSender,
+        IConfiguration config,
+        ILogger<DoctorAppointmentsController> logger)
     {
         _appointmentService = appointmentService;
-        _logger = logger;
+        _emailSender        = emailSender;
+        _config             = config;
+        _logger             = logger;
+    }
+
+    /// <summary>
+    /// Live diagnostic endpoint to test email delivery and network reachability from Railway.
+    /// </summary>
+    [HttpGet("test-email-diagnostic")]
+    public async Task<IActionResult> TestEmailDiagnostic([FromQuery] string? email)
+    {
+        var targetEmail = string.IsNullOrWhiteSpace(email) ? "danansuriyateeranya@gmail.com" : email.Trim();
+        var diagnostic = new Dictionary<string, object>();
+
+        // 1. DNS Resolution
+        try
+        {
+            var hostAddresses = await System.Net.Dns.GetHostAddressesAsync("smtp.gmail.com");
+            diagnostic["Dns_smtp.gmail.com"] = hostAddresses.Select(a => $"{a.AddressFamily}: {a}").ToList();
+        }
+        catch (Exception dnsEx)
+        {
+            diagnostic["Dns_Error"] = dnsEx.Message;
+        }
+
+        // 2. Direct TCP Socket connectivity to Port 465, Port 587, and Port 2525
+        foreach (var port in new[] { 465, 587, 2525 })
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                using var tcp = new System.Net.Sockets.TcpClient();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await tcp.ConnectAsync("smtp.gmail.com", port, cts.Token);
+                sw.Stop();
+                diagnostic[$"Tcp_Port_{port}"] = $"CONNECTED in {sw.ElapsedMilliseconds}ms";
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                diagnostic[$"Tcp_Port_{port}"] = $"FAILED in {sw.ElapsedMilliseconds}ms: {ex.Message}";
+            }
+        }
+
+        // 3. Test sending actual email via IEmailSender
+        var sendSw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var sendResult = await _emailSender.SendEmailAsync(
+                targetEmail,
+                "Teeranya Danansuriya",
+                "Health Bridge Live Railway Email Diagnostic",
+                "<h2>Live Email Test from Railway Container</h2><p>This email was dispatched directly by the .NET backend running inside Railway.</p>");
+            sendSw.Stop();
+            diagnostic["EmailSender_Result"] = sendResult ? "SUCCESS (Delivered)" : "FAILURE (Returned false)";
+            diagnostic["EmailSender_ElapsedMs"] = sendSw.ElapsedMilliseconds;
+        }
+        catch (Exception sendEx)
+        {
+            sendSw.Stop();
+            diagnostic["EmailSender_Exception"] = sendEx.ToString();
+            diagnostic["EmailSender_ElapsedMs"] = sendSw.ElapsedMilliseconds;
+        }
+
+        return Ok(diagnostic);
     }
 
     /// <summary>

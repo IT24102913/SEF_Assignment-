@@ -81,27 +81,50 @@ public class EmailSender : IEmailSender
             ? _smtpSettings.SenderName
             : (Environment.GetEnvironmentVariable("SmtpSettings__SenderName") ?? _config["SmtpSettings:SenderName"] ?? "Health Bridge Hospital");
 
-        var brevoApiKey = _config["Brevo:ApiKey"];
+        var brevoApiKey = _config["Brevo:ApiKey"]
+            ?? Environment.GetEnvironmentVariable("Brevo__ApiKey")
+            ?? _config["PharmacyBrevo:ApiKey"]
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__ApiKey");
 
         bool hasInlineQr   = qrPngBytes is { Length: > 0 };
         bool hasValidSmtp  = !string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)
                              && !smtpUser!.StartsWith("YOUR_") && !smtpPass!.StartsWith("YOUR_");
         bool hasValidHttpApi = !string.IsNullOrWhiteSpace(brevoApiKey) && !brevoApiKey!.StartsWith("YOUR_");
 
-        // ── 2. Brevo REST — only used for plain-HTML mails (no QR attachment) ──
-        //    Brevo REST API does not support multipart/related linked resources,
-        //    so skip it when an inline QR is requested.
-        if (hasValidHttpApi && !hasInlineQr)
+        // ── 2. Brevo HTTPS REST API (Port 443 — firewall-immune) ────────────
+        if (hasValidHttpApi)
         {
             try
             {
-                var payload = new
+                object payload;
+                if (hasInlineQr)
                 {
-                    sender      = new { name = senderName, email = senderEmail },
-                    to          = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
-                    subject     = subject,
-                    htmlContent = htmlContent
-                };
+                    payload = new
+                    {
+                        sender      = new { name = senderName, email = senderEmail },
+                        to          = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
+                        subject     = subject,
+                        htmlContent = htmlContent,
+                        attachment  = new[]
+                        {
+                            new
+                            {
+                                name    = "appointment_qr.png",
+                                content = Convert.ToBase64String(qrPngBytes!)
+                            }
+                        }
+                    };
+                }
+                else
+                {
+                    payload = new
+                    {
+                        sender      = new { name = senderName, email = senderEmail },
+                        to          = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
+                        subject     = subject,
+                        htmlContent = htmlContent
+                    };
+                }
 
                 using var requestMsg = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
                 requestMsg.Headers.Add("api-key", brevoApiKey!);
@@ -127,7 +150,7 @@ public class EmailSender : IEmailSender
             }
         }
 
-        // ── 3. SMTP via MailKit — multipart/related when QR bytes are present ──
+        // ── 3. SMTP via MailKit — multi-port retry loop (465 SSL, 587 StartTLS, 2525) ──
         if (!hasValidSmtp)
         {
             _logger.LogWarning("[EmailSender] No valid SMTP credentials configured. Email to {Email} skipped.", toEmail);
@@ -143,14 +166,8 @@ public class EmailSender : IEmailSender
 
             if (hasInlineQr)
             {
-                // ── Build multipart/related using MimeKit BodyBuilder ──────────
-                // BodyBuilder.LinkedResources produces the exact MIME structure:
-                //   Content-Type: multipart/related
-                //     └─ text/html  (references cid:{imageCid})
-                //     └─ image/png  (Content-ID: <{imageCid}>; Content-Transfer-Encoding: base64)
-                // This is the format Gmail mobile app renders inline images from.
                 var builder = new BodyBuilder();
-                builder.HtmlBody = htmlContent; // must contain <img src="cid:{imageCid}">
+                builder.HtmlBody = htmlContent;
 
                 var linkedImg = (MimePart) builder.LinkedResources.Add(
                     "qr_code.png",
@@ -160,7 +177,6 @@ public class EmailSender : IEmailSender
                 linkedImg.ContentTransferEncoding  = ContentEncoding.Base64;
 
                 message.Body = builder.ToMessageBody();
-
                 _logger.LogInformation("[EmailSender] Built multipart/related with CID={Cid} ({Bytes} bytes)", imageCid, qrPngBytes!.Length);
             }
             else
@@ -168,47 +184,57 @@ public class EmailSender : IEmailSender
                 message.Body = new TextPart("html") { Text = htmlContent };
             }
 
-            var primarySocketOption = smtpPort == 465
-                ? MailKit.Security.SecureSocketOptions.SslOnConnect
-                : MailKit.Security.SecureSocketOptions.StartTls;
-
-            try
+            // Connection targets to attempt in priority order
+            var attempts = new List<(int Port, MailKit.Security.SecureSocketOptions Option)>
             {
-                using var client = new SmtpClient();
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                (smtpPort, smtpPort == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls),
+                (465, MailKit.Security.SecureSocketOptions.SslOnConnect),
+                (587, MailKit.Security.SecureSocketOptions.StartTls),
+                (2525, MailKit.Security.SecureSocketOptions.StartTls)
+            };
 
-                _logger.LogInformation("[EmailSender] Connecting to {Server}:{Port} ({Option})", smtpServer, smtpPort, primarySocketOption);
-                await client.ConnectAsync(smtpServer, smtpPort, primarySocketOption, cts.Token);
-                await client.AuthenticateAsync(smtpUser!, smtpPass!, cts.Token);
-                await client.SendAsync(message, cts.Token);
-                await client.DisconnectAsync(true, cts.Token);
-
-                _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, smtpPort);
-                return true;
+            // Deduplicate preserving order
+            var distinctAttempts = new List<(int Port, MailKit.Security.SecureSocketOptions Option)>();
+            foreach (var a in attempts)
+            {
+                if (!distinctAttempts.Any(x => x.Port == a.Port && x.Option == a.Option))
+                    distinctAttempts.Add(a);
             }
-            catch (Exception primaryEx) when (smtpPort != 465)
-            {
-                _logger.LogWarning(primaryEx, "[EmailSender] Primary SMTP port {Port} connection failed: {Msg}. Retrying via SSL Port 465 fallback...", smtpPort, primaryEx.Message);
 
+            Exception? lastEx = null;
+            foreach (var (targetPort, targetOption) in distinctAttempts)
+            {
                 try
                 {
-                    using var retryClient = new SmtpClient();
-                    using var retryCts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                    using var client = new SmtpClient();
+                    // Disable certificate revocation check which fails on Linux containers without system CRL cache
+                    client.CheckCertificateRevocation = false;
+                    client.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-                    await retryClient.ConnectAsync(smtpServer, 465, MailKit.Security.SecureSocketOptions.SslOnConnect, retryCts.Token);
-                    await retryClient.AuthenticateAsync(smtpUser!, smtpPass!, retryCts.Token);
-                    await retryClient.SendAsync(message, retryCts.Token);
-                    await retryClient.DisconnectAsync(true, retryCts.Token);
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    _logger.LogInformation("[EmailSender] Attempting SMTP connect to {Server}:{Port} ({Option})...", smtpServer, targetPort, targetOption);
 
-                    _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP SSL Port 465 fallback", toEmail);
+                    await client.ConnectAsync(smtpServer, targetPort, targetOption, cts.Token);
+                    await client.AuthenticateAsync(smtpUser!, smtpPass!, cts.Token);
+                    await client.SendAsync(message, cts.Token);
+                    await client.DisconnectAsync(true, cts.Token);
+
+                    _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, targetPort);
                     return true;
                 }
-                catch (Exception retryEx)
+                catch (Exception attemptEx)
                 {
-                    _logger.LogError(retryEx, "[EmailSender] SSL Port 465 fallback also failed for {Email}: {Msg}", toEmail, retryEx.Message);
-                    return false;
+                    lastEx = attemptEx;
+                    _logger.LogWarning("[EmailSender] SMTP attempt on {Server}:{Port} ({Option}) failed: {Msg}",
+                        smtpServer, targetPort, targetOption, attemptEx.Message);
                 }
             }
+
+            if (lastEx != null)
+            {
+                _logger.LogError(lastEx, "[EmailSender] All SMTP connection attempts failed for {Email}", toEmail);
+            }
+            return false;
         }
         catch (MailKit.Net.Smtp.SmtpCommandException smtpEx)
         {
