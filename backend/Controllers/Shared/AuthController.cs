@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs;
 using HealthBridge.Api.DTOs.Auth;
@@ -118,103 +117,6 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Password updated successfully." });
     }
 
-    /// <summary>
-    /// Verifies email address via security token.
-    /// </summary>
-    [HttpPost("verify-email")]
-    public async Task<IActionResult> VerifyEmail([FromBody] VerifyEmailRequest request)
-    {
-        if (string.IsNullOrWhiteSpace(request?.Token))
-        {
-            return BadRequest(new { message = "Verification token is required." });
-        }
-
-        try
-        {
-            var verified = await _authService.VerifyEmailAsync(request.Token);
-            if (!verified)
-            {
-                return BadRequest(new { message = "Invalid or expired verification token." });
-            }
-            return Ok(new { message = "Email verified successfully! You can now sign in to your account." });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// GET version for verification link clicks.
-    /// </summary>
-    [HttpGet("verify-email")]
-    public async Task<IActionResult> VerifyEmailGet([FromQuery] string token)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return BadRequest(new { message = "Verification token is required." });
-        }
-
-        try
-        {
-            var verified = await _authService.VerifyEmailAsync(token);
-            if (!verified)
-            {
-                return BadRequest(new { message = "Invalid or expired verification token." });
-            }
-            return Ok(new { message = "Email verified successfully! You can now sign in to your account." });
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(new { message = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Resends verification email to unverified user account.
-    /// </summary>
-    [HttpPost("resend-verification")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> ResendVerification([FromBody] ResendVerificationRequest request, [FromServices] ApplicationDbContext context)
-    {
-        if (string.IsNullOrWhiteSpace(request?.Email))
-        {
-            return BadRequest(new { message = "Email address is required." });
-        }
-
-        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var user = await context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
-        if (user == null)
-        {
-            return NotFound(new { message = "No account found matching this email address." });
-        }
-
-        if (user.IsEmailVerified)
-        {
-            return Ok(new { message = "Email address is already verified." });
-        }
-
-        try
-        {
-            await _authService.ResendVerificationEmailAsync(normalizedEmail);
-            return Ok(new { message = "Verification email resent! Please check your inbox." });
-        }
-        catch (SmtpException)
-        {
-            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Failed to send verification email. Please verify SMTP settings." });
-        }
-        catch (MailKit.Net.Smtp.SmtpCommandException)
-        {
-            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Failed to send verification email. Please verify SMTP settings." });
-        }
-        catch (Exception)
-        {
-            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Failed to send verification email. Please verify SMTP settings." });
-        }
-    }
 }
 
 public class ChangePasswordRequest
@@ -222,14 +124,4 @@ public class ChangePasswordRequest
     public string Email { get; set; } = string.Empty;
     public string CurrentPassword { get; set; } = string.Empty;
     public string NewPassword { get; set; } = string.Empty;
-}
-
-public class VerifyEmailRequest
-{
-    public string Token { get; set; } = string.Empty;
-}
-
-public class ResendVerificationRequest
-{
-    public string Email { get; set; } = string.Empty;
 }
