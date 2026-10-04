@@ -32,6 +32,7 @@ export const getSlots = (date) => api.get(`/slots?date=${date}`);
 // ─── Admin ────────────────────────────────────────────────────────────────────
 export const getAllBookings = (status = '') => api.get(`/admin/bookings?status=${status}`);
 export const getPendingBookings = () => api.get('/admin/bookings/pending');
+export const getActiveQueue = () => api.get('/admin/bookings/active-queue');
 export const approveBooking = (id, technicianId, notes) =>
   api.put(`/admin/bookings/${id}/approve?technicianId=${technicianId}`, { notes });
 export const rejectBooking = (id, technicianId, reason) =>

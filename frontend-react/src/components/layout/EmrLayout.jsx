@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import EmrFooter from './EmrFooter';
 import { emrApi } from '../../api/emrApi';
+import { getDashboardPath } from '../../utils/navigation';
 
 // ── Health Bridge brand teal palette
 const T = {
@@ -136,7 +137,22 @@ export default function EmrLayout() {
       <aside className="emr-sidebar">
         <div>
           {/* Brand Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0 8px 32px 8px' }}>
+          <Link
+            to={getDashboardPath(storedUser)}
+            className="cursor-pointer"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '0 8px 32px 8px',
+              textDecoration: 'none',
+              cursor: 'pointer',
+              transition: 'opacity 0.2s ease, transform 0.2s ease'
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(0.99)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; }}
+            title="Return to Main Dashboard"
+          >
             <div style={{
               width: '38px', height: '38px',
               backgroundColor: T.logoBox,
@@ -148,14 +164,14 @@ export default function EmrLayout() {
               <Activity size={22} />
             </div>
             <div>
-              <h2 style={{ color: '#ffffff', fontSize: '1.1rem', fontWeight: 800, lineHeight: 1.2, letterSpacing: '-0.3px' }}>
+              <h2 style={{ color: '#ffffff', fontSize: '1.1rem', fontWeight: 800, lineHeight: 1.2, letterSpacing: '-0.3px', margin: 0 }}>
                 Health Bridge
               </h2>
               <span style={{ color: T.sidebarText, fontSize: '0.7rem', letterSpacing: '0.8px', textTransform: 'uppercase', fontWeight: 600 }}>
                 EMR PORTAL
               </span>
             </div>
-          </div>
+          </Link>
 
           {/* Nav Links */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

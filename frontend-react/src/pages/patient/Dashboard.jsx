@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/authApi';
 import logoImage from '../../assets/mediz.png';
@@ -50,13 +50,12 @@ const Sidebar = ({ active, onNavigate, user, onLogout }) => {
     ];
     return (
         <aside style={ps.sidebar}>
-            <div
-                style={{ ...ps.sidebarLogo, cursor: 'pointer', transition: 'background 0.2s ease' }}
-                onClick={() => onNavigate('home')}
+            <Link
+                to="/patient/dashboard"
+                style={{ ...ps.sidebarLogo, cursor: 'pointer', textDecoration: 'none', transition: 'all 0.2s ease', display: 'block' }}
+                onClick={(e) => { e.preventDefault(); onNavigate('home'); }}
                 title="Go to Dashboard Overview"
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('home'); }}
+                className="cursor-pointer hover:opacity-90 transition-opacity"
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <img src={logoImage} alt="Health Bridge Private" style={ps.logoImg} />
@@ -65,7 +64,7 @@ const Sidebar = ({ active, onNavigate, user, onLogout }) => {
                         <span style={{ fontSize: '10px', fontWeight: 800, color: '#0D9488', letterSpacing: '1px', textTransform: 'uppercase' }}>PRIVATE</span>
                     </div>
                 </div>
-            </div>
+            </Link>
             <nav style={ps.sidebarNav}>
                 {navItems.map(({ id, label, icon: Icon }) => {
                     const isActive = active === id;
@@ -798,7 +797,12 @@ const CorporateFooter = () => (
     <footer style={{ background: 'linear-gradient(135deg, #047857 0%, #065F46 100%)', color: '#FFFFFF', padding: '44px 36px 24px', marginTop: 'auto', borderTop: '1px solid #059669' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', gap: '40px', paddingBottom: '32px', borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
             <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                <Link
+                    to="/patient/dashboard"
+                    className="cursor-pointer hover:opacity-90 transition-opacity"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', marginBottom: '14px', textDecoration: 'none', cursor: 'pointer', transition: 'opacity 0.2s ease' }}
+                    title="Return to Main Dashboard"
+                >
                     <div style={{ background: '#FFFFFF', padding: '3px 6px', borderRadius: '10px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
                         <img src={logoImage} alt="Health Bridge Private" style={{ height: '34px', objectFit: 'contain' }} />
                     </div>
@@ -806,7 +810,7 @@ const CorporateFooter = () => (
                         <span style={{ fontSize: '16px', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.3px', lineHeight: 1.1 }}>HEALTH BRIDGE</span>
                         <span style={{ fontSize: '10px', fontWeight: 800, color: '#A7F3D0', letterSpacing: '1.2px', textTransform: 'uppercase' }}>PRIVATE</span>
                     </div>
-                </div>
+                </Link>
                 <p style={{ fontSize: '13.5px', color: '#ECFDF5', lineHeight: 1.6, margin: '0 0 16px', maxWidth: '340px' }}>
                     Empowering patients with trusted digital healthcare, smart pharmacy fulfillment, and certified laboratory services.
                 </p>

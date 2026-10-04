@@ -23,6 +23,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   List<LabBooking> _bookings = [];
   bool _loading = true;
   String? _userId;
+  String? _userEmail;
   // 'ACTIVE' | 'RESULTS' | 'HISTORY' | 'ALL'
   String _activeTab = 'ACTIVE';
 
@@ -43,19 +44,21 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Future<void> _loadUser() async {
     final user = await AuthService.getUser();
     final effectiveId = user?.userId ?? (AuthState.userId?.isNotEmpty == true ? AuthState.userId : null);
-    if (effectiveId == null || effectiveId.isEmpty) {
+    final effectiveEmail = user?.email ?? (AuthState.email?.isNotEmpty == true ? AuthState.email : null);
+    if ((effectiveId == null || effectiveId.isEmpty) && (effectiveEmail == null || effectiveEmail.isEmpty)) {
       if (mounted) Navigator.pushReplacementNamed(context, '/login');
       return;
     }
-    _userId = effectiveId;
+    _userId = effectiveId ?? '1';
+    _userEmail = effectiveEmail;
     _load();
   }
 
   Future<void> _load() async {
-    if (_userId == null) return;
+    if (_userId == null && _userEmail == null) return;
     setState(() => _loading = true);
     try {
-      final b = await LabApiService.getMyBookings(_userId!);
+      final b = await LabApiService.getMyBookings(_userId ?? '1', email: _userEmail);
       if (mounted) {
         setState(() {
           _bookings = b;

@@ -66,5 +66,8 @@ public class Doctor
     public ICollection<DoctorSession> Sessions { get; set; } = new List<DoctorSession>();
 
     [JsonIgnore]
+    public ICollection<DoctorSchedule> Schedules { get; set; } = new List<DoctorSchedule>();
+
+    [JsonIgnore]
     public ICollection<DoctorAppointment> Appointments { get; set; } = new List<DoctorAppointment>();
 }

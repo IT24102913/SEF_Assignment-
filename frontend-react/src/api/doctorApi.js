@@ -44,7 +44,7 @@ export const getDoctorSessions = (id, date = '') => {
 // ─── Agentic AI Symptom Recommendation ───────────────────────────────────────
 
 export const recommendSpecialty = (symptoms) =>
-  api.post('/doctors/recommend-specialty', { symptoms });
+  api.post('/appointments/recommend-doctor', { symptoms });
 
 // ─── Appointments Management ─────────────────────────────────────────────────
 
@@ -94,7 +94,13 @@ export const deleteAppointment = (id) =>
 
 // ─── Check-In & Session Workflow ─────────────────────────────────────────────
 
-export const checkInAppointment = (id, qrToken) =>
+export const lookupAppointmentByQr = (token) =>
+  api.get('/doctorappointments/lookup-qr', { params: { token } });
+
+export const searchAppointmentsForDesk = (query) =>
+  api.get('/doctorappointments/desk-search', { params: { query } });
+
+export const checkInAppointment = (id, qrToken = null) =>
   api.post(`/doctorappointments/${id}/checkin`, { qrToken });
 
 export const getSessionQueue = (sessionId) =>
@@ -109,7 +115,7 @@ export const delaySession = (sessionId, expectedStartTime, reason = '') =>
 export const callNextPatient = (sessionId) =>
   api.post(`/doctorsessions/${sessionId}/callnext`);
 
-export const cancelSession = (sessionId) =>
-  api.post(`/doctorsessions/${sessionId}/cancel`);
+export const cancelSession = (sessionId, reason = '') =>
+  api.post(`/doctorsessions/${sessionId}/cancel`, { reason });
 
 export default api;

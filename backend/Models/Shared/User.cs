@@ -30,5 +30,9 @@ public class User
 
     public string? ProfileImage { get; set; }
 
+    public string? NicNumber { get; set; }
+
+    public bool IsEmailVerified { get; set; } = true;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

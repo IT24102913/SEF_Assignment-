@@ -3,6 +3,7 @@ using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.Appointments;
 using HealthBridge.Api.Models;
 using HealthBridge.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -85,31 +86,46 @@ public class DoctorsController : ControllerBase
     }
 
     /// <summary>
-    /// Agentic AI triage: Accepts patient symptoms and returns ranked medical specialties.
-    /// Pre-fills the specialty filter chip without automated transaction booking (Human-in-the-loop).
+    /// Gets recurring weekly schedule templates for a doctor.
+    /// </summary>
+    [HttpGet("{id}/schedules")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetDoctorSchedules(int id)
+    {
+        var schedules = await _appointmentService.GetDoctorSchedulesAsync(id);
+        return Ok(schedules);
+    }
+
+    /// <summary>
+    /// Updates recurring weekly schedule templates for a doctor.
+    /// </summary>
+    [HttpPut("{id}/schedules")]
+    [Authorize(Roles = "Admin,Doctor")]
+    public async Task<IActionResult> UpdateDoctorSchedules(int id, [FromBody] List<DoctorScheduleDto> schedules)
+    {
+        var result = await _appointmentService.UpdateDoctorSchedulesAsync(id, schedules);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Legacy route kept for backward compatibility.
+    /// Delegates to the new DoctorRecommendationAgent pipeline (RunAsync).
+    /// Prefer POST /api/appointments/recommend-doctor for new callers.
     /// </summary>
     [HttpPost("recommend-specialty")]
+    [AllowAnonymous]
     public async Task<IActionResult> RecommendSpecialty([FromBody] AIRecommendationRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.Symptoms))
-        {
             return BadRequest(new { message = "Please provide symptom description for analysis." });
-        }
 
-        var recommendation = await _recommendationAgent.RecommendSpecialtiesAsync(request.Symptoms);
+        // Resolve patient id from JWT (same pattern as DoctorRecommendationController)
+        int? patientId = null;
+        var nameId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(nameId, out var uid)) patientId = uid;
 
-        // Enrich with live consultant counts
-        var allSpecialties = await _appointmentService.GetSpecialtiesAsync();
-        foreach (var rec in recommendation.Recommendations)
-        {
-            var match = allSpecialties.FirstOrDefault(s => s.Name.Equals(rec.Specialty, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
-            {
-                rec.AvailableConsultants = match.ConsultantCount;
-            }
-        }
-
-        return Ok(recommendation);
+        var result = await _recommendationAgent.RunAsync(request.Symptoms.Trim(), patientId);
+        return Ok(result);
     }
 
     /// <summary>

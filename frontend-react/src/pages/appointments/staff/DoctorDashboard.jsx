@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { getDashboardPath } from '../../../utils/navigation';
 import {
   getDoctors, getDoctorQueue, updateAppointmentStatus,
   getDoctorSessions, getSessionQueue, callNextPatient
@@ -9,17 +11,20 @@ import {
   Stethoscope, User, Calendar, Clock, CheckCircle2,
   AlertCircle, RefreshCw, LogOut, ChevronRight, Activity,
   Phone, FileText, Check, ShieldCheck, UserCheck, Play,
-  Volume2, AlertTriangle, ArrowRight
+  Volume2, AlertTriangle, ArrowRight, ClipboardList, Info
 } from 'lucide-react';
 
 const DoctorDashboard = () => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [allDoctors, setAllDoctors] = useState([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState(null);
   const [currentDoctor, setCurrentDoctor] = useState(null);
 
   const [sessions, setSessions] = useState([]);
+  const [sessionTab, setSessionTab] = useState('today'); // 'today' | 'upcoming' | 'past'
+  const [selectedBookmarkDate, setSelectedBookmarkDate] = useState(null);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
 
@@ -34,6 +39,39 @@ const DoctorDashboard = () => {
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3500);
+  };
+
+  const playQueueChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.7);
+    } catch (e) {
+      console.warn('Audio chime unsupported or blocked', e);
+    }
+  };
+
+  // Safe room name resolution fallback across all possible DTO keys
+  const resolveRoomName = (sess) => {
+    return (
+      sess?.roomNumber ||
+      sess?.roomNo ||
+      sess?.room ||
+      sess?.hospitalBranch ||
+      currentDoctor?.roomNumber ||
+      'Suite 201'
+    );
   };
 
   useEffect(() => {
@@ -61,7 +99,7 @@ const DoctorDashboard = () => {
       if (Array.isArray(res.data) && res.data.length > 0) {
         setAllDoctors(res.data);
 
-        // Try to match logged-in user email or default to first doctor
+        // Match logged-in doctor by email or name, else default to first
         const matched = res.data.find(d =>
           (d.email && user?.email && d.email.toLowerCase() === user.email.toLowerCase()) ||
           (user?.fullName && d.fullName.toLowerCase().includes(user.fullName.toLowerCase()))
@@ -78,16 +116,46 @@ const DoctorDashboard = () => {
     }
   };
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   const loadDoctorSessions = async (docId) => {
     try {
       const res = await getDoctorSessions(docId);
       if (Array.isArray(res.data) && res.data.length > 0) {
-        setSessions(res.data);
-        // Default to first active session or first session
-        const active = res.data.find(s => s.sessionStatus === 'InProgress') || res.data[0];
-        setActiveSessionId(active.id);
-        setActiveSession(active);
-        setCurrentlyServing(active.currentlyServingQueueNumber || 0);
+        const sortedSessions = res.data;
+        setSessions(sortedSessions);
+
+        // Auto-selection priority:
+        // 1. Today's session that has active bookings (currentBookings > 0)
+        // 2. Today's session that is InProgress or Scheduled
+        // 3. Next upcoming session with active bookings (currentBookings > 0)
+        // 4. Any session with sessionDate == today
+        // 5. Next upcoming session
+        // 6. Fallback to latest session
+        const todayWithBookings = sortedSessions.find(s => s.sessionDate === todayStr && (s.currentBookings > 0));
+        const todayActive = sortedSessions.find(s => s.sessionDate === todayStr && (s.sessionStatus === 'InProgress' || s.sessionStatus === 'Scheduled'));
+        const nextUpcomingWithBookings = sortedSessions
+          .filter(s => s.sessionDate >= todayStr && (s.currentBookings > 0) && s.sessionStatus !== 'Cancelled')
+          .sort((a, b) => a.sessionDate.localeCompare(b.sessionDate))[0];
+        const anyToday = sortedSessions.find(s => s.sessionDate === todayStr);
+        const nextUpcoming = sortedSessions
+          .filter(s => s.sessionDate > todayStr && s.sessionStatus !== 'Cancelled')
+          .sort((a, b) => a.sessionDate.localeCompare(b.sessionDate))[0];
+        const fallback = sortedSessions[0];
+
+        const target = todayWithBookings || todayActive || nextUpcomingWithBookings || anyToday || nextUpcoming || fallback;
+        if (target) {
+          setActiveSessionId(target.id);
+          setActiveSession(target);
+          setCurrentlyServing(target.currentlyServingQueueNumber || 0);
+          if (target.sessionDate === todayStr || (target.isActive && target.sessionStatus === 'InProgress')) {
+            setSessionTab('today');
+          } else if (target.sessionDate > todayStr) {
+            setSessionTab('upcoming');
+          } else {
+            setSessionTab('past');
+          }
+        }
       } else {
         setSessions([]);
         setActiveSessionId(null);
@@ -105,12 +173,62 @@ const DoctorDashboard = () => {
     setCurrentDoctor(doc || null);
   };
 
-  const handleSelectSessionChange = (e) => {
-    const sId = parseInt(e.target.value, 10);
-    setActiveSessionId(sId);
-    const sess = sessions.find(s => s.id === sId);
-    setActiveSession(sess || null);
-    if (sess) setCurrentlyServing(sess.currentlyServingQueueNumber || 0);
+  const handleSelectSession = (sess) => {
+    setActiveSessionId(sess.id);
+    setActiveSession(sess);
+    setCurrentlyServing(sess.currentlyServingQueueNumber || 0);
+  };
+
+  // ── Tab switch: syncs selected session + queue with chosen tab ────────────
+  const handleTabSwitch = (tabId) => {
+    setSessionTab(tabId);
+    setSelectedBookmarkDate(null);
+
+    if (tabId === 'today') {
+      // Find the best active-today session
+      const activeToday = sessions.find(
+        s => s.sessionDate === todayStr &&
+          (s.sessionStatus === 'InProgress' || s.sessionStatus === 'Scheduled') &&
+          s.sessionStatus !== 'Cancelled'
+      ) || sessions.find(s => s.sessionDate === todayStr);
+
+      if (activeToday) {
+        setActiveSessionId(activeToday.id);
+        setActiveSession(activeToday);
+        setCurrentlyServing(activeToday.currentlyServingQueueNumber || 0);
+        // queue loads automatically via the activeSessionId useEffect
+      } else {
+        // No today session — clear everything
+        setActiveSessionId(null);
+        setActiveSession(null);
+        setCurrentlyServing(0);
+        setQueue([]);
+      }
+    } else if (tabId === 'upcoming') {
+      const upcomingPool = sessions.filter(
+        s => s.sessionDate > todayStr &&
+          s.sessionStatus !== 'Cancelled' &&
+          s.sessionStatus !== 'Completed'
+      ).sort((a, b) => a.sessionDate.localeCompare(b.sessionDate));
+
+      if (upcomingPool.length > 0) {
+        const first = upcomingPool[0];
+        setActiveSessionId(first.id);
+        setActiveSession(first);
+        setCurrentlyServing(first.currentlyServingQueueNumber || 0);
+      } else {
+        setActiveSessionId(null);
+        setActiveSession(null);
+        setCurrentlyServing(0);
+        setQueue([]);
+      }
+    } else {
+      // past — clear queue; user must manually click a past session card
+      setActiveSessionId(null);
+      setActiveSession(null);
+      setCurrentlyServing(0);
+      setQueue([]);
+    }
   };
 
   const fetchSessionQueueData = async (sessionId) => {
@@ -121,12 +239,18 @@ const DoctorDashboard = () => {
         setQueue(res.data.queue || []);
         setCurrentlyServing(res.data.currentlyServingQueueNumber || 0);
         if (activeSession) {
-          setActiveSession({ ...activeSession, sessionStatus: res.data.sessionStatus, delayReason: res.data.delayReason, expectedStartTime: res.data.expectedStartTime });
+          setActiveSession({
+            ...activeSession,
+            sessionStatus: res.data.sessionStatus,
+            delayReason: res.data.delayReason,
+            expectedStartTime: res.data.expectedStartTime,
+            roomNumber: res.data.roomNumber || activeSession.roomNumber,
+            hospitalBranch: res.data.hospitalBranch || activeSession.hospitalBranch
+          });
         }
       }
     } catch (err) {
       console.error('Failed to fetch session queue', err);
-      // Fallback to doctor queue
       fetchDoctorQueueData(selectedDoctorId);
     } finally {
       setLoading(false);
@@ -158,6 +282,7 @@ const DoctorDashboard = () => {
       const res = await callNextPatient(activeSessionId);
       const nextApt = res.data;
       setCurrentlyServing(nextApt.queueNumber);
+      playQueueChime();
       showToast(`Now Serving Queue #${String(nextApt.queueNumber).padStart(2, '0')}: ${nextApt.patientName}`, 'success');
       fetchSessionQueueData(activeSessionId);
     } catch (err) {
@@ -193,10 +318,25 @@ const DoctorDashboard = () => {
     setNotesModalApt(null);
   };
 
+  // Categorize sessions into 3 tabs
+  const todaySessions = sessions.filter(s => s.sessionDate === todayStr || (s.isActive && (s.sessionStatus === 'InProgress' || s.sessionStatus === 'Scheduled')));
+  const upcomingSessions = sessions.filter(s => s.sessionDate > todayStr && s.sessionStatus !== 'Cancelled' && s.sessionStatus !== 'Completed');
+  const pastSessions = sessions.filter(s => (s.sessionDate < todayStr && s.sessionDate !== todayStr) || s.sessionStatus === 'Completed' || s.sessionStatus === 'Cancelled');
+
+  const displayedSessions = sessionTab === 'today' ? todaySessions : sessionTab === 'upcoming' ? upcomingSessions : pastSessions;
+
+  // Find next booked session if current view has 0 bookings
+  const nextBookedSession = sessions
+    .filter(s => s.sessionDate >= todayStr && (s.currentBookings > 0) && s.id !== activeSessionId)
+    .sort((a, b) => a.sessionDate.localeCompare(b.sessionDate))[0];
+
+  const showNextBookedBanner = (activeSession?.currentBookings === 0 || queue.length === 0) && nextBookedSession;
+
   // KPIs
-  const waitingCount = queue.filter(a => a.status === 'Confirmed').length;
-  const inProgressCount = queue.filter(a => a.status === 'InProgress').length;
-  const completedCount = queue.filter(a => a.status === 'Completed').length;
+  const waitingCount = queue.filter(a => (a.queueStatus === 'Waiting' || a.checkedInAt) && a.status !== 'Completed' && a.status !== 'InProgress').length;
+  const inProgressCount = queue.filter(a => a.status === 'InProgress' || a.queueStatus === 'InConsultation').length;
+  const notCheckedInCount = queue.filter(a => a.queueStatus === 'NotCheckedIn' && !a.checkedInAt && a.status !== 'Completed' && a.status !== 'NoShow' && a.status !== 'InProgress').length;
+  const completedCount = queue.filter(a => a.status === 'Completed' || a.queueStatus === 'Completed').length;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F8FAFC', display: 'flex', flexDirection: 'column', fontFamily: 'inherit' }}>
@@ -228,8 +368,22 @@ const DoctorDashboard = () => {
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <img src={logoImage} alt="Logo" style={{ height: '36px' }} />
+        <Link
+          to={getDashboardPath(user)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'opacity 0.2s ease'
+          }}
+          className="cursor-pointer"
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+          title="Return to Dashboard"
+        >
+          <img src={logoImage} alt="Health Bridge" style={{ height: '36px' }} />
           <div>
             <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
               Doctor Consultation Portal
@@ -238,10 +392,10 @@ const DoctorDashboard = () => {
               Real-time patient queue, clinical notes, and session workflow
             </p>
           </div>
-        </div>
+        </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          {/* Doctor Switcher for Viva Evaluation Demo */}
+          {/* Doctor Switcher */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B' }}>DOCTOR:</span>
             <select
@@ -266,33 +420,6 @@ const DoctorDashboard = () => {
             </select>
           </div>
 
-          {/* Session Switcher */}
-          {sessions.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B' }}>SESSION:</span>
-              <select
-                value={activeSessionId || ''}
-                onChange={handleSelectSessionChange}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #CBD5E1',
-                  fontSize: '12px',
-                  fontWeight: '700',
-                  color: '#0369A1',
-                  backgroundColor: '#F0F9FF',
-                  outline: 'none'
-                }}
-              >
-                {sessions.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.sessionDate} • {s.timeFormatted} ({s.sessionStatus})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <button
             onClick={() => {
               if (activeSessionId) fetchSessionQueueData(activeSessionId);
@@ -314,6 +441,31 @@ const DoctorDashboard = () => {
             }}
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+
+          {/* EMR Portal Button */}
+          <button
+            onClick={() => navigate('/emr/staff')}
+            title="Open EMR Consultant Workspace"
+            style={{
+              padding: '6px 14px',
+              borderRadius: '6px',
+              border: '1px solid #00796B',
+              backgroundColor: '#00796B',
+              color: '#FFFFFF',
+              fontSize: '12px',
+              fontWeight: '700',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 1px 4px rgba(0,121,107,0.25)',
+              transition: 'background-color 0.2s, box-shadow 0.2s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#005f4f'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,121,107,0.4)'; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#00796B'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,121,107,0.25)'; }}
+          >
+            <ClipboardList size={14} /> EMR Portal
           </button>
 
           <button
@@ -340,7 +492,358 @@ const DoctorDashboard = () => {
       {/* Main Body */}
       <main style={{ padding: '24px 28px', maxWidth: '1280px', margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
 
-        {/* Doctor Identity Banner */}
+        {/* 3 Session Category Tabs */}
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '16px',
+          borderBottom: '1px solid #E2E8F0',
+          paddingBottom: '8px',
+          flexWrap: 'wrap'
+        }}>
+          {[
+            { id: 'today', label: "🟢 Today's Active Clinic", count: todaySessions.length },
+            { id: 'upcoming', label: "📅 Upcoming Schedule", count: upcomingSessions.length },
+            { id: 'past', label: "📜 Past Sessions History", count: pastSessions.length }
+          ].map(tab => {
+            const isActive = sessionTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  handleTabSwitch(tab.id);
+                  // for today/past chips: also select first session in pool
+                  if (tab.id !== 'upcoming') {
+                    const pool = tab.id === 'today' ? todaySessions : pastSessions;
+                    if (pool.length > 0 && (!activeSession || !pool.some(s => s.id === activeSession.id))) {
+                      handleSelectSession(pool[0]);
+                    }
+                  }
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: isActive ? '#00796B' : '#FFFFFF',
+                  color: isActive ? '#FFFFFF' : '#475569',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: isActive ? '0 2px 6px rgba(0,121,107,0.25)' : 'none',
+                  borderBottom: isActive ? '2px solid #004D40' : 'none'
+                }}
+              >
+                <span>{tab.label}</span>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : '#F1F5F9',
+                  color: isActive ? '#FFFFFF' : '#64748B',
+                  fontSize: '11px',
+                  fontWeight: '800'
+                }}>
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Next Booked Session Notice Banner (if today has 0 bookings or viewing empty slot) */}
+        {showNextBookedBanner && (
+          <div style={{
+            backgroundColor: '#EFF6FF',
+            border: '1.5px solid #3B82F6',
+            borderRadius: '10px',
+            padding: '12px 18px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            color: '#1E40AF'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Info size={20} color="#2563EB" />
+              <div>
+                <span style={{ fontWeight: '800', fontSize: '13px' }}>
+                  Notice: Your next session with booked patients is on {nextBookedSession.sessionDate} at {nextBookedSession.timeFormatted} ({nextBookedSession.currentBookings} Patient{nextBookedSession.currentBookings > 1 ? 's' : ''} Booked).
+                </span>
+                <div style={{ fontSize: '11px', color: '#3B82F6', marginTop: '2px' }}>
+                  Room: {resolveRoomName(nextBookedSession)} • Status: {nextBookedSession.sessionStatus}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (nextBookedSession.sessionDate > todayStr) setSessionTab('upcoming');
+                else setSessionTab('today');
+                handleSelectSession(nextBookedSession);
+              }}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#2563EB',
+                color: '#FFFFFF',
+                fontSize: '12px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              Switch to This Session <ArrowRight size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* ── Session Selector: bookmark tabs for Upcoming, chips for Today/Past ── */}
+        {sessionTab === 'upcoming' ? (() => {
+          // Build 7-day bookmark window starting from tomorrow
+          const bookmarkDays = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() + 1 + i);
+            const yyyy = d.getFullYear();
+            const mm   = String(d.getMonth() + 1).padStart(2, '0');
+            const dd   = String(d.getDate()).padStart(2, '0');
+            const dateStr = `${yyyy}-${mm}-${dd}`;
+            const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+            const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const slots = upcomingSessions.filter(s => s.sessionDate === dateStr);
+            return { dateStr, dayName, monthDay, slots };
+          });
+
+          // Default to first day with slots, or first day
+          const activeBmDate = selectedBookmarkDate ||
+            (bookmarkDays.find(d => d.slots.length > 0)?.dateStr ?? bookmarkDays[0].dateStr);
+
+          const filteredSlots = upcomingSessions.filter(s => s.sessionDate === activeBmDate);
+
+          return (
+            <div style={{ marginBottom: '20px' }}>
+              {/* ── Bookmark Tab Bar ── */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: '3px',
+                paddingLeft: '4px',
+                paddingRight: '4px',
+                overflowX: 'auto',
+              }}>
+                {bookmarkDays.map(({ dateStr, dayName, monthDay, slots }) => {
+                  const isActive = dateStr === activeBmDate;
+                  const hasSlots = slots.length > 0;
+                  return (
+                    <button
+                      key={dateStr}
+                      onClick={() => {
+                        setSelectedBookmarkDate(dateStr);
+                        const s = upcomingSessions.filter(x => x.sessionDate === dateStr);
+                        if (s.length > 0) handleSelectSession(s[0]);
+                      }}
+                      style={{
+                        flexShrink: 0,
+                        minWidth: '100px',
+                        padding: isActive ? '10px 12px 13px' : '8px 12px 11px',
+                        borderRadius: '10px 10px 0 0',
+                        border: isActive
+                          ? '1.5px solid #E2E8F0'
+                          : '1.5px solid #E2E8F0',
+                        borderBottom: isActive ? '1.5px solid #FFFFFF' : '1.5px solid #E2E8F0',
+                        borderTop: isActive ? '3px solid #059669' : '3px solid transparent',
+                        backgroundColor: isActive ? '#FFFFFF' : '#F1F5F9',
+                        color: isActive ? '#0f172a' : '#64748B',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        position: 'relative',
+                        zIndex: isActive ? 10 : 1,
+                        transform: isActive ? 'translateY(0)' : 'translateY(2px)',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isActive
+                          ? '0 -2px 8px rgba(5,150,105,0.10), -1px 0 0 #E2E8F0, 1px 0 0 #E2E8F0'
+                          : 'none',
+                      }}
+                    >
+                      <div style={{
+                        fontSize: '10px',
+                        fontWeight: '800',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                        color: isActive ? '#059669' : '#94A3B8',
+                        marginBottom: '2px'
+                      }}>
+                        {dayName}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        fontWeight: '700',
+                        color: isActive ? '#0f172a' : '#475569',
+                        marginBottom: '5px'
+                      }}>
+                        {monthDay}
+                      </div>
+                      <div style={{
+                        display: 'inline-block',
+                        padding: '2px 7px',
+                        borderRadius: '20px',
+                        fontSize: '10px',
+                        fontWeight: '800',
+                        backgroundColor: hasSlots
+                          ? (isActive ? '#D1FAE5' : '#E2E8F0')
+                          : (isActive ? '#FEE2E2' : '#E2E8F0'),
+                        color: hasSlots
+                          ? (isActive ? '#065F46' : '#64748B')
+                          : (isActive ? '#B91C1C' : '#94A3B8'),
+                      }}>
+                        {hasSlots ? `${slots.length} Slot${slots.length > 1 ? 's' : ''}` : 'Off'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Schedule Card (flush under tabs) ── */}
+              <div style={{
+                backgroundColor: '#FFFFFF',
+                border: '1.5px solid #E2E8F0',
+                borderRadius: '0 10px 10px 10px',
+                padding: '16px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+              }}>
+                {filteredSlots.length > 0 ? (
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                    {filteredSlots.map(sess => {
+                      const isSel = activeSessionId === sess.id;
+                      const isDelayed = sess.sessionStatus === 'Delayed';
+                      const isInProg  = sess.sessionStatus === 'InProgress';
+                      return (
+                        <div
+                          key={sess.id}
+                          onClick={() => handleSelectSession(sess)}
+                          style={{
+                            flexShrink: 0,
+                            minWidth: '210px',
+                            padding: '12px 16px',
+                            borderRadius: '10px',
+                            backgroundColor: isSel ? '#E0F2F1' : '#F8FAFC',
+                            border: isSel ? '2px solid #00796B' : '1.5px solid #E2E8F0',
+                            cursor: 'pointer',
+                            boxShadow: isSel ? '0 2px 8px rgba(0,121,107,0.15)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '11px', fontWeight: '800', color: isSel ? '#004D40' : '#475569' }}>
+                              {sess.sessionDate}
+                            </span>
+                            <span style={{
+                              fontSize: '10px', fontWeight: '800', padding: '2px 6px',
+                              borderRadius: '4px',
+                              backgroundColor: isInProg ? '#DCFCE7' : isDelayed ? '#FEF3C7' : '#F1F5F9',
+                              color: isInProg ? '#166534' : isDelayed ? '#B45309' : '#475569'
+                            }}>
+                              {sess.sessionStatus}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '14px', fontWeight: '800', color: '#1E293B' }}>
+                            {sess.timeFormatted}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#64748B', marginTop: '3px' }}>
+                            {resolveRoomName(sess)} • <strong>{sess.currentBookings || 0}/{sess.maxCapacity}</strong> booked
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '32px 16px',
+                    textAlign: 'center',
+                    color: '#94A3B8',
+                  }}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748B' }}>No sessions scheduled</div>
+                    <div style={{ fontSize: '12px', color: '#94A3B8', marginTop: '4px' }}>
+                      {bookmarkDays.find(d => d.dateStr === activeBmDate)?.monthDay} is a day off.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })() : (
+          /* ── Today / Past: original horizontal chip row ── */
+          displayedSessions.length > 0 ? (
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              overflowX: 'auto',
+              paddingBottom: '12px',
+              marginBottom: '16px'
+            }}>
+              {displayedSessions.map(sess => {
+                const isSel = activeSessionId === sess.id;
+                const isDelayed = sess.sessionStatus === 'Delayed';
+                const isInProg = sess.sessionStatus === 'InProgress';
+                return (
+                  <div
+                    key={sess.id}
+                    onClick={() => handleSelectSession(sess)}
+                    style={{
+                      flexShrink: 0,
+                      minWidth: '240px',
+                      padding: '12px 16px',
+                      borderRadius: '10px',
+                      backgroundColor: isSel ? '#E0F2F1' : '#FFFFFF',
+                      border: isSel ? '2px solid #00796B' : '1px solid #E2E8F0',
+                      cursor: 'pointer',
+                      boxShadow: isSel ? '0 2px 8px rgba(0,121,107,0.15)' : '0 1px 3px rgba(0,0,0,0.03)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '800', color: isSel ? '#004D40' : '#475569' }}>
+                        {sess.sessionDate === todayStr ? 'TODAY' : sess.sessionDate}
+                      </span>
+                      <span style={{
+                        fontSize: '10px', fontWeight: '800', padding: '2px 6px', borderRadius: '4px',
+                        backgroundColor: isInProg ? '#DCFCE7' : isDelayed ? '#FEF3C7' : '#F1F5F9',
+                        color: isInProg ? '#166534' : isDelayed ? '#B45309' : '#475569'
+                      }}>
+                        {sess.sessionStatus}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>{sess.timeFormatted}</div>
+                    <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
+                      Room: {resolveRoomName(sess)} • Bookings: <strong>{sess.currentBookings || 0}/{sess.maxCapacity}</strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{
+              padding: '16px',
+              backgroundColor: '#FFFFFF',
+              borderRadius: '10px',
+              border: '1px dashed #CBD5E1',
+              textAlign: 'center',
+              color: '#64748B',
+              fontSize: '13px',
+              marginBottom: '16px'
+            }}>
+              No {sessionTab} sessions scheduled for this consultant.
+            </div>
+          )
+        )}
+
+        {/* Doctor Header Banner Card */}
         {currentDoctor && (
           <div style={{
             background: 'linear-gradient(90deg, #004D40 0%, #00796B 100%)',
@@ -383,14 +886,14 @@ const DoctorDashboard = () => {
                     {currentDoctor.specialization}
                   </span>
                   <span style={{ fontSize: '11px', color: '#A7F3D0' }}>
-                    {currentDoctor.hospitalBranch}
+                    {currentDoctor.hospitalBranch || 'Health Bridge Hospital'}
                   </span>
                 </div>
                 <h2 style={{ margin: '4px 0', fontSize: '20px', fontWeight: '900' }}>
                   {currentDoctor.fullName}
                 </h2>
                 <div style={{ fontSize: '12px', color: '#E0F2F1' }}>
-                  {currentDoctor.qualifications} • Room: {currentDoctor.roomNumber} • Fee: LKR {currentDoctor.consultationFee.toLocaleString()}
+                  {currentDoctor.qualifications} • Room: <strong>{resolveRoomName(activeSession)}</strong> • Fee: LKR {currentDoctor.consultationFee?.toLocaleString()}
                 </div>
               </div>
             </div>
@@ -463,7 +966,7 @@ const DoctorDashboard = () => {
           </div>
         )}
 
-        {/* KPIs Bar */}
+        {/* KPIs Bar — shows zeroed when no session is selected */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -471,17 +974,20 @@ const DoctorDashboard = () => {
           marginBottom: '24px'
         }}>
           {[
-            { label: 'TOTAL IN QUEUE', count: queue.length, bg: '#F1F5F9', color: '#334155' },
-            { label: 'WAITING (CONFIRMED)', count: waitingCount, bg: '#E0F2FE', color: '#0284C7' },
-            { label: 'IN CONSULTATION', count: inProgressCount, bg: '#FFEDD5', color: '#C2410C' },
-            { label: 'COMPLETED TODAY', count: completedCount, bg: '#DCFCE7', color: '#15803D' }
+            { label: 'TOTAL BOOKED',         count: activeSession ? queue.length    : 0, bg: '#F1F5F9', color: '#334155' },
+            { label: 'CHECKED-IN / WAITING', count: activeSession ? waitingCount     : 0, bg: '#E0F2FE', color: '#0284C7' },
+            { label: 'IN CONSULTATION',      count: activeSession ? inProgressCount  : 0, bg: '#FFEDD5', color: '#C2410C' },
+            { label: 'AWAITING CHECK-IN',    count: activeSession ? notCheckedInCount: 0, bg: '#F1F5F9', color: '#64748B' },
+            { label: 'COMPLETED TODAY',      count: activeSession ? completedCount   : 0, bg: '#DCFCE7', color: '#15803D' }
           ].map((kpi, idx) => (
             <div key={idx} style={{
               backgroundColor: '#FFFFFF',
               borderRadius: '10px',
               padding: '14px 20px',
               border: '1px solid #E2E8F0',
-              borderLeft: `4px solid ${kpi.color}`
+              borderLeft: `4px solid ${kpi.color}`,
+              opacity: activeSession ? 1 : 0.45,
+              transition: 'opacity 0.2s'
             }}>
               <div style={{ fontSize: '11px', fontWeight: '800', color: '#64748B' }}>{kpi.label}</div>
               <div style={{ fontSize: '24px', fontWeight: '900', color: kpi.color, marginTop: '4px' }}>
@@ -499,16 +1005,41 @@ const DoctorDashboard = () => {
           border: '1px solid #E2E8F0',
           boxShadow: '0 2px 10px rgba(0,0,0,0.03)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
               Patient Consultation Queue
             </h3>
             <span style={{ fontSize: '12px', color: '#64748B' }}>
-              {activeSession ? `${activeSession.sessionDate} • ${activeSession.timeFormatted} (Room ${activeSession.roomNumber})` : 'Sorted by queue order'}
+              {activeSession
+                ? `${activeSession.sessionDate} • ${activeSession.timeFormatted} (Room: ${resolveRoomName(activeSession)})`
+                : 'No session selected'}
             </span>
           </div>
 
-          {loading ? (
+          {/* ── Empty state when no session is active ── */}
+          {!activeSession ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '52px 20px',
+              color: '#64748B'
+            }}>
+              <div style={{ fontSize: '40px', marginBottom: '10px' }}>🗓️</div>
+              <h4 style={{ margin: '0 0 6px 0', color: '#334155', fontSize: '15px', fontWeight: '800' }}>
+                {sessionTab === 'today'
+                  ? 'No active session for today'
+                  : sessionTab === 'past'
+                  ? 'Select a past session to review'
+                  : 'No upcoming session selected'}
+              </h4>
+              <p style={{ margin: 0, fontSize: '13px', maxWidth: '380px', marginLeft: 'auto', marginRight: 'auto' }}>
+                {sessionTab === 'today'
+                  ? 'There is no active clinic scheduled for today. Switch to the Upcoming Schedule tab to view and select a future session.'
+                  : sessionTab === 'past'
+                  ? 'Click on any past session card above to load its patient records and consultation history.'
+                  : 'Select a session from the bookmark tabs above to load its patient queue.'}
+              </p>
+            </div>
+          ) : loading ? (
             <div style={{ textAlign: 'center', padding: '60px 0', color: '#00796B' }}>
               <RefreshCw size={28} className="animate-spin" style={{ margin: '0 auto 10px auto' }} />
               <p>Loading patient appointments...</p>
@@ -525,8 +1056,11 @@ const DoctorDashboard = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {queue.map(apt => {
                 const isConfirmed = apt.status === 'Confirmed' || apt.status === 'Reserved';
-                const isInProgress = apt.status === 'InProgress';
-                const isCompleted = apt.status === 'Completed';
+                const isInProgress = apt.status === 'InProgress' || apt.queueStatus === 'InConsultation';
+                const isCompleted = apt.status === 'Completed' || apt.queueStatus === 'Completed';
+                const isNoShow = apt.status === 'NoShow';
+                const isCheckedIn = Boolean(apt.checkedInAt || apt.queueStatus === 'Waiting');
+                const isNotCheckedIn = apt.queueStatus === 'NotCheckedIn' && !apt.checkedInAt;
 
                 return (
                   <div
@@ -534,7 +1068,7 @@ const DoctorDashboard = () => {
                     style={{
                       backgroundColor: isInProgress ? '#FEFCE8' : '#FFFFFF',
                       borderRadius: '10px',
-                      border: isInProgress ? '2px solid #EAB308' : '1px solid #E2E8F0',
+                      border: isInProgress ? '2px solid #EAB308' : isCheckedIn ? '1.5px solid #99F6E4' : '1px solid #E2E8F0',
                       padding: '16px 20px',
                       display: 'flex',
                       alignItems: 'center',
@@ -549,8 +1083,8 @@ const DoctorDashboard = () => {
                         width: '46px',
                         height: '46px',
                         borderRadius: '8px',
-                        backgroundColor: isInProgress ? '#FEF08A' : '#E0F2F1',
-                        color: isInProgress ? '#854D0E' : '#004D40',
+                        backgroundColor: isInProgress ? '#FEF08A' : isCheckedIn ? '#CCFBF1' : '#F1F5F9',
+                        color: isInProgress ? '#854D0E' : isCheckedIn ? '#0F766E' : '#475569',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -562,16 +1096,63 @@ const DoctorDashboard = () => {
 
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px', flexWrap: 'wrap' }}>
-                          <span style={{
-                            backgroundColor: isConfirmed ? '#DCFCE7' : isInProgress ? '#FEF08A' : isCompleted ? '#E0F2FE' : '#FEE2E2',
-                            color: isConfirmed ? '#15803D' : isInProgress ? '#854D0E' : isCompleted ? '#0369A1' : '#B91C1C',
-                            fontSize: '10px',
-                            fontWeight: '800',
-                            padding: '2px 6px',
-                            borderRadius: '4px'
-                          }}>
-                            {apt.status}
-                          </span>
+                          {/* Main Queue State Badge */}
+                          {isInProgress ? (
+                            <span style={{
+                              backgroundColor: '#FEF08A',
+                              color: '#854D0E',
+                              fontSize: '10px',
+                              fontWeight: '800',
+                              padding: '2px 8px',
+                              borderRadius: '4px'
+                            }}>
+                              🟡 In Consultation
+                            </span>
+                          ) : isCheckedIn ? (
+                            <span style={{
+                              backgroundColor: '#DCFCE7',
+                              color: '#15803D',
+                              fontSize: '10px',
+                              fontWeight: '800',
+                              padding: '2px 8px',
+                              borderRadius: '4px'
+                            }}>
+                              🟢 Checked-In at Desk (Waiting)
+                            </span>
+                          ) : isCompleted ? (
+                            <span style={{
+                              backgroundColor: '#E0F2FE',
+                              color: '#0369A1',
+                              fontSize: '10px',
+                              fontWeight: '800',
+                              padding: '2px 8px',
+                              borderRadius: '4px'
+                            }}>
+                              🔵 Completed
+                            </span>
+                          ) : isNoShow ? (
+                            <span style={{
+                              backgroundColor: '#FEE2E2',
+                              color: '#B91C1C',
+                              fontSize: '10px',
+                              fontWeight: '800',
+                              padding: '2px 8px',
+                              borderRadius: '4px'
+                            }}>
+                              🔴 No Show
+                            </span>
+                          ) : (
+                            <span style={{
+                              backgroundColor: '#F1F5F9',
+                              color: '#64748B',
+                              fontSize: '10px',
+                              fontWeight: '800',
+                              padding: '2px 8px',
+                              borderRadius: '4px'
+                            }}>
+                              ⚪ Not Yet Checked-In
+                            </span>
+                          )}
 
                           <span style={{
                             backgroundColor: apt.bookingType === 'Reservation' ? '#FEF9C3' : '#E0F2FE',
@@ -597,19 +1178,6 @@ const DoctorDashboard = () => {
                             </span>
                           )}
 
-                          {apt.queueStatus && (
-                            <span style={{
-                              backgroundColor: apt.queueStatus === 'InConsultation' ? '#FEF08A' : apt.queueStatus === 'Waiting' ? '#E0F2FE' : '#F1F5F9',
-                              color: apt.queueStatus === 'InConsultation' ? '#854D0E' : apt.queueStatus === 'Waiting' ? '#0369A1' : '#475569',
-                              fontSize: '10px',
-                              fontWeight: '700',
-                              padding: '2px 6px',
-                              borderRadius: '4px'
-                            }}>
-                              Queue: {apt.queueStatus}
-                            </span>
-                          )}
-
                           <span style={{ fontSize: '11px', color: '#64748B' }}>
                             Ref: {apt.appointmentNumber}
                           </span>
@@ -631,7 +1199,7 @@ const DoctorDashboard = () => {
 
                     {/* Doctor Actions */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      {isConfirmed && (
+                      {(isConfirmed || isCheckedIn) && !isInProgress && !isCompleted && !isNoShow && (
                         <button
                           onClick={() => handleStatusChange(apt.id, 'InProgress')}
                           disabled={actionLoading}
@@ -675,7 +1243,7 @@ const DoctorDashboard = () => {
                         </button>
                       )}
 
-                      {!isCompleted && (
+                      {!isCompleted && !isNoShow && (
                         <button
                           onClick={() => handleStatusChange(apt.id, 'NoShow')}
                           disabled={actionLoading}

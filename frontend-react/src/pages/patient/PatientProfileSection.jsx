@@ -3,7 +3,8 @@ import api from '../../api/authApi';
 import { useAuth } from '../../context/AuthContext';
 import {
     User, Mail, Phone, MapPin, Shield, KeyRound,
-    CheckCircle2, AlertTriangle, Lock, FileText, Calendar
+    CheckCircle2, AlertTriangle, Lock, FileText, Calendar,
+    Loader2
 } from 'lucide-react';
 
 const PatientProfileSection = ({ user: initialUser, showToast }) => {
@@ -16,9 +17,9 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
         phoneNumber: currentUser?.phoneNumber || '',
         address: currentUser?.address || '',
         city: currentUser?.city || '',
-        nicNumber: currentUser?.nicNumber || '200114589210',
+        nicNumber: currentUser?.nicNumber || currentUser?.nic || '',
         gender: currentUser?.gender || 'Male',
-        dateOfBirth: currentUser?.dateOfBirth ? currentUser.dateOfBirth.split('T')[0] : '1998-05-14'
+        dateOfBirth: currentUser?.dateOfBirth ? currentUser.dateOfBirth.split('T')[0] : ''
     });
 
     const [passwordData, setPasswordData] = useState({
@@ -27,53 +28,118 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
         confirmPassword: ''
     });
 
+    const [initialLoading, setInitialLoading] = useState(true);
     const [loading, setLoading] = useState(false);
     const [pwdLoading, setPwdLoading] = useState(false);
+    const [phoneError, setPhoneError] = useState('');
+
+    // Sri Lankan Telephone validation criteria:
+    // Accept valid Sri Lankan phone number formats (e.g., +94 7X XXX XXXX, 07X XXX XXXX, or digits-only: 10 digits starting with 07, or 11/12 digits starting with +947 / 947).
+    const validateSriLankanPhone = (val) => {
+        if (!val || !val.trim()) {
+            return 'Telephone number is required.';
+        }
+        const clean = val.replace(/[\s\-]/g, '');
+        const sriLankanRegex = /^(?:\+94|0)?7[0-9]{8}$/;
+        if (!sriLankanRegex.test(clean)) {
+            return 'Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567';
+        }
+        return '';
+    };
 
     useEffect(() => {
         fetchProfile();
-    }, []);
+    }, [user?.id]);
 
     const fetchProfile = async () => {
-        if (!user?.id) return;
+        setInitialLoading(true);
         try {
-            const res = await api.get(`/Patients/${user.id}`);
-            if (res.data) {
+            // First try authenticated /users/profile endpoint
+            let data = null;
+            try {
+                const res = await api.get('/users/profile');
+                if (res.data) data = res.data;
+            } catch (err) {
+                // Fallback to /Patients/{id} if needed
+                if (user?.id) {
+                    const fallbackRes = await api.get(`/Patients/${user.id}`);
+                    if (fallbackRes.data) data = fallbackRes.data;
+                }
+            }
+
+            if (data) {
+                const resolvedPhone = data.phoneNumber || currentUser?.phoneNumber || '';
                 setProfileData({
-                    fullName: res.data.fullName || user.fullName || '',
-                    email: res.data.email || user.email || '',
-                    phoneNumber: res.data.phoneNumber || '',
-                    address: res.data.address || '',
-                    city: res.data.city || '',
-                    nicNumber: res.data.nicNumber || '200114589210',
-                    gender: res.data.gender || 'Male',
-                    dateOfBirth: res.data.dateOfBirth ? res.data.dateOfBirth.split('T')[0] : '1998-05-14'
+                    fullName: data.fullName || currentUser?.fullName || '',
+                    email: data.email || currentUser?.email || '',
+                    phoneNumber: resolvedPhone,
+                    address: data.address || currentUser?.address || '',
+                    city: data.city || currentUser?.city || '',
+                    nicNumber: data.nicNumber || data.nic || currentUser?.nicNumber || currentUser?.nic || '',
+                    gender: data.gender || currentUser?.gender || 'Male',
+                    dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split('T')[0] : ''
                 });
+
+                if (resolvedPhone) {
+                    setPhoneError(validateSriLankanPhone(resolvedPhone));
+                }
             }
         } catch (err) {
             console.warn('Profile fetch warning:', err);
+        } finally {
+            setInitialLoading(false);
         }
+    };
+
+    const handlePhoneChange = (e) => {
+        const val = e.target.value;
+        setProfileData(prev => ({ ...prev, phoneNumber: val }));
+        setPhoneError(validateSriLankanPhone(val));
     };
 
     const handleUpdateProfile = async (e) => {
         e.preventDefault();
+        const err = validateSriLankanPhone(profileData.phoneNumber);
+        if (err) {
+            setPhoneError(err);
+            showToast?.(err, 'error');
+            return;
+        }
+
         setLoading(true);
         try {
-            await api.put(`/Patients/${user?.id || 1}`, {
-                phoneNumber: profileData.phoneNumber,
+            // Try updating via /users/profile first, fallback to /Patients/{id}
+            try {
+                await api.put('/users/profile', {
+                    phoneNumber: profileData.phoneNumber.trim(),
+                    address: profileData.address,
+                    city: profileData.city,
+                    gender: profileData.gender
+                });
+            } catch {
+                await api.put(`/Patients/${user?.id || 1}`, {
+                    phoneNumber: profileData.phoneNumber.trim(),
+                    address: profileData.address,
+                    city: profileData.city,
+                    gender: profileData.gender
+                });
+            }
+
+            // Update local session user
+            const updatedUser = {
+                ...user,
+                phoneNumber: profileData.phoneNumber.trim(),
                 address: profileData.address,
                 city: profileData.city,
-                nicNumber: profileData.nicNumber, // immutable check handled backend side
-                gender: profileData.gender
-            });
-
-            // update local session user
-            const updatedUser = { ...user, phoneNumber: profileData.phoneNumber, address: profileData.address, city: profileData.city };
+                nicNumber: profileData.nicNumber
+            };
             localStorage.setItem('medix_user', JSON.stringify(updatedUser));
 
             showToast?.('Profile updated successfully!', 'success');
         } catch (err) {
-            const msg = err.response?.data?.message || 'Failed to update profile details.';
+            const msg = err.response?.data?.message ||
+                (err.response?.data?.errors?.PhoneNumber?.[0]) ||
+                'Failed to update profile details.';
             showToast?.(msg, 'error');
         } finally {
             setLoading(false);
@@ -108,6 +174,39 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
             setPwdLoading(false);
         }
     };
+
+    if (initialLoading) {
+        return (
+            <div style={{ padding: '40px 0', maxWidth: '850px', margin: '0 auto', textAlign: 'center' }}>
+                <div style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '18px',
+                    border: '1px solid #E2E8F0',
+                    padding: '48px 24px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '16px'
+                }}>
+                    <Loader2 size={36} color="#0D9488" className="animate-spin" />
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>
+                        Loading Verified Patient Profile...
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#64748B' }}>
+                        Retrieving authenticated medical identity and secure contact records
+                    </p>
+                    {/* Skeleton UI blocks */}
+                    <div style={{ width: '100%', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+                        <div style={{ height: '42px', backgroundColor: '#F1F5F9', borderRadius: '8px' }} />
+                        <div style={{ height: '42px', backgroundColor: '#F1F5F9', borderRadius: '8px' }} />
+                        <div style={{ height: '42px', backgroundColor: '#F1F5F9', borderRadius: '8px' }} />
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    const isSaveDisabled = loading || Boolean(phoneError) || !profileData.phoneNumber;
 
     return (
         <div style={{ padding: '24px 0', maxWidth: '850px', margin: '0 auto' }}>
@@ -158,23 +257,58 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                 <input
                                     type="text"
                                     disabled
-                                    value={profileData.nicNumber}
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1.5px solid #E2E8F0', backgroundColor: '#FEF3C7', color: '#92400E', fontSize: '14px', fontWeight: 800, cursor: 'not-allowed' }}
-                                    title="NIC cannot be modified once verified"
+                                    value={profileData.nicNumber || 'Not Specified'}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: '8px',
+                                        border: '1.5px solid #E2E8F0',
+                                        backgroundColor: profileData.nicNumber ? '#FEF3C7' : '#F8FAFC',
+                                        color: profileData.nicNumber ? '#92400E' : '#94A3B8',
+                                        fontSize: '14px',
+                                        fontWeight: 800,
+                                        cursor: 'not-allowed',
+                                        letterSpacing: profileData.nicNumber ? '0.5px' : 'normal'
+                                    }}
+                                    title="NIC is tied to verified health records and cannot be altered"
                                 />
-                                <span style={{ fontSize: '11px', color: '#B45309', display: 'block', marginTop: '4px' }}>Identities are tied to health records and cannot be altered.</span>
+                                <span style={{ fontSize: '11px', color: '#B45309', display: 'block', marginTop: '4px' }}>
+                                    {profileData.nicNumber
+                                        ? 'Identities are securely tied to medical history and cannot be altered.'
+                                        : 'No NIC on file. Please contact hospital reception to verify.'}
+                                </span>
                             </div>
 
                             <div>
-                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Telephone Number *</label>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>
+                                    Telephone Number (Sri Lankan Format) *
+                                </label>
                                 <input
                                     type="tel"
                                     required
                                     value={profileData.phoneNumber}
-                                    onChange={(e) => setProfileData({ ...profileData, phoneNumber: e.target.value })}
-                                    placeholder="e.g. 0764887396"
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1.5px solid #0D9488', fontSize: '14px', fontWeight: 600 }}
+                                    onChange={handlePhoneChange}
+                                    placeholder="e.g. +94771234567 or 0771234567"
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: '8px',
+                                        border: phoneError ? '1.5px solid #EF4444' : '1.5px solid #0D9488',
+                                        fontSize: '14px',
+                                        fontWeight: 600,
+                                        outline: 'none',
+                                        boxSizing: 'border-box'
+                                    }}
                                 />
+                                {phoneError ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '5px', color: '#DC2626', fontSize: '11.5px', fontWeight: 600 }}>
+                                        <AlertTriangle size={13} /> {phoneError}
+                                    </div>
+                                ) : (
+                                    <span style={{ fontSize: '11px', color: '#64748B', display: 'block', marginTop: '4px' }}>
+                                        Valid formats: 07XXXXXXXX or +947XXXXXXXX
+                                    </span>
+                                )}
                             </div>
                         </div>
 
@@ -187,7 +321,7 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                     value={profileData.address}
                                     onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
                                     placeholder="House No, Street Address..."
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px' }}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
                                 />
                             </div>
 
@@ -198,7 +332,7 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                     value={profileData.city}
                                     onChange={(e) => setProfileData({ ...profileData, city: e.target.value })}
                                     placeholder="e.g. Colombo, Kandy"
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px' }}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
                                 />
                             </div>
                         </div>
@@ -206,19 +340,23 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                             <button
                                 type="submit"
-                                disabled={loading}
+                                disabled={isSaveDisabled}
                                 style={{
-                                    backgroundColor: '#0D9488',
+                                    backgroundColor: isSaveDisabled ? '#94A3B8' : '#0D9488',
                                     color: '#FFFFFF',
                                     padding: '12px 24px',
                                     borderRadius: '10px',
                                     border: 'none',
                                     fontWeight: 800,
                                     fontSize: '14px',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 4px 14px rgba(13,148,136,0.35)'
+                                    cursor: isSaveDisabled ? 'not-allowed' : 'pointer',
+                                    boxShadow: isSaveDisabled ? 'none' : '0 4px 14px rgba(13,148,136,0.35)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
                                 }}
                             >
+                                {loading && <Loader2 size={16} className="animate-spin" />}
                                 {loading ? 'Saving Changes...' : 'Save Profile Changes'}
                             </button>
                         </div>
@@ -240,7 +378,7 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                 placeholder="Enter current password"
                                 value={passwordData.currentPassword}
                                 onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px' }}
+                                style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
                             />
                         </div>
 
@@ -250,10 +388,10 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                 <input
                                     type="password"
                                     required
-                                    placeholder="At least 6 characters"
+                                    placeholder="Minimum 6 characters"
                                     value={passwordData.newPassword}
                                     onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px' }}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
                                 />
                             </div>
 
@@ -262,10 +400,10 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                 <input
                                     type="password"
                                     required
-                                    placeholder="Re-type new password"
+                                    placeholder="Re-enter new password"
                                     value={passwordData.confirmPassword}
                                     onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px' }}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
                                 />
                             </div>
                         </div>
@@ -283,9 +421,13 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                     fontWeight: 800,
                                     fontSize: '14px',
                                     cursor: 'pointer',
-                                    boxShadow: '0 4px 14px rgba(2,132,199,0.35)'
+                                    boxShadow: '0 4px 14px rgba(2,132,199,0.35)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
                                 }}
                             >
+                                {pwdLoading && <Loader2 size={16} className="animate-spin" />}
                                 {pwdLoading ? 'Updating Password...' : 'Update Password'}
                             </button>
                         </div>

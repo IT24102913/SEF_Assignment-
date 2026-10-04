@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/authApi';
 import logoImage from '../../assets/mediz.png';
@@ -309,12 +309,17 @@ const StaffManagement = () => {
                         <ArrowLeft size={16} /> Back to Dashboard
                     </button>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Link
+                        to="/admin/dashboard"
+                        className="cursor-pointer hover:opacity-90 transition-opacity"
+                        style={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                        title="Return to Main Admin Dashboard"
+                    >
                         <img src={logoImage} alt="HealthBridge" style={{ height: '32px' }} />
                         <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#095e51' }}>
                             HealthBridge <span style={{ color: '#dc2626', fontWeight: 600, fontSize: '0.9rem' }}>| Staff & Doctor Roster Management</span>
                         </span>
-                    </div>
+                    </Link>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>

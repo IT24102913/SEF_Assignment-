@@ -77,5 +77,19 @@ public class DoctorAppointment
 
     public string? Notes { get; set; }
 
+    public BookingType BookingType { get; set; } = BookingType.OnlinePayment;
+
+    public Guid QrToken { get; set; } = Guid.NewGuid();
+
+    public DateTime? CheckedInAt { get; set; }
+
+    public int? CheckedInByUserId { get; set; }
+
+    public ArrivalStatus ArrivalStatus { get; set; } = ArrivalStatus.NotArrived;
+
+    public QueueStatus QueueStatus { get; set; } = QueueStatus.NotCheckedIn;
+
+    public DateTime? CalledAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

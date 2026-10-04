@@ -54,6 +54,7 @@ public class AuthService : IAuthService
             PasswordHash = passwordHash,
             Role = UserRole.Patient,
             IsActive = true,
+            NicNumber = normalizedNic,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -90,7 +91,7 @@ public class AuthService : IAuthService
             Email = normalizedEmail,
             ContactPhone = request.PhoneNumber.Trim(),
             Gender = request.Gender ?? "Other",
-            DateOfBirth = DateTime.UtcNow, // Set default until updated by patient profile
+            DateOfBirth = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -209,10 +210,13 @@ public class AuthService : IAuthService
     private async Task<UserResponse> MapToUserResponseAsync(User user)
     {
         string? patientCode = null;
+        PatientProfile? profile = null;
+
         if (user.Role == UserRole.Patient)
         {
             var p = await _context.Patients.FirstOrDefaultAsync(x => x.UserId == user.Id || x.Email.ToLower() == user.Email.ToLower());
             patientCode = p?.PatientCode;
+            profile = await _context.PatientProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id);
         }
 
         return new UserResponse
@@ -224,7 +228,10 @@ public class AuthService : IAuthService
             PatientCode = patientCode,
             IsPharmacyBlocked = user.IsPharmacyBlocked,
             BlockReason = user.BlockReason,
-            ProfileImage = user.ProfileImage
+            ProfileImage = user.ProfileImage,
+            NicNumber = profile?.NicNumber ?? user.NicNumber,
+            PhoneNumber = profile?.PhoneNumber,
+            IsEmailVerified = user.IsEmailVerified
         };
     }
 }

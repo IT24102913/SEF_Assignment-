@@ -127,9 +127,13 @@ class LabApiService {
   }
 
   // Bookings
-  static Future<List<LabBooking>> getMyBookings(String patientId) async {
+  static Future<List<LabBooking>> getMyBookings(String patientId, {String? email}) async {
     final parsedId = int.tryParse(patientId) ?? 1;
-    final res = await _client.get(Uri.parse('$baseUrl/bookings/my?patientId=$parsedId'));
+    var url = '$baseUrl/bookings/my?patientId=$parsedId';
+    if (email != null && email.trim().isNotEmpty) {
+      url += '&email=${Uri.encodeComponent(email.trim())}';
+    }
+    final res = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) {
       return (jsonDecode(res.body) as List).map((j) => LabBooking.fromJson(j)).toList();
     }

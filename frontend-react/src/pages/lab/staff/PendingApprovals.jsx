@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { getAllBookings, approveBooking, rejectBooking } from '../../../api/labApi';
+import { getPendingBookings, approveBooking, rejectBooking } from '../../../api/labApi';
 import LabLayout from '../../../components/layout/LabLayout';
 import toast from 'react-hot-toast';
 import { CheckCircle, XCircle, Eye, Brain, X, AlertTriangle, Clock, Layers } from 'lucide-react';
@@ -34,9 +34,29 @@ function AIBadge({ ai, score, status, nameMismatch, dateExpired, dateInvalid, te
   return <span className="badge badge-pending">Pending AI</span>;
 }
 
+const isMatchingInvestigation = (reqName, extractedList) => {
+  if (!reqName || !extractedList || !extractedList.length) return false;
+  const cleanReq = reqName.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+  const reqTokens = cleanReq.split(/\s+/).filter(w => w.length > 2);
+  return extractedList.some(item => {
+    const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, ' ').trim();
+    if (cleanItem.includes(cleanReq) || cleanReq.includes(cleanItem)) return true;
+    return reqTokens.some(tok => cleanItem.includes(tok));
+  });
+};
+
 const groupPendingBookings = (rawList) => {
   const groups = [];
-  for (const b of rawList) {
+  for (const rawB of rawList) {
+    const isMismatch = Boolean(rawB.aiTestMismatch && !isMatchingInvestigation(rawB.labTest?.name, rawB.aiExtractedInvestigations));
+    const filteredFlags = isMismatch
+      ? (rawB.aiFlagReasons || [])
+      : (rawB.aiFlagReasons || []).filter(r => !r.toLowerCase().includes('was not found on prescription slip'));
+    const b = {
+      ...rawB,
+      aiTestMismatch: isMismatch,
+      aiFlagReasons: filteredFlags
+    };
     const bCreated = new Date(b.createdAt || Date.now()).getTime();
     let matched = null;
     for (const g of groups) {
@@ -117,14 +137,9 @@ export default function PendingApprovals() {
 
   const load = (showSpinner = false) => {
     if (showSpinner) setLoading(true);
-    getAllBookings('')
+    getPendingBookings()
       .then(r => {
-        const all = r.data || [];
-        const pending = all.filter(b => 
-          b.status === 'PendingLabApproval' ||
-          b.status === 'PendingPrescriptionUpload' ||
-          b.status === 'PendingAIVerification'
-        );
+        const pending = r.data || [];
         setBookings(pending);
       })
       .catch(() => {})
@@ -133,7 +148,7 @@ export default function PendingApprovals() {
 
   useEffect(() => { 
     load(true);
-    const interval = setInterval(() => load(false), 4000);
+    const interval = setInterval(() => load(false), 20000);
     const handleUpdate = () => load(false);
     window.addEventListener('lab-booking-updated', handleUpdate);
     return () => {
@@ -239,7 +254,7 @@ export default function PendingApprovals() {
 
       <div className="card animate-slide-up">
         {loading ? <div className="spinner" /> : groupedAppointments.length === 0 ? (
-          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px' }}>
+          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px', textAlign: 'center' }}>
             <img src={emptyImg} alt="All Clear" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 20, boxShadow: 'var(--shadow)' }} />
             <p style={{ fontSize: 18, fontWeight: 600, marginTop: 24, color: 'var(--primary-dark)' }}>All clear!</p>
             <p className="text-muted">No pending bookings to review.</p>
@@ -599,11 +614,21 @@ export default function PendingApprovals() {
                 } catch {}
               }
 
+              if (testMismatch && isMatchingInvestigation(selected.labTest?.name, extractedTests)) {
+                testMismatch = false;
+              }
+              if (!testMismatch && flagReasons.length) {
+                flagReasons = flagReasons.filter(r => !r.toLowerCase().includes('was not found on prescription slip'));
+              }
+
               // Fallback for flag reasons from notes if not yet parsed
               if (!flagReasons.length && selected.aiVerification === 'Flagged' && selected.aiVerificationNotes) {
                 const cleanNotes = selected.aiVerificationNotes.replace(/^FLAGGED:\s*/i, '').trim();
                 if (cleanNotes) {
                   flagReasons = cleanNotes.split(/\s*•\s*|\s*\|\s*/).filter(Boolean);
+                  if (!testMismatch) {
+                    flagReasons = flagReasons.filter(r => !r.toLowerCase().includes('was not found on prescription slip'));
+                  }
                 }
               }
 

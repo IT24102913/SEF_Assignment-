@@ -51,6 +51,29 @@ public class LabAdminController : ControllerBase
         return Ok(bookings.Select(MapToDto));
     }
 
+    // GET /api/lab/admin/bookings/active-queue — Active specimen & diagnostic queue
+    [HttpGet("bookings/active-queue")]
+    public async Task<ActionResult<IEnumerable<LabBookingResponse>>> GetActiveQueue()
+    {
+        var activeStatuses = new[]
+        {
+            BookingStatus.Confirmed,
+            BookingStatus.SampleCollected,
+            BookingStatus.TestingInProgress,
+            BookingStatus.ResultVerification,
+            BookingStatus.ResultsReady,
+            BookingStatus.ReportDelivered
+        };
+
+        var bookings = await _db.LabBookings
+            .Include(b => b.LabTest)
+            .Where(b => activeStatuses.Contains(b.Status))
+            .OrderByDescending(b => b.CreatedAt)
+            .ToListAsync();
+
+        return Ok(bookings.Select(MapToDto));
+    }
+
     // PUT /api/lab/admin/bookings/{id}/approve — Approve a booking
     [HttpPut("bookings/{id:guid}/approve")]
     public async Task<ActionResult<LabBookingResponse>> Approve(Guid id, [FromBody] ApproveBookingRequest dto, [FromQuery] Guid technicianId)
@@ -267,6 +290,13 @@ public class LabAdminController : ControllerBase
             Confirmed = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.Confirmed),
             SampleCollected = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.SampleCollected),
             ResultsReady = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.ResultsReady),
+            PendingTestsCount = await _db.LabBookings.CountAsync(b => 
+                b.Status == BookingStatus.Confirmed ||
+                b.Status == BookingStatus.SampleCollected ||
+                b.Status == BookingStatus.TestingInProgress ||
+                b.Status == BookingStatus.ResultVerification ||
+                b.Status == BookingStatus.ResultsReady ||
+                b.Status == BookingStatus.ReportDelivered),
             Rejected = await _db.LabBookings.CountAsync(b => b.Status == BookingStatus.Rejected),
             TotalActiveTests = await _db.LabTests.CountAsync(t => t.IsActive),
             AIPreApproved = await _db.LabBookings.CountAsync(b => b.AIVerification == AIVerificationResult.PreApproved),

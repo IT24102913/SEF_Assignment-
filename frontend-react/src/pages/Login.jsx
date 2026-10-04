@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { register as apiRegister } from '../api/authApi';
 import loginBg from '../assets/hut.png';
@@ -13,8 +14,8 @@ import {
 /* ─── Validation helpers ──────────────────────────────────────── */
 const validate = {
     fullName: (v) => v.trim().length >= 2 ? '' : 'Full name must be at least 2 characters.',
-    email: (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? '' : 'Enter a valid email address (must contain @).',
-    phone: (v) => /^\d{10}$/.test(v.trim()) ? '' : 'Phone number must be exactly 10 digits.',
+    email: (v) => /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(v.trim()) ? '' : 'Enter a valid email address with a valid domain (e.g. name@domain.com).',
+    phone: (v) => /^(?:\+94|0)?7[0-9]{8}$/.test(v.replace(/[\s\-]/g, '')) ? '' : 'Enter a valid Sri Lankan phone number (e.g. +94771234567 or 0771234567).',
     nic: (v) => /^(\d{9}[VvXx]|\d{12})$/.test(v.trim()) ? '' : 'Enter a valid NIC (e.g. 199012345678 or 901234567V).',
     gender: (v) => ['Male', 'Female', 'Prefer not to say'].includes(v) ? '' : 'Please select a gender.',
     password: (v) => v.length >= 6 ? '' : 'Password must be at least 6 characters.',
@@ -216,10 +217,10 @@ const SuccessPopup = ({ onClose }) => (
             <h2 style={popupStyles.title}>Registration Successful! 🎉</h2>
             <p style={popupStyles.message}>
                 Your account has been created successfully.<br />
-                You can now sign in using your email and password.
+                You can now sign in with your email and password.
             </p>
             <button style={popupStyles.btn} onClick={onClose}>
-                Sign In Now →
+                Proceed to Sign In →
             </button>
         </div>
     </div>
@@ -367,9 +368,11 @@ const Login = () => {
                 <div style={s.card} className="animate-slide-up">
                     {/* Logo */}
                     <div style={s.logoSection}>
-                        <img src={logoImg} alt="Medi Bridge Logo" style={s.logo} />
-                        <h1 style={s.brand}>{tab === 'signin' ? 'Welcome Back' : 'Create Account'}</h1>
-                        <span style={s.subtitle}>Health Bridge Pharmacy Portal</span>
+                        <Link to="/dashboard" style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer' }} className="hover:opacity-90 transition-opacity" title="Health Bridge Portal">
+                            <img src={logoImg} alt="Health Bridge Logo" style={s.logo} />
+                            <h1 style={s.brand}>{tab === 'signin' ? 'Welcome Back' : 'Create Account'}</h1>
+                            <span style={s.subtitle}>Health Bridge Pharmacy Portal</span>
+                        </Link>
                     </div>
 
                     {/* Tabs */}

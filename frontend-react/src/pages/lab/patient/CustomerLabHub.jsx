@@ -47,31 +47,39 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
         }
     };
 
+    let featuredCache = null;
+
     const loadHubData = useCallback(async () => {
         setLoading(true);
         try {
             if (!isLoggedIn) {
-                // For non-logged-in guest patients: only fetch public lab tests catalogue
-                const allTestsRes = await getAllTests();
-                const rawTests = allTestsRes?.data || allTestsRes || [];
-                const list = Array.isArray(rawTests) ? rawTests : (rawTests.data || rawTests.items || []);
-                setFeaturedTests(list.slice(0, 4));
+                if (!featuredCache) {
+                    const allTestsRes = await getAllTests();
+                    const rawTests = allTestsRes?.data || allTestsRes || [];
+                    const list = Array.isArray(rawTests) ? rawTests : (rawTests.data || rawTests.items || []);
+                    featuredCache = list.slice(0, 4);
+                }
+                setFeaturedTests(featuredCache);
                 setBookings([]);
                 setStats({ total: 0, pending: 0, active: 0, reportsReady: 0 });
                 setLoading(false);
                 return;
             }
 
-            const resolvedPatientId = parseInt(user?.id || user?.userId) || 1;
-            const resolvedEmail = user?.email || '';
+            const resolvedPatientId = parseInt(user?.id || user?.userId || user?.Id || user?.UserId) || 1;
+            const resolvedEmail = (user?.email || user?.Email || user?.mail || '').trim();
 
-            const [myBookingsRes, allTestsRes] = await Promise.allSettled([
-                getMyBookings(resolvedPatientId, resolvedEmail),
-                getAllTests()
-            ]);
+            const promises = [getMyBookings(resolvedPatientId, resolvedEmail)];
+            if (!featuredCache) {
+                promises.push(getAllTests());
+            }
+
+            const results = await Promise.allSettled(promises);
+            const myBookingsRes = results[0];
+            const allTestsRes = results[1];
 
             let myBookings = [];
-            if (myBookingsRes.status === 'fulfilled') {
+            if (myBookingsRes?.status === 'fulfilled') {
                 const raw = myBookingsRes.value?.data || myBookingsRes.value || [];
                 myBookings = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
                 setBookings(myBookings);
@@ -96,11 +104,13 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                 setStats({ total, pending, active, reportsReady });
             }
 
-            if (allTestsRes.status === 'fulfilled') {
+            if (allTestsRes?.status === 'fulfilled') {
                 const rawTests = allTestsRes.value?.data || allTestsRes.value || [];
                 const list = Array.isArray(rawTests) ? rawTests : (rawTests.data || rawTests.items || []);
-                // Pick 4 popular/common tests for quick booking
-                setFeaturedTests(list.slice(0, 4));
+                featuredCache = list.slice(0, 4);
+                setFeaturedTests(featuredCache);
+            } else if (featuredCache) {
+                setFeaturedTests(featuredCache);
             }
         } catch (err) {
             console.error('Failed to load lab hub data:', err);
@@ -111,6 +121,15 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
 
     useEffect(() => {
         loadHubData();
+        const handleUpdate = () => loadHubData();
+        window.addEventListener('lab-booking-updated', handleUpdate);
+        window.addEventListener('focus', handleUpdate);
+        const interval = setInterval(handleUpdate, 30000);
+        return () => {
+            window.removeEventListener('lab-booking-updated', handleUpdate);
+            window.removeEventListener('focus', handleUpdate);
+            clearInterval(interval);
+        };
     }, [loadHubData]);
 
     const handleOpenBookingsWithFilter = (filter) => {

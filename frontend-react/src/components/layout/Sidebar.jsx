@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation, Link } from 'react-router-dom';
+import { getDashboardPath } from '../../utils/navigation';
 import { 
   LayoutDashboard, FlaskConical, CalendarCheck, ClipboardList, 
   TestTube, LogOut, ArrowLeft, ShieldCheck, Sparkles, UserCheck
@@ -94,14 +95,11 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div
-        className="sidebar-logo"
-        style={{ cursor: 'pointer', transition: 'background 0.2s ease' }}
-        onClick={() => navigate('/laboratory/dashboard')}
-        title="Go to Lab Dashboard"
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') navigate('/laboratory/dashboard'); }}
+      <Link
+        to={getDashboardPath(user)}
+        className="sidebar-logo cursor-pointer hover:opacity-90 transition-opacity"
+        style={{ cursor: 'pointer', textDecoration: 'none', transition: 'all 0.2s ease', display: 'block' }}
+        title="Go to Main Dashboard"
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <h2>🧪 LabSystem</h2>
@@ -117,8 +115,8 @@ export default function Sidebar() {
             {isAdmin ? 'ADMIN VIEW' : 'MEDIX LAB'}
           </span>
         </div>
-        <p>{isAdmin ? 'Hospital Administrator Portal' : 'Lab Technician Portal'}</p>
-      </div>
+        <p style={{ margin: 0 }}>{isAdmin ? 'Hospital Administrator Portal' : 'Lab Technician Portal'}</p>
+      </Link>
 
       {/* Main Admin Dashboard Link: ONLY visible to Admin users */}
       {isAdmin && (

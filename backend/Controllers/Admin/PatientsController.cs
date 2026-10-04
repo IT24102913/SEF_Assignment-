@@ -51,6 +51,11 @@ public class PatientsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PatientResponse>> UpdateProfile(int id, [FromBody] UpdatePatientProfileRequest request)
     {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
         var updated = await _patientService.UpdatePatientProfileAsync(id, request);
         if (updated == null)
         {

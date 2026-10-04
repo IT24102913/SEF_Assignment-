@@ -102,10 +102,13 @@ builder.Services.AddScoped<IMedicineService, MedicineService>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IPrescriptionService, PrescriptionService>();
 builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
+builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
+builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IPharmacyEmailService, PharmacyEmailService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
+// ✅ Register full-pipeline Doctor Recommendation Agent (triage router, not a diagnostician)
 // ✅ Register Vision AI Agents — PrescriptionValidatorAgent MUST be registered BEFORE PrescriptionSafetyAgent
 // so it is correctly injected into PrescriptionSafetyAgent's constructor (not resolved as null)
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionValidatorAgent>();
@@ -240,6 +243,18 @@ app.Use(async (context, next) =>
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Auto-ensure DB schema updates
+try
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""CheckedInByUserId"" integer NULL;");
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "Could not run automatic schema column migration.");
+}
 
 app.Run();
 

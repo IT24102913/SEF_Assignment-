@@ -127,11 +127,12 @@ public class PatientService : IPatientService
             PhoneNumber = profile?.PhoneNumber,
             Address = profile?.Address,
             City = profile?.City,
-            NicNumber = profile?.NicNumber,
+            NicNumber = profile?.NicNumber ?? user.NicNumber,
             DateOfBirth = profile?.DateOfBirth,
             Gender = profile?.Gender,
             EmergencyContact = profile?.EmergencyContact,
             IsActive = user.IsActive,
+            IsEmailVerified = user.IsEmailVerified,
             RegisteredAt = user.CreatedAt,
             TotalPrescriptions = rxCount,
             TotalOrders = orderCount

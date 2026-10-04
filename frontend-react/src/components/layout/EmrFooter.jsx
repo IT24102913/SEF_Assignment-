@@ -2,8 +2,13 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Shield, Phone, Mail, CheckCircle2 } from 'lucide-react';
 import logoImage from '../../assets/mediz.png';
+import { getDashboardPath } from '../../utils/navigation';
+import { useAuth } from '../../context/AuthContext';
 
 export default function EmrFooter() {
+  const { user } = useAuth();
+  const dashboardPath = getDashboardPath(user);
+
   return (
     <footer style={{
       marginTop: '36px',
@@ -25,7 +30,21 @@ export default function EmrFooter() {
         borderBottom: '1px solid rgba(255, 255, 255, 0.15)'
       }}>
         {/* Brand & Mini Subtitle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <Link
+          to={dashboardPath}
+          className="cursor-pointer"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            textDecoration: 'none',
+            cursor: 'pointer',
+            transition: 'opacity 0.2s ease, transform 0.2s ease'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.transform = 'scale(0.99)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.transform = 'scale(1)'; }}
+          title="Return to Main Dashboard"
+        >
           <div style={{
             background: '#FFFFFF',
             padding: '3px 7px',
@@ -50,7 +69,7 @@ export default function EmrFooter() {
               Clinical Sanctuary & Electronic Medical Records
             </p>
           </div>
-        </div>
+        </Link>
 
         {/* Slim Horizontal Quick Links */}
         <nav style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap', fontSize: '12.5px', fontWeight: 600 }}>

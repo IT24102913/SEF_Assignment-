@@ -116,6 +116,7 @@ public class AuthController : ControllerBase
         await context.SaveChangesAsync();
         return Ok(new { message = "Password updated successfully." });
     }
+
 }
 
 public class ChangePasswordRequest

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import { getDashboardPath } from '../../../utils/navigation';
 import pharmacyBanner from '../../../assets/phar.jpg';
 import logoImage from '../../../assets/mediz.png';
 import {
@@ -96,13 +97,25 @@ const PharmacyDashboard = () => {
                         >
                             <ArrowLeft size={16} /> Main Dashboard
                         </button>
-                        <div style={styles.logo} onClick={() => navigate('/admin/pharmacy')}>
+                        <Link
+                            to={getDashboardPath(user)}
+                            style={{
+                                ...styles.logo,
+                                textDecoration: 'none',
+                                color: 'inherit',
+                                transition: 'opacity 0.2s ease, transform 0.2s ease'
+                            }}
+                            className="cursor-pointer"
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                            title="Return to Dashboard"
+                        >
                             <img src={logoImage} alt="Health Bridge" style={styles.logoImg} />
                             <div>
                                 <h1 style={styles.logoTitle}>HEALTH BRIDGE PHARMACY</h1>
                                 <p style={styles.logoSubtitle}>Dispensary & Inventory Management</p>
                             </div>
-                        </div>
+                        </Link>
                     </div>
 
                     <div style={styles.headerActions}>
@@ -237,7 +250,20 @@ const PharmacyDashboard = () => {
             {/* Footer */}
             <footer style={styles.footer}>
                 <div style={styles.footerInner}>
-                    <p style={styles.footerText}>© 2026 Health Bridge (Pvt) Ltd. Pharmacy Dispensary System.</p>
+                    <Link
+                        to={getDashboardPath(user)}
+                        style={{
+                            textDecoration: 'none',
+                            color: 'inherit',
+                            cursor: 'pointer',
+                            transition: 'opacity 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.8'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                        title="Return to Dashboard"
+                    >
+                        <p style={styles.footerText}>© 2026 Health Bridge (Pvt) Ltd. Pharmacy Dispensary System.</p>
+                    </Link>
                     <div style={styles.footerBadges}>
                         <span style={styles.footerTag}>Automated AI Inventory</span>
                         <span style={styles.footerTag}>Good Pharmacy Practice (GPP)</span>

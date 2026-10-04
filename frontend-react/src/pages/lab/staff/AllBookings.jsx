@@ -270,7 +270,7 @@ export default function AllBookings() {
         </div>
 
         {loading ? <div className="spinner" /> : filtered.length === 0 ? (
-          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px' }}>
+          <div className="empty-state animate-fade-in" style={{ padding: '40px 20px', textAlign: 'center' }}>
             <img src={emptyImg} alt="No bookings" style={{ width: 180, height: 180, objectFit: 'cover', borderRadius: 20, boxShadow: 'var(--shadow)' }} />
             <p style={{ fontSize: 18, fontWeight: 600, marginTop: 24, color: 'var(--primary-dark)' }}>No bookings found.</p>
           </div>

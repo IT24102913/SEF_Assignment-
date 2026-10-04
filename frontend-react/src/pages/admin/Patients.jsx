@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/authApi';
 import logoImage from '../../assets/mediz.png';
@@ -161,13 +161,18 @@ const Patients = () => {
                         <button onClick={() => navigate('/admin/dashboard')} style={styles.backBtn}>
                             <ArrowLeft size={16} /> Admin Portal
                         </button>
-                        <div style={styles.logo} onClick={() => navigate('/admin/dashboard')}>
+                        <Link
+                            to="/admin/dashboard"
+                            className="cursor-pointer hover:opacity-90 transition-opacity"
+                            style={{ ...styles.logo, textDecoration: 'none', transition: 'all 0.2s ease' }}
+                            title="Return to Main Admin Dashboard"
+                        >
                             <img src={logoImage} alt="Health Bridge" style={styles.logoImg} />
                             <div>
                                 <h1 style={styles.logoTitle}>REGISTERED CUSTOMERS</h1>
                                 <p style={styles.logoSubtitle}>Patient & Client Account Directory</p>
                             </div>
-                        </div>
+                        </Link>
                     </div>
 
                     <div style={styles.headerActions}>
