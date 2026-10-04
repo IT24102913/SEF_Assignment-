@@ -3004,9 +3004,9 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 >
                   <Calendar size={15} /> Go to My Appointments
                 </button>
-              </div>{/* end action buttons */}
-              </div>{/* end card-body padding wrapper */}
-            </div>{/* end confirmation card */}
+              </div>
+              </div>
+            </div>
           )}
         </div>
       )}
