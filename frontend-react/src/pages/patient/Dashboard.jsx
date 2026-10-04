@@ -15,6 +15,7 @@ import DoctorChannelingSection from '../appointments/patient/DoctorChannelingSec
 import CustomerLabHub from '../lab/patient/CustomerLabHub';
 import PatientProfileSection from './PatientProfileSection';
 import PatientFeedbackSection from './PatientFeedbackSection';
+import PrescriptionViolationModal from '../../components/modals/PrescriptionViolationModal';
 
 import {
     HeartPulse, Pill, FlaskConical, FileText,
@@ -152,6 +153,7 @@ const Sidebar = ({ active, onNavigate, user, onLogout }) => {
 const DashboardHeader = ({ title, subtitle, user, onNavigate }) => {
     const [showNotifs, setShowNotifs] = useState(false);
     const [notifs, setNotifs] = useState([]);
+    const [selectedViolationNotif, setSelectedViolationNotif] = useState(null);
 
     useEffect(() => {
         try {
@@ -160,9 +162,13 @@ const DashboardHeader = ({ title, subtitle, user, onNavigate }) => {
         } catch (e) { }
     }, [showNotifs]);
 
-    const handleNotifClick = (targetOrder) => {
+    const handleNotifClick = (n) => {
         setShowNotifs(false);
-        onNavigate('orders');
+        if (n.isViolationWarning || n.title?.includes('VIOLATION') || n.title?.includes('WARNING') || n.message?.includes('violation')) {
+            setSelectedViolationNotif(n);
+        } else if (n.targetOrderNumber && onNavigate) {
+            onNavigate('orders');
+        }
     };
 
     return (
@@ -196,16 +202,17 @@ const DashboardHeader = ({ title, subtitle, user, onNavigate }) => {
                                     {notifs.map((n) => (
                                         <div
                                             key={n.id}
-                                            onClick={() => handleNotifClick(n.targetOrderNumber)}
+                                            onClick={() => handleNotifClick(n)}
                                             style={{
-                                                padding: '10px', borderRadius: '10px', background: '#F8FAFC',
-                                                border: '1px solid #E2E8F0', cursor: 'pointer', transition: 'background 0.2s'
+                                                padding: '10px', borderRadius: '10px', background: (n.isViolationWarning || n.title?.includes('VIOLATION')) ? '#FEF2F2' : '#F8FAFC',
+                                                border: (n.isViolationWarning || n.title?.includes('VIOLATION')) ? '1px solid #FECACA' : '1px solid #E2E8F0',
+                                                cursor: 'pointer', transition: 'background 0.2s'
                                             }}
                                         >
-                                            <div style={{ fontSize: '12.5px', fontWeight: 800, color: '#0F172A' }}>{n.title}</div>
-                                            <div style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>{n.message}</div>
-                                            <span style={{ fontSize: '10px', color: '#94A3B8', marginTop: '4px', display: 'block' }}>
-                                                {new Date(n.createdAt).toLocaleTimeString()} &bull; Click to View Order
+                                            <div style={{ fontSize: '12.5px', fontWeight: 800, color: (n.isViolationWarning || n.title?.includes('VIOLATION')) ? '#DC2626' : '#0F172A' }}>{n.title}</div>
+                                            <div style={{ fontSize: '11.5px', color: (n.isViolationWarning || n.title?.includes('VIOLATION')) ? '#991B1B' : '#475569', marginTop: '2px' }}>{n.message}</div>
+                                            <span style={{ fontSize: '10px', color: (n.isViolationWarning || n.title?.includes('VIOLATION')) ? '#B91C1C' : '#94A3B8', marginTop: '4px', display: 'block' }}>
+                                                {new Date(n.createdAt).toLocaleTimeString()} &bull; Click to View Details
                                             </span>
                                         </div>
                                     ))}
@@ -220,6 +227,14 @@ const DashboardHeader = ({ title, subtitle, user, onNavigate }) => {
                     <span style={ps.headerUserName}>{user?.fullName?.split(' ')[0] || 'Patient'}</span>
                 </div>
             </div>
+
+            {selectedViolationNotif && (
+                <PrescriptionViolationModal
+                    notification={selectedViolationNotif}
+                    onClose={() => setSelectedViolationNotif(null)}
+                    onNavigate={onNavigate}
+                />
+            )}
         </header>
     );
 };

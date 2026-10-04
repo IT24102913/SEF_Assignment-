@@ -8,9 +8,21 @@ export default function PrescriptionViolationModal({ notification, onClose, onNa
     const message = notification.message || `We detected that you uploaded an invalid non-medical image for prescription verification (Order #${orderNum}). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.`;
 
     const handleSendAppeal = () => {
+        const recipient = 'healthbridgeyourpharmacy@gmail.com';
         const subject = encodeURIComponent(`Prescription Violation Appeal - Order #${orderNum}`);
         const body = encodeURIComponent(`Dear Pharmacy Admin,\n\nI am writing to appeal the prescription violation warning for Order #${orderNum}.\n\nReason/Explanation:\n`);
-        window.location.href = `mailto:healthbridgeyourpharmacy@gmail.com?subject=${subject}&body=${body}`;
+
+        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${recipient}&su=${subject}&body=${body}`;
+        const mailtoUrl = `mailto:${recipient}?subject=${subject}&body=${body}`;
+
+        try {
+            const win = window.open(gmailUrl, '_blank');
+            if (!win || win.closed || typeof win.closed === 'undefined') {
+                window.location.href = mailtoUrl;
+            }
+        } catch (e) {
+            window.location.href = mailtoUrl;
+        }
     };
 
     return (

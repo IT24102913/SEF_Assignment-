@@ -122,6 +122,10 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const [addedCartNotification, setAddedCartNotification] = useState(null);
 
+    // Form Field Validation State
+    const [validationModalErrors, setValidationModalErrors] = useState(null);
+    const [fieldTouched, setFieldTouched] = useState({});
+
     // Notifications & Prescription Violation Modal State
     const [showNotifsDropdown, setShowNotifsDropdown] = useState(false);
     const [notificationsList, setNotificationsList] = useState([]);
@@ -398,6 +402,74 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const deliveryFee = 0;
     const cartTotal = cartSubtotal;
 
+    const validateField = (field, value) => {
+        const val = (value || '').trim();
+        if (field === 'name') {
+            if (!val) return 'Enter full name';
+            if (/[0-9]/.test(val)) return 'Full name cannot contain numbers';
+            if (!/^[a-zA-Z\s\.\-]+$/.test(val)) return 'Full name cannot contain symbols';
+            return '';
+        }
+        if (field === 'email') {
+            if (!val) return 'Enter email address';
+            if (!val.includes('@') || !/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/.test(val)) {
+                return 'Please enter a valid email address with @';
+            }
+            return '';
+        }
+        if (field === 'phone') {
+            if (!val) return 'Telephone field is empty';
+            if (val.length !== 10 || !/^\d{10}$/.test(val)) {
+                return 'Phone number must be exactly 10 digits';
+            }
+            return '';
+        }
+        if (field === 'address') {
+            if (!val) return 'Enter delivery address';
+            if (/^\d+$/.test(val)) return 'Delivery address cannot be only numbers';
+            return '';
+        }
+        return '';
+    };
+
+    const collectValidationErrors = () => {
+        const errors = [];
+
+        // Full Name
+        const nameVal = (customerName || '').trim();
+        if (!nameVal) errors.push('Full name field is empty');
+        else if (/[0-9]/.test(nameVal)) errors.push('Full name cannot contain numbers');
+        else if (!/^[a-zA-Z\s\.\-]+$/.test(nameVal)) errors.push('Full name cannot contain symbols');
+
+        // Email
+        const emailVal = (customerEmail || '').trim();
+        if (!emailVal) errors.push('Email address field is empty');
+        else if (!emailVal.includes('@') || !/^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/.test(emailVal)) {
+            errors.push('Email address field must contain @ and a valid domain (e.g. name@gmail.com)');
+        }
+
+        // Phone
+        const phoneVal = (customerPhone || '').trim();
+        if (!phoneVal) errors.push('Telephone field is empty');
+        else if (phoneVal.length !== 10 || !/^\d{10}$/.test(phoneVal)) {
+            errors.push('Phone number must be exactly 10 digits (numbers only)');
+        }
+
+        // Address
+        const addressVal = (deliveryAddress || '').trim();
+        if (!addressVal) errors.push('Delivery address field is empty');
+        else if (/^\d+$/.test(addressVal)) errors.push('Delivery address cannot be only numbers');
+
+        // Prescription Upload
+        if (isDirectRxOnly && !prescriptionPreview && !prescriptionFile) {
+            errors.push('Doctor prescription photo is mandatory for direct prescription orders');
+        } else if (hasRxItems && !prescriptionPreview && !prescriptionFile) {
+            errors.push('Doctor prescription photo is mandatory for prescription-restricted items');
+        }
+
+        return errors;
+    };
+
     const handlePlaceOrder = async (e) => {
         e.preventDefault();
 
@@ -406,18 +478,12 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             return;
         }
 
-        if (isDirectRxOnly && !prescriptionPreview && !prescriptionFile) {
-            showToastMessage('Doctor prescription photo is mandatory for prescription orders! Please upload your doctor prescription.', 'error');
-            return;
-        }
+        // Touch all fields to show inline red error indicators
+        setFieldTouched({ name: true, email: true, phone: true, address: true });
 
-        if (cart.length === 0 && !prescriptionPreview) {
-            showToastMessage('Please select items or attach a doctor prescription photo!', 'error');
-            return;
-        }
-
-        if (hasRxItems && !prescriptionPreview && !prescriptionFile) {
-            showToastMessage('Doctor prescription photo is mandatory for prescription-restricted items! Please upload your doctor prescription.', 'error');
+        const validationErrors = collectValidationErrors();
+        if (validationErrors.length > 0) {
+            setValidationModalErrors(validationErrors);
             return;
         }
 
@@ -977,12 +1043,12 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                                 >
                                                                     {itemConfig.buttons.map(btn => (
                                                                         <option key={btn.unitType} value={btn.unitType}>
-                                                                            {btn.label.replace('+ ', '📦 ')} (Rs. {btn.price.toFixed(2)})
+                                                                            {btn.label.replace('+ ', '')} (Rs. {btn.price.toFixed(2)})
                                                                         </option>
                                                                     ))}
                                                                     {!itemConfig.buttons.some(b => b.unitType === item.unitType) && (
                                                                         <option value={item.unitType}>
-                                                                            📦 1 {item.unitType} (Rs. {itemPrice.toFixed(2)})
+                                                                            1 {item.unitType} (Rs. {itemPrice.toFixed(2)})
                                                                         </option>
                                                                     )}
                                                                 </select>
@@ -1036,7 +1102,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 cursor: 'pointer'
                                             }}
                                         >
-                                            {"🚚 Home Delivery (+ Delivery Charges < 500)"}
+                                            {"Home Delivery (+ Delivery Charges < 500)"}
                                         </button>
                                         <button
                                             type="button"
@@ -1053,7 +1119,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 cursor: 'pointer'
                                             }}
                                         >
-                                            🏥 Counter Pickup (FREE)
+                                            Counter Pickup (FREE)
                                         </button>
                                     </div>
                                 </div>
@@ -1134,42 +1200,74 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                     <label style={ps.label}>Full Name *</label>
                                     <input
                                         type="text"
-                                        required
                                         value={customerName}
                                         onChange={e => setCustomerName(e.target.value)}
-                                        style={ps.input}
+                                        onBlur={() => setFieldTouched(prev => ({ ...prev, name: true }))}
+                                        style={{
+                                            ...ps.input,
+                                            borderColor: (fieldTouched.name || customerName) && validateField('name', customerName) ? '#DC2626' : ps.input.borderColor
+                                        }}
                                     />
+                                    {(fieldTouched.name || customerName) && validateField('name', customerName) && (
+                                        <span style={{ fontSize: '11.5px', color: '#DC2626', fontWeight: 600, marginTop: '4px', display: 'block' }}>
+                                            {validateField('name', customerName)}
+                                        </span>
+                                    )}
                                 </div>
                                 <div style={ps.formGroup}>
                                     <label style={ps.label}>Email Address (Order Confirmation Sent Here) *</label>
                                     <input
-                                        type="email"
-                                        required
+                                        type="text"
                                         placeholder="e.g. nirwandulaksha@gmail.com"
                                         value={customerEmail}
                                         onChange={e => setCustomerEmail(e.target.value)}
-                                        style={ps.input}
+                                        onBlur={() => setFieldTouched(prev => ({ ...prev, email: true }))}
+                                        style={{
+                                            ...ps.input,
+                                            borderColor: (fieldTouched.email || customerEmail) && validateField('email', customerEmail) ? '#DC2626' : ps.input.borderColor
+                                        }}
                                     />
+                                    {(fieldTouched.email || customerEmail) && validateField('email', customerEmail) && (
+                                        <span style={{ fontSize: '11.5px', color: '#DC2626', fontWeight: 600, marginTop: '4px', display: 'block' }}>
+                                            {validateField('email', customerEmail)}
+                                        </span>
+                                    )}
                                 </div>
                                 <div style={ps.formGroup}>
                                     <label style={ps.label}>Phone Number *</label>
                                     <input
                                         type="text"
-                                        required
                                         value={customerPhone}
                                         onChange={e => setCustomerPhone(e.target.value)}
-                                        style={ps.input}
+                                        onBlur={() => setFieldTouched(prev => ({ ...prev, phone: true }))}
+                                        style={{
+                                            ...ps.input,
+                                            borderColor: (fieldTouched.phone || customerPhone) && validateField('phone', customerPhone) ? '#DC2626' : ps.input.borderColor
+                                        }}
                                     />
+                                    {(fieldTouched.phone || customerPhone) && validateField('phone', customerPhone) && (
+                                        <span style={{ fontSize: '11.5px', color: '#DC2626', fontWeight: 600, marginTop: '4px', display: 'block' }}>
+                                            {validateField('phone', customerPhone)}
+                                        </span>
+                                    )}
                                 </div>
                                 <div style={ps.formGroup}>
                                     <label style={ps.label}>Delivery Address *</label>
                                     <textarea
                                         rows="2"
-                                        required
                                         value={deliveryAddress}
                                         onChange={e => setDeliveryAddress(e.target.value)}
-                                        style={ps.textarea}
+                                        onBlur={() => setFieldTouched(prev => ({ ...prev, address: true }))}
+                                        style={{
+                                            ...ps.textarea,
+                                            borderColor: (fieldTouched.address || deliveryAddress) && validateField('address', deliveryAddress) ? '#DC2626' : ps.textarea.borderColor
+                                        }}
                                     />
+                                    {(fieldTouched.address || deliveryAddress) && validateField('address', deliveryAddress) && (
+                                        <span style={{ fontSize: '11.5px', color: '#DC2626', fontWeight: 600, marginTop: '4px', display: 'block' }}>
+                                            {validateField('address', deliveryAddress)}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
@@ -1409,6 +1507,51 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Validation Error Red Pop-up Window */}
+            {validationModalErrors && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(5px)', zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                    <div style={{ backgroundColor: '#FEF2F2', padding: '28px', borderRadius: '20px', maxWidth: '440px', width: '100%', border: '1.5px solid #FECACA', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: '#FEE2E2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <ShieldAlert size={22} color="#DC2626" />
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '17px', color: '#991B1B', fontWeight: 800 }}>Missing / Invalid Field</h3>
+                                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#7F1D1D', fontWeight: 600 }}>Please correct the following mistakes before placing your order:</p>
+                            </div>
+                        </div>
+
+                        <div style={{ backgroundColor: '#FFFFFF', padding: '14px', borderRadius: '12px', border: '1px solid #FCA5A5', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {validationModalErrors.map((err, idx) => (
+                                <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: '#B91C1C', fontSize: '12.5px', fontWeight: 600 }}>
+                                    <span style={{ color: '#DC2626', fontWeight: 800 }}>•</span>
+                                    <span>{err}</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => setValidationModalErrors(null)}
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                backgroundColor: '#DC2626',
+                                color: '#FFFFFF',
+                                border: 'none',
+                                borderRadius: '10px',
+                                fontWeight: 800,
+                                fontSize: '13.5px',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 12px rgba(220,38,38,0.25)'
+                            }}
+                        >
+                            Fix Mistakes
+                        </button>
                     </div>
                 </div>
             )}
