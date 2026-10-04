@@ -318,26 +318,27 @@ const Orders = () => {
             let apiOrders = [];
             try {
                 const res = await api.get('/PharmacyOrders');
-                apiOrders = res.data || [];
+                apiOrders = Array.isArray(res.data) ? res.data.filter(Boolean) : [];
             } catch (err) {
                 console.warn('Unable to load orders from server API:', err);
             }
 
             let localOrders = [];
             try {
-                localOrders = JSON.parse(localStorage.getItem('medix_pharmacy_orders') || '[]');
+                const parsed = JSON.parse(localStorage.getItem('medix_pharmacy_orders') || '[]');
+                localOrders = Array.isArray(parsed) ? parsed.filter(Boolean) : [];
             } catch (e) { }
 
-            const existingIds = new Set(apiOrders.map(o => o.id));
-            const existingNums = new Set(apiOrders.map(o => o.orderNumber));
+            const existingIds = new Set(apiOrders.filter(Boolean).map(o => o.id));
+            const existingNums = new Set(apiOrders.filter(Boolean).map(o => o.orderNumber));
             for (const loc of localOrders) {
-                if (!existingIds.has(loc.id) && !existingNums.has(loc.orderNumber)) {
+                if (loc && !existingIds.has(loc.id) && !existingNums.has(loc.orderNumber)) {
                     apiOrders.push(loc);
                 }
             }
 
-            apiOrders.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-            setOrders(apiOrders);
+            apiOrders.sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0));
+            setOrders(apiOrders.filter(Boolean));
         } catch (err) {
             console.warn('Unable to load orders:', err);
             setOrders([]);
@@ -475,9 +476,10 @@ const Orders = () => {
     };
 
     const filteredOrders = orders.filter(o => {
-        const matchesSearch = o.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            o.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            o.customerEmail?.toLowerCase().includes(searchTerm.toLowerCase());
+        if (!o) return false;
+        const matchesSearch = (o.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (o.customerName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (o.customerEmail || '').toLowerCase().includes(searchTerm.toLowerCase());
 
         const orderDate = new Date(o.createdAt || Date.now());
         let matchesDate = true;
@@ -499,7 +501,7 @@ const Orders = () => {
                 o.safetyRecommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW' ||
                 (() => {
                     const safety = evaluatePrescriptionSafetyClient(o, orders);
-                    return safety.riskScore >= 70 || safety.isNonMedicalDoc || safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW';
+                    return safety ? (safety.riskScore >= 70 || safety.isNonMedicalDoc || safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW') : false;
                 })()
             );
         }
