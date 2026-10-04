@@ -1,7 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { api, getErrorMessage } from '../../../api/authApi';
+
+// Safety net: catches any render crash and shows a friendly message instead of a blank page
+class OrdersErrorBoundary extends Component {
+    constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+    static getDerivedStateFromError(error) { return { hasError: true, error }; }
+    componentDidCatch(error, info) { console.error('[OrdersPage] Render error:', error, info); }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div style={{ padding: '60px 40px', textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
+                    <h2 style={{ color: '#DC2626', marginBottom: 12 }}>⚠️ Failed to load Prescription &amp; Orders Audit</h2>
+                    <p style={{ color: '#64748B', maxWidth: 520, margin: '0 auto 24px' }}>
+                        A rendering error occurred. This is usually caused by unexpected data from the server.
+                    </p>
+                    <details style={{ color: '#94A3B8', fontSize: 12, maxWidth: 600, margin: '0 auto 24px', textAlign: 'left' }}>
+                        <summary style={{ cursor: 'pointer', color: '#475569' }}>Technical Details</summary>
+                        <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{this.state.error?.toString()}</pre>
+                    </details>
+                    <button onClick={() => this.setState({ hasError: false, error: null })} style={{ padding: '10px 24px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
+                        🔄 Retry
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
 import logoImage from '../../../assets/mediz.png';
 import {
     FileCheck,
@@ -590,8 +617,11 @@ const Orders = () => {
                         <div>
                             <div style={{ ...styles.statVal, color: '#DC2626' }}>
                                 {orders.filter(o => {
-                                    const safety = evaluatePrescriptionSafetyClient(o, orders);
-                                    return safety.riskScore >= 70 || safety.isNonMedicalDoc || safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW';
+                                    if (!o) return false;
+                                    try {
+                                        const safety = evaluatePrescriptionSafetyClient(o, orders);
+                                        return safety && (safety.riskScore >= 70 || safety.isNonMedicalDoc || safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW');
+                                    } catch { return false; }
                                 }).length}
                             </div>
                             <div style={{ ...styles.statLbl, color: '#991B1B' }}>Violated Rx &amp; Abuse Flags</div>
@@ -745,7 +775,8 @@ const Orders = () => {
                             <p>No orders matched your current search or status filter.</p>
                         </div>
                     ) : (
-                        filteredOrders.map(order => {
+                        filteredOrders.filter(Boolean).map(order => {
+                            if (!order) return null;
                             const badge = getStatusBadgeStyle(order.status);
                             const StatusIcon = badge.icon;
                             return (
@@ -1691,4 +1722,10 @@ const styles = {
     }
 };
 
-export default Orders;
+const OrdersWithBoundary = () => (
+    <OrdersErrorBoundary>
+        <Orders />
+    </OrdersErrorBoundary>
+);
+
+export default OrdersWithBoundary;
