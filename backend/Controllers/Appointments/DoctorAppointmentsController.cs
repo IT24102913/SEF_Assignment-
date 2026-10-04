@@ -38,37 +38,68 @@ public class DoctorAppointmentsController : ControllerBase
         var targetEmail = string.IsNullOrWhiteSpace(email) ? "danansuriyateeranya@gmail.com" : email.Trim();
         var diagnostic = new Dictionary<string, object>();
 
+        System.Net.IPAddress? ipv4 = null;
         // 1. DNS Resolution
         try
         {
             var hostAddresses = await System.Net.Dns.GetHostAddressesAsync("smtp.gmail.com");
             diagnostic["Dns_smtp.gmail.com"] = hostAddresses.Select(a => $"{a.AddressFamily}: {a}").ToList();
+            ipv4 = hostAddresses.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+            diagnostic["Resolved_IPv4"] = ipv4?.ToString() ?? "NONE";
         }
         catch (Exception dnsEx)
         {
             diagnostic["Dns_Error"] = dnsEx.Message;
         }
 
-        // 2. Direct TCP Socket connectivity to Port 465, Port 587, and Port 2525
-        foreach (var port in new[] { 465, 587, 2525 })
+        // 2. Direct IPv4 TCP Socket connectivity to Port 465, Port 587
+        if (ipv4 != null)
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            try
+            foreach (var port in new[] { 465, 587 })
             {
-                using var tcp = new System.Net.Sockets.TcpClient();
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await tcp.ConnectAsync("smtp.gmail.com", port, cts.Token);
-                sw.Stop();
-                diagnostic[$"Tcp_Port_{port}"] = $"CONNECTED in {sw.ElapsedMilliseconds}ms";
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                diagnostic[$"Tcp_Port_{port}"] = $"FAILED in {sw.ElapsedMilliseconds}ms: {ex.Message}";
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    using var tcp = new System.Net.Sockets.TcpClient(System.Net.Sockets.AddressFamily.InterNetwork);
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+                    await tcp.ConnectAsync(ipv4, port, cts.Token);
+                    sw.Stop();
+                    diagnostic[$"Tcp_IPv4_Port_{port}"] = $"CONNECTED in {sw.ElapsedMilliseconds}ms";
+                }
+                catch (Exception ex)
+                {
+                    sw.Stop();
+                    diagnostic[$"Tcp_IPv4_Port_{port}"] = $"FAILED in {sw.ElapsedMilliseconds}ms: {ex.Message}";
+                }
             }
         }
 
-        // 3. Test sending actual email via IEmailSender
+        // 3. Brevo Account & Verified Senders Inspection
+        var brevoApiKey = _config["Brevo:ApiKey"]
+            ?? Environment.GetEnvironmentVariable("Brevo__ApiKey")
+            ?? _config["PharmacyBrevo:ApiKey"]
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__ApiKey");
+
+        diagnostic["Brevo_Key_Present"] = !string.IsNullOrWhiteSpace(brevoApiKey);
+        if (!string.IsNullOrWhiteSpace(brevoApiKey))
+        {
+            diagnostic["Brevo_Key_Prefix"] = brevoApiKey.Length > 8 ? brevoApiKey.Substring(0, 8) + "..." : "short";
+            try
+            {
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("api-key", brevoApiKey);
+                var sendersRes = await http.GetAsync("https://api.brevo.com/v3/senders");
+                var sendersBody = await sendersRes.Content.ReadAsStringAsync();
+                diagnostic["Brevo_Senders_Status"] = (int)sendersRes.StatusCode;
+                diagnostic["Brevo_Senders_Body"] = sendersBody;
+            }
+            catch (Exception bEx)
+            {
+                diagnostic["Brevo_Senders_Error"] = bEx.Message;
+            }
+        }
+
+        // 4. Test sending actual email via IEmailSender
         var sendSw = System.Diagnostics.Stopwatch.StartNew();
         try
         {

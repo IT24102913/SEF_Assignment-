@@ -92,6 +92,12 @@ public class EmailSender : IEmailSender
         bool hasValidHttpApi = !string.IsNullOrWhiteSpace(brevoApiKey) && !brevoApiKey!.StartsWith("YOUR_");
 
         // ── 2. Brevo HTTPS REST API (Port 443 — firewall-immune) ────────────
+        var brevoSenderEmail = _config["Brevo:FromEmail"]
+            ?? Environment.GetEnvironmentVariable("Brevo__FromEmail")
+            ?? _config["PharmacyBrevo:FromEmail"]
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromEmail")
+            ?? senderEmail;
+
         if (hasValidHttpApi)
         {
             try
@@ -101,7 +107,7 @@ public class EmailSender : IEmailSender
                 {
                     payload = new
                     {
-                        sender      = new { name = senderName, email = senderEmail },
+                        sender      = new { name = senderName, email = brevoSenderEmail },
                         to          = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
                         subject     = subject,
                         htmlContent = htmlContent,
@@ -119,7 +125,7 @@ public class EmailSender : IEmailSender
                 {
                     payload = new
                     {
-                        sender      = new { name = senderName, email = senderEmail },
+                        sender      = new { name = senderName, email = brevoSenderEmail },
                         to          = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
                         subject     = subject,
                         htmlContent = htmlContent
@@ -135,14 +141,14 @@ public class EmailSender : IEmailSender
 
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
                 var response = await _httpClient.SendAsync(requestMsg, cts.Token);
+                var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logger.LogInformation("[EmailSender] ✅ Sent to {Email} via Brevo REST API", toEmail);
+                    _logger.LogInformation("[EmailSender] ✅ Sent to {Email} via Brevo REST API: {Body}", toEmail, responseBody);
                     return true;
                 }
-                var errorBody = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("[EmailSender] Brevo HTTP {Status}: {Body} — falling back to SMTP", response.StatusCode, errorBody);
+                _logger.LogWarning("[EmailSender] Brevo HTTP {Status}: {Body} — falling back to SMTP", response.StatusCode, responseBody);
             }
             catch (Exception ex)
             {
@@ -184,25 +190,43 @@ public class EmailSender : IEmailSender
                 message.Body = new TextPart("html") { Text = htmlContent };
             }
 
-            // Connection targets to attempt in priority order
-            var attempts = new List<(int Port, MailKit.Security.SecureSocketOptions Option)>
+            // Resolve IPv4 address explicitly so Linux doesn't hang on unreachable IPv6 routes
+            string targetHost = smtpServer;
+            try
             {
-                (smtpPort, smtpPort == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls),
-                (465, MailKit.Security.SecureSocketOptions.SslOnConnect),
-                (587, MailKit.Security.SecureSocketOptions.StartTls),
-                (2525, MailKit.Security.SecureSocketOptions.StartTls)
+                var ips = await System.Net.Dns.GetHostAddressesAsync(smtpServer);
+                var ipv4 = ips.FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                if (ipv4 != null)
+                {
+                    targetHost = ipv4.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("[EmailSender] DNS IPv4 resolution failed for {Host}: {Msg}", smtpServer, ex.Message);
+            }
+
+            // Connection targets to attempt in priority order
+            var attempts = new List<(string Host, int Port, MailKit.Security.SecureSocketOptions Option)>
+            {
+                (targetHost, smtpPort, smtpPort == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls),
+                (targetHost, 465, MailKit.Security.SecureSocketOptions.SslOnConnect),
+                (targetHost, 587, MailKit.Security.SecureSocketOptions.StartTls),
+                (smtpServer, 465, MailKit.Security.SecureSocketOptions.SslOnConnect),
+                (smtpServer, 587, MailKit.Security.SecureSocketOptions.StartTls),
+                (targetHost, 2525, MailKit.Security.SecureSocketOptions.StartTls)
             };
 
             // Deduplicate preserving order
-            var distinctAttempts = new List<(int Port, MailKit.Security.SecureSocketOptions Option)>();
+            var distinctAttempts = new List<(string Host, int Port, MailKit.Security.SecureSocketOptions Option)>();
             foreach (var a in attempts)
             {
-                if (!distinctAttempts.Any(x => x.Port == a.Port && x.Option == a.Option))
+                if (!distinctAttempts.Any(x => x.Host == a.Host && x.Port == a.Port && x.Option == a.Option))
                     distinctAttempts.Add(a);
             }
 
             Exception? lastEx = null;
-            foreach (var (targetPort, targetOption) in distinctAttempts)
+            foreach (var (host, targetPort, targetOption) in distinctAttempts)
             {
                 try
                 {
@@ -211,22 +235,22 @@ public class EmailSender : IEmailSender
                     client.CheckCertificateRevocation = false;
                     client.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    _logger.LogInformation("[EmailSender] Attempting SMTP connect to {Server}:{Port} ({Option})...", smtpServer, targetPort, targetOption);
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                    _logger.LogInformation("[EmailSender] Attempting SMTP connect to {Host}:{Port} ({Option})...", host, targetPort, targetOption);
 
-                    await client.ConnectAsync(smtpServer, targetPort, targetOption, cts.Token);
+                    await client.ConnectAsync(host, targetPort, targetOption, cts.Token);
                     await client.AuthenticateAsync(smtpUser!, smtpPass!, cts.Token);
                     await client.SendAsync(message, cts.Token);
                     await client.DisconnectAsync(true, cts.Token);
 
-                    _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, targetPort);
+                    _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP ({Host}:{Port})", toEmail, host, targetPort);
                     return true;
                 }
                 catch (Exception attemptEx)
                 {
                     lastEx = attemptEx;
-                    _logger.LogWarning("[EmailSender] SMTP attempt on {Server}:{Port} ({Option}) failed: {Msg}",
-                        smtpServer, targetPort, targetOption, attemptEx.Message);
+                    _logger.LogWarning("[EmailSender] SMTP attempt on {Host}:{Port} ({Option}) failed: {Msg}",
+                        host, targetPort, targetOption, attemptEx.Message);
                 }
             }
 
