@@ -195,14 +195,14 @@ const Orders = () => {
             } else {
                 flags.push("Doctor Handwriting OCR & Cursive Reading Verified (Gemini 3.8 Flash)");
             }
-        } else if (currentOrder.requiresPrescription || (currentOrder.items && currentOrder.items.some(i => i.requiresPrescription))) {
+        } else if (currentOrder.requiresPrescription || (Array.isArray(currentOrder.items) && currentOrder.items.some(i => i && i.requiresPrescription))) {
             flags.push("Missing prescription receipt image for prescription-required medication");
             riskScore += 40;
         }
 
         // B. Duplicate Line Item Detection in Single Order
-        const currentItems = currentOrder.items || [];
-        const itemNames = currentItems.map(i => (i.medicineName || i.name || '').trim().toLowerCase()).filter(Boolean);
+        const currentItems = (currentOrder.items || []).filter(Boolean);
+        const itemNames = currentItems.map(i => ((i && i.medicineName) || (i && i.name) || '').trim().toLowerCase()).filter(Boolean);
         const duplicateItems = itemNames.filter((name, index) => itemNames.indexOf(name) !== index);
         if (duplicateItems.length > 0) {
             flags.push(`Duplicate medicine entry in order: ${[...new Set(duplicateItems)].join(', ')}`);
@@ -225,12 +225,13 @@ const Orders = () => {
         }
 
         for (const item of currentItems) {
-            const medName = (item.medicineName || item.name || '').trim().toLowerCase();
+            if (!item) continue;
+            const medName = ((item && item.medicineName) || (item && item.name) || '').trim().toLowerCase();
             if (!medName) continue;
 
             const repeatOrdersThisWeek = past7DaysOrders.filter(o => {
-                const pItems = o.items || [];
-                return pItems.some(pi => (pi.medicineName || pi.name || '').trim().toLowerCase() === medName);
+                const pItems = (o.items || []).filter(Boolean);
+                return pItems.some(pi => pi && (pi.medicineName || pi.name || '').trim().toLowerCase() === medName);
             });
 
             if (repeatOrdersThisWeek.length >= 1) {
@@ -247,15 +248,16 @@ const Orders = () => {
 
         let isEarlyRefill = false;
         for (const item of currentItems) {
-            const medName = (item.medicineName || item.name || '').trim().toLowerCase();
+            if (!item) continue;
+            const medName = ((item && item.medicineName) || (item && item.name) || '').trim().toLowerCase();
             if (!medName) continue;
 
             let latestPastOrder = null;
             let latestDate = 0;
 
             for (const pastOrder of pastFulfilledOrders) {
-                const pastItems = pastOrder.items || [];
-                if (pastItems.some(pi => (pi.medicineName || pi.name || '').trim().toLowerCase() === medName)) {
+                const pastItems = (pastOrder.items || []).filter(Boolean);
+                if (pastItems.some(pi => pi && (pi.medicineName || pi.name || '').trim().toLowerCase() === medName)) {
                     const pDate = new Date(pastOrder.createdAt || 0).getTime();
                     if (pDate > latestDate) {
                         latestDate = pDate;
