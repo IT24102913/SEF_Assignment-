@@ -72,7 +72,7 @@ function App() {
             />
             <Router>
                 <Routes>
-                    {/* Public Route */}
+                    {/* Public Routes */}
                     <Route path="/login" element={<Login />} />
                     <Route path="/" element={<RoleRedirect />} />
                     <Route path="/dashboard" element={<RoleRedirect />} />

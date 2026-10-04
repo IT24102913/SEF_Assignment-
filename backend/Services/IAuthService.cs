@@ -8,6 +8,4 @@ public interface IAuthService
     Task<UserResponse> RegisterPatientAsync(RegisterRequest request);
     Task<LoginResponse> LoginAsync(LoginRequest request);
     Task<LoginResponse> GoogleLoginAsync(string idToken);
-    Task<bool> VerifyEmailAsync(string token);
-    Task<bool> ResendVerificationEmailAsync(string email);
 }

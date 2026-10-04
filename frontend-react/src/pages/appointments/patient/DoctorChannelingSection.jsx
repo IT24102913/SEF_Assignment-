@@ -61,11 +61,10 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   const [validatingAvailability, setValidatingAvailability] = useState(false);
   const [isSessionValidated, setIsSessionValidated] = useState(false);
 
-  // Payment State
-  const [paymentMethod, setPaymentMethod] = useState('CreditCard');
-  const [walletProvider, setWalletProvider] = useState('FriMi');
+  // Payment State (Sri Lankan Hospital Channels)
+  const [paymentMethod, setPaymentMethod] = useState('CreditCard'); // 'CreditCard', 'BankTransfer', 'Counter'
+  const [selectedBank, setSelectedBank] = useState('BOC');
   const [cardData, setCardData] = useState({ number: '', expiry: '', cvv: '', name: '' });
-  const [walletPhone, setWalletPhone] = useState('');
   const [bankRef, setBankRef] = useState('');
   const [paymentErrors, setPaymentErrors] = useState({});
   const [pendingAppointmentId, setPendingAppointmentId] = useState(null);
@@ -342,67 +341,111 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     setCurrentStep(5);
   };
 
+  // ─── Strict Payment Validation Rules ──────────────────────────────────────
+  const checkCardNumberError = (num) => {
+    const clean = (num || '').replace(/\D/g, '');
+    if (!clean) return 'Card number is required';
+    if (clean.length !== 16) return 'Card number must be exactly 16 digits';
+    return null;
+  };
+
+  const checkExpiryError = (exp) => {
+    if (!exp) return 'Expiry date is required';
+    if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(exp)) {
+      return 'Format must be MM/YY (month 01-12)';
+    }
+    const [mmStr, yyStr] = exp.split('/');
+    const mm = parseInt(mmStr, 10);
+    const yy = parseInt(yyStr, 10);
+    const now = new Date();
+    const curYear = now.getFullYear() % 100;
+    const curMonth = now.getMonth() + 1;
+    if (yy < curYear || (yy === curYear && mm < curMonth)) {
+      return 'Card has expired';
+    }
+    if (yy > curYear + 15) {
+      return 'Invalid future expiry year';
+    }
+    return null;
+  };
+
+  const checkCvvError = (cvv) => {
+    const clean = (cvv || '').replace(/\D/g, '');
+    if (!clean) return 'CVV is required';
+    if (clean.length < 3 || clean.length > 4) return 'CVV must be 3 digits (or 4 for AMEX)';
+    return null;
+  };
+
+  const checkBankRefError = (ref) => {
+    const clean = (ref || '').trim();
+    if (!clean) return 'Transaction reference / slip number is required';
+    if (clean.length < 6) return 'Reference must be at least 6 characters (e.g. CEFTS-984218)';
+    return null;
+  };
+
+  const isPaymentFormValid = () => {
+    if (paymentMethod === 'CreditCard') {
+      return !checkCardNumberError(cardData.number) &&
+             !checkExpiryError(cardData.expiry) &&
+             !checkCvvError(cardData.cvv);
+    }
+    if (paymentMethod === 'BankTransfer') {
+      return !checkBankRefError(bankRef);
+    }
+    if (paymentMethod === 'Counter') {
+      return true;
+    }
+    return false;
+  };
+
   const validatePayment = () => {
     const errs = {};
     if (paymentMethod === 'CreditCard') {
-      const cleanNum = (cardData.number || '').replace(/\s+/g, '');
-      if (!cleanNum) {
-        errs.cardNumber = 'Card number is required';
-      } else if (!/^\d{15,19}$/.test(cleanNum)) {
-        errs.cardNumber = 'Enter a valid 15-19 digit card number';
-      }
-
-      if (!cardData.expiry) {
-        errs.expiry = 'Expiry MM/YY required';
-      } else if (!/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(cardData.expiry)) {
-        errs.expiry = 'Format must be MM/YY (e.g. 08/27)';
-      }
-
-      if (!cardData.cvv) {
-        errs.cvv = 'CVV required';
-      } else if (!/^\d{3,4}$/.test(cardData.cvv)) {
-        errs.cvv = 'CVV must be 3 or 4 digits';
-      }
-    } else if (paymentMethod === 'MobileWallet') {
-      const cleanPhone = (walletPhone || '').replace(/\s+/g, '');
-      if (!cleanPhone) {
-        errs.walletPhone = 'Wallet registered mobile number is required';
-      } else if (!/^(?:07[0-9]{8}|\+947[0-9]{8})$/.test(cleanPhone)) {
-        errs.walletPhone = 'Invalid Sri Lankan mobile format (e.g. 077 123 4567)';
-      }
+      const numErr = checkCardNumberError(cardData.number);
+      if (numErr) errs.cardNumber = numErr;
+      const expErr = checkExpiryError(cardData.expiry);
+      if (expErr) errs.expiry = expErr;
+      const cvvErr = checkCvvError(cardData.cvv);
+      if (cvvErr) errs.cvv = cvvErr;
     } else if (paymentMethod === 'BankTransfer') {
-      const cleanRef = (bankRef || '').trim();
-      if (!cleanRef) {
-        errs.bankRef = 'Bank deposit/transfer slip reference number is required';
-      } else if (cleanRef.length < 4) {
-        errs.bankRef = 'Reference must be at least 4 characters';
-      }
+      const refErr = checkBankRefError(bankRef);
+      if (refErr) errs.bankRef = refErr;
     }
-
     setPaymentErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
   const handleCardNumberChange = (e) => {
-    let val = e.target.value.replace(/\D/g, '').substring(0, 16);
-    val = val.match(/.{1,4}/g)?.join(' ') || val;
-    setCardData(prev => ({ ...prev, number: val }));
-    if (paymentErrors.cardNumber) setPaymentErrors(prev => ({ ...prev, cardNumber: null }));
+    const clean = e.target.value.replace(/\D/g, '').substring(0, 16);
+    const formatted = clean.match(/.{1,4}/g)?.join(' ') || clean;
+    setCardData(prev => ({ ...prev, number: formatted }));
+    const err = formatted ? checkCardNumberError(formatted) : 'Card number is required';
+    setPaymentErrors(prev => ({ ...prev, cardNumber: err }));
   };
 
   const handleExpiryChange = (e) => {
-    let val = e.target.value.replace(/\D/g, '').substring(0, 4);
-    if (val.length >= 2) {
-      val = val.substring(0, 2) + '/' + val.substring(2);
+    const digits = e.target.value.replace(/\D/g, '').substring(0, 4);
+    let formatted = digits;
+    if (digits.length >= 2) {
+      formatted = digits.substring(0, 2) + '/' + digits.substring(2);
     }
-    setCardData(prev => ({ ...prev, expiry: val }));
-    if (paymentErrors.expiry) setPaymentErrors(prev => ({ ...prev, expiry: null }));
+    setCardData(prev => ({ ...prev, expiry: formatted }));
+    const err = formatted.length === 5 ? checkExpiryError(formatted) : (formatted ? 'Incomplete MM/YY' : 'Expiry date is required');
+    setPaymentErrors(prev => ({ ...prev, expiry: err }));
   };
 
   const handleCvvChange = (e) => {
-    let val = e.target.value.replace(/\D/g, '').substring(0, 4);
-    setCardData(prev => ({ ...prev, cvv: val }));
-    if (paymentErrors.cvv) setPaymentErrors(prev => ({ ...prev, cvv: null }));
+    const clean = e.target.value.replace(/\D/g, '').substring(0, 4);
+    setCardData(prev => ({ ...prev, cvv: clean }));
+    const err = clean ? checkCvvError(clean) : 'CVV is required';
+    setPaymentErrors(prev => ({ ...prev, cvv: err }));
+  };
+
+  const handleBankRefChange = (e) => {
+    const val = e.target.value;
+    setBankRef(val);
+    const err = val ? checkBankRefError(val) : 'Transaction reference / slip number is required';
+    setPaymentErrors(prev => ({ ...prev, bankRef: err }));
   };
 
   // ─── Reservation Handler (Pay on Arrival) ──────────────────────────────────
@@ -450,7 +493,37 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     try {
       let appointmentId = pendingAppointmentId;
 
-      // 1. Create Appointment with OnlinePayment booking type if not already initiated
+      // Option 3: Hospital Counter / Cash on Arrival
+      if (paymentMethod === 'Counter') {
+        if (!appointmentId) {
+          const bookRes = await bookAppointment({
+            doctorId: selectedDoctor.id,
+            doctorSessionId: selectedSession.id,
+            bookingType: 'Reservation',
+            patientName: patientDetails.fullName,
+            patientPhone: patientDetails.phone,
+            patientEmail: patientDetails.email,
+            patientNic: patientDetails.nic,
+            patientAddress: patientDetails.address,
+            notes: patientDetails.notes
+          });
+          setConfirmedAppointment(bookRes.data);
+          setPendingAppointmentId(null);
+          notify('Reservation confirmed! Please settle payment on arrival at the hospital reception.', 'success');
+          return;
+        } else {
+          const payRes = await payAppointment(appointmentId, {
+            paymentMethod: 'PayOnArrival',
+            bankReference: 'COUNTER-PAY'
+          });
+          setConfirmedAppointment(payRes.data);
+          setPendingAppointmentId(null);
+          notify('Reservation confirmed! Please settle payment on arrival at the hospital reception.', 'success');
+          return;
+        }
+      }
+
+      // Option 1 & 2: Online Payment (CreditCard or BankTransfer)
       if (!appointmentId) {
         const bookRes = await bookAppointment({
           doctorId: selectedDoctor.id,
@@ -467,17 +540,14 @@ const DoctorChannelingSection = ({ user, showToast }) => {
         setPendingAppointmentId(appointmentId);
       }
 
-      // 2. Process Verified Payment Payload
       let cardRef = null;
       let bankReference = null;
 
       if (paymentMethod === 'CreditCard') {
         const cleanLast4 = cardData.number.replace(/\s+/g, '').slice(-4);
-        cardRef = `**** **** **** ${cleanLast4}`;
-      } else if (paymentMethod === 'MobileWallet') {
-        bankReference = `${walletProvider}-${walletPhone.trim()}`;
+        cardRef = `**** **** **** ${cleanLast4 || '4242'}`;
       } else if (paymentMethod === 'BankTransfer') {
-        bankReference = `BOC-${bankRef.trim()}`;
+        bankReference = `${selectedBank}-${bankRef.trim().toUpperCase()}`;
       }
 
       const payRes = await payAppointment(appointmentId, {
@@ -955,22 +1025,20 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 {/* Left: all text + controls */}
                 <div style={{ flex: 1, minWidth: 0, paddingRight: '16px' }}>
                   {/* Header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
                     <div style={{
-                      width: '28px', height: '28px', borderRadius: '8px',
+                      width: '30px', height: '30px', borderRadius: '8px',
                       background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      boxShadow: '0 2px 8px rgba(16,185,129,0.35)'
+                      boxShadow: '0 2px 8px rgba(16,185,129,0.35)',
+                      flexShrink: 0
                     }}>
-                      <Sparkles size={14} color="#FFFFFF" />
+                      <Sparkles size={15} color="#FFFFFF" />
                     </div>
                     <div>
-                      <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '800', color: '#064E3B', letterSpacing: '-0.01em' }}>
-                        Agentic AI Specialist Recommender
+                      <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#064E3B', letterSpacing: '-0.01em' }}>
+                        Smart Specialist Matcher
                       </h3>
-                      <span style={{ fontSize: '10px', fontWeight: '600', color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Human-in-the-Loop Triage
-                      </span>
                     </div>
                   </div>
 
@@ -2292,16 +2360,31 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 </div>
               </div>
 
-              {/* Payment Method Tabs */}
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#37474F', marginBottom: '8px' }}>
+              {/* Payment Method Tabs (3 Professional Options) */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#1E293B', marginBottom: '8px', letterSpacing: '0.02em' }}>
                   SELECT PAYMENT METHOD
                 </label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                   {[
-                    { id: 'CreditCard', label: 'Credit Card', icon: <CreditCard size={16} /> },
-                    { id: 'MobileWallet', label: 'Mobile Wallet', icon: <Smartphone size={16} /> },
-                    { id: 'BankTransfer', label: 'Bank Transfer', icon: <Building2 size={16} /> }
+                    {
+                      id: 'CreditCard',
+                      label: 'Credit / Debit Card',
+                      sub: 'Visa, Mastercard, Amex, LankaPay',
+                      icon: <CreditCard size={18} />
+                    },
+                    {
+                      id: 'BankTransfer',
+                      label: 'Bank Transfer / CDM',
+                      sub: 'CEFTS, Direct Bank Deposit',
+                      icon: <Building2 size={18} />
+                    },
+                    {
+                      id: 'Counter',
+                      label: 'Pay at Hospital Counter',
+                      sub: 'Cash / Card upon arrival',
+                      icon: <ShieldCheck size={18} />
+                    }
                   ].map(tab => (
                     <button
                       key={tab.id}
@@ -2311,68 +2394,97 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         setPaymentErrors({});
                       }}
                       style={{
-                        padding: '12px 10px',
-                        borderRadius: '8px',
-                        border: paymentMethod === tab.id ? '2px solid #00796B' : '1px solid #CFD8DC',
-                        backgroundColor: paymentMethod === tab.id ? '#E0F2F1' : '#FFFFFF',
-                        color: paymentMethod === tab.id ? '#004D40' : '#455A64',
-                        fontWeight: '700',
-                        fontSize: '12px',
+                        padding: '14px 12px',
+                        borderRadius: '10px',
+                        border: paymentMethod === tab.id ? '2px solid #00796B' : '1px solid #E2E8F0',
+                        backgroundColor: paymentMethod === tab.id ? '#F0FDF4' : '#FFFFFF',
+                        color: paymentMethod === tab.id ? '#064E3B' : '#475569',
                         cursor: 'pointer',
                         display: 'flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '6px'
+                        gap: '6px',
+                        textAlign: 'center',
+                        transition: 'all 0.15s ease',
+                        boxShadow: paymentMethod === tab.id ? '0 2px 8px rgba(0,121,107,0.12)' : 'none'
                       }}
                     >
-                      {tab.icon} {tab.label}
+                      <div style={{ color: paymentMethod === tab.id ? '#00796B' : '#64748B' }}>
+                        {tab.icon}
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '800' }}>
+                        {tab.label}
+                      </div>
+                      <div style={{ fontSize: '10px', color: paymentMethod === tab.id ? '#047857' : '#94A3B8', fontWeight: '500' }}>
+                        {tab.sub}
+                      </div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Tab Form Content */}
+              {/* Tab Form Content 1: Credit / Debit Card */}
               {paymentMethod === 'CreditCard' && (
-                <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#004D40' }}>
-                      💳 Credit / Debit Card Payment
-                    </span>
-                    <span style={{ fontSize: '11px', color: '#64748B' }}>
-                      Visa • Mastercard • Amex
+                <div style={{
+                  padding: '20px',
+                  borderRadius: '12px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #F1F5F9' }}>
+                    <div>
+                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#0F172A', display: 'block' }}>
+                        Credit / Debit Card Payment Gateway
+                      </span>
+                      <span style={{ fontSize: '11px', color: '#64748B' }}>
+                        Visa • Mastercard • American Express • LankaPay Card
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#00796B', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', padding: '3px 8px', borderRadius: '4px', fontWeight: '600' }}>
+                      🔒 256-Bit SSL Encrypted
                     </span>
                   </div>
 
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                  {/* Card Number Input */}
+                  <div style={{ marginBottom: '14px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#334155', marginBottom: '4px', letterSpacing: '0.02em' }}>
                       CARD NUMBER *
                     </label>
                     <input
                       type="text"
-                      placeholder="4111 2222 3333 4444"
+                      inputMode="numeric"
+                      placeholder="4444 4444 4444 4444"
                       maxLength={19}
                       value={cardData.number}
                       onChange={handleCardNumberChange}
                       style={{
                         width: '100%',
-                        padding: '10px 12px',
-                        border: paymentErrors.cardNumber ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
-                        borderRadius: '6px',
-                        fontSize: '13px',
+                        padding: '11px 14px',
+                        border: paymentErrors.cardNumber ? '1.5px solid #DC2626' : '1px solid #CBD5E1',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        letterSpacing: '0.04em',
                         boxSizing: 'border-box',
-                        outline: 'none'
+                        outline: 'none',
+                        transition: 'border-color 0.2s',
+                        backgroundColor: '#FFFFFF'
                       }}
                     />
                     {paymentErrors.cardNumber && (
-                      <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
-                        {paymentErrors.cardNumber}
+                      <div style={{ color: '#DC2626', fontSize: '11px', marginTop: '4px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <AlertCircle size={12} />
+                        <span>{paymentErrors.cardNumber}</span>
                       </div>
                     )}
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                    {/* Expiry Date */}
                     <div>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#334155', marginBottom: '4px', letterSpacing: '0.02em' }}>
                         EXPIRY DATE (MM/YY) *
                       </label>
                       <input
@@ -2383,22 +2495,28 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         onChange={handleExpiryChange}
                         style={{
                           width: '100%',
-                          padding: '10px 12px',
-                          border: paymentErrors.expiry ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
-                          borderRadius: '6px',
-                          fontSize: '13px',
+                          padding: '11px 14px',
+                          border: paymentErrors.expiry ? '1.5px solid #DC2626' : '1px solid #CBD5E1',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          letterSpacing: '0.04em',
                           boxSizing: 'border-box',
-                          outline: 'none'
+                          outline: 'none',
+                          transition: 'border-color 0.2s',
+                          backgroundColor: '#FFFFFF'
                         }}
                       />
                       {paymentErrors.expiry && (
-                        <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
-                          {paymentErrors.expiry}
+                        <div style={{ color: '#DC2626', fontSize: '11px', marginTop: '4px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <AlertCircle size={12} />
+                          <span>{paymentErrors.expiry}</span>
                         </div>
                       )}
                     </div>
+
+                    {/* CVV */}
                     <div>
-                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#334155', marginBottom: '4px', letterSpacing: '0.02em' }}>
                         SECURITY CODE (CVV) *
                       </label>
                       <input
@@ -2409,17 +2527,21 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         onChange={handleCvvChange}
                         style={{
                           width: '100%',
-                          padding: '10px 12px',
-                          border: paymentErrors.cvv ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
-                          borderRadius: '6px',
-                          fontSize: '13px',
+                          padding: '11px 14px',
+                          border: paymentErrors.cvv ? '1.5px solid #DC2626' : '1px solid #CBD5E1',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          letterSpacing: '0.08em',
                           boxSizing: 'border-box',
-                          outline: 'none'
+                          outline: 'none',
+                          transition: 'border-color 0.2s',
+                          backgroundColor: '#FFFFFF'
                         }}
                       />
                       {paymentErrors.cvv && (
-                        <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
-                          {paymentErrors.cvv}
+                        <div style={{ color: '#DC2626', fontSize: '11px', marginTop: '4px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <AlertCircle size={12} />
+                          <span>{paymentErrors.cvv}</span>
                         </div>
                       )}
                     </div>
@@ -2427,147 +2549,297 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 </div>
               )}
 
-              {paymentMethod === 'MobileWallet' && (
-                <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>
-                      SELECT WALLET PROVIDER *
-                    </label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      {['FriMi', 'eZ Cash', 'Dialog Genie'].map(w => (
-                        <button
-                          key={w}
-                          type="button"
-                          onClick={() => setWalletProvider(w)}
-                          style={{
-                            flex: 1,
-                            padding: '8px 10px',
-                            borderRadius: '6px',
-                            border: walletProvider === w ? '2px solid #00796B' : '1px solid #CBD5E1',
-                            backgroundColor: walletProvider === w ? '#E0F2F1' : '#FFFFFF',
-                            color: walletProvider === w ? '#004D40' : '#475569',
-                            fontSize: '12px',
-                            fontWeight: '700',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {w}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
-                      REGISTERED MOBILE NUMBER *
-                    </label>
-                    <input
-                      type="tel"
-                      placeholder="077 123 4567"
-                      value={walletPhone}
-                      onChange={(e) => {
-                        setWalletPhone(e.target.value);
-                        if (paymentErrors.walletPhone) setPaymentErrors(prev => ({ ...prev, walletPhone: null }));
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        border: paymentErrors.walletPhone ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
-                        borderRadius: '6px',
-                        fontSize: '13px',
-                        boxSizing: 'border-box',
-                        outline: 'none'
-                      }}
-                    />
-                    {paymentErrors.walletPhone && (
-                      <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
-                        {paymentErrors.walletPhone}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
+              {/* Tab Form Content 2: Bank Transfer / CDM */}
               {paymentMethod === 'BankTransfer' && (
-                <div style={{ padding: '18px', borderRadius: '10px', backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', marginBottom: '20px' }}>
-                  <div style={{ backgroundColor: '#EFF6FF', padding: '10px 14px', borderRadius: '6px', marginBottom: '12px', border: '1px solid #BFDBFE' }}>
-                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#1E40AF', marginBottom: '2px' }}>
-                      DIRECT DEPOSIT / ONLINE BANK TRANSFER
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#1E3A8A' }}>
-                      Account: <strong>Health Bridge Pvt Ltd</strong> • Bank: <strong>Bank of Ceylon (BOC)</strong><br />
-                      Account No: <strong>00812345678</strong> • Branch: <strong>Corporate Branch</strong>
-                    </div>
+                <div style={{
+                  padding: '20px',
+                  borderRadius: '12px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  marginBottom: '20px'
+                }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#334155', marginBottom: '8px', letterSpacing: '0.02em' }}>
+                    SELECT HOSPITAL BENEFICIARY BANK *
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                    {[
+                      { id: 'BOC', name: 'Bank of Ceylon (BOC)' },
+                      { id: 'COMBANK', name: 'Commercial Bank of Ceylon' }
+                    ].map(b => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setSelectedBank(b.id)}
+                        style={{
+                          padding: '10px 8px',
+                          borderRadius: '8px',
+                          border: selectedBank === b.id ? '2px solid #00796B' : '1px solid #CBD5E1',
+                          backgroundColor: selectedBank === b.id ? '#F0FDF4' : '#F8FAFC',
+                          color: selectedBank === b.id ? '#064E3B' : '#475569',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {b.name}
+                      </button>
+                    ))}
                   </div>
 
+                  {/* Beneficiary Details Card */}
+                  {(() => {
+                    const beneficiary = {
+                      BOC: {
+                        bankName: 'Bank of Ceylon (BOC)',
+                        accountName: 'Health Bridge Pvt Ltd',
+                        accountNumber: '00812345678',
+                        branch: 'Corporate Branch, Colombo 01',
+                        bankCode: '7010',
+                        branchCode: '001',
+                        swiftCode: 'BCEYLKLX'
+                      },
+                      COMBANK: {
+                        bankName: 'Commercial Bank of Ceylon',
+                        accountName: 'Health Bridge Pvt Ltd',
+                        accountNumber: '1000293847',
+                        branch: 'Colombo Main Branch, York Street',
+                        bankCode: '7056',
+                        branchCode: '001',
+                        swiftCode: 'CCBLLKLX'
+                      }
+                    }[selectedBank] || {
+                      bankName: 'Bank of Ceylon (BOC)',
+                      accountName: 'Health Bridge Pvt Ltd',
+                      accountNumber: '00812345678',
+                      branch: 'Corporate Branch, Colombo 01',
+                      bankCode: '7010',
+                      branchCode: '001',
+                      swiftCode: 'BCEYLKLX'
+                    };
+
+                    return (
+                      <div style={{
+                        backgroundColor: '#F8FAFC',
+                        padding: '14px 16px',
+                        borderRadius: '8px',
+                        marginBottom: '16px',
+                        border: '1px solid #E2E8F0'
+                      }}>
+                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#00796B', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Verified Beneficiary Information — {beneficiary.bankName}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', fontSize: '12px', color: '#334155' }}>
+                          <div>
+                            <span style={{ color: '#64748B', fontSize: '11px', display: 'block' }}>Account Name</span>
+                            <strong>{beneficiary.accountName}</strong>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748B', fontSize: '11px', display: 'block' }}>Account Number</span>
+                            <strong style={{ letterSpacing: '0.05em' }}>{beneficiary.accountNumber}</strong>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748B', fontSize: '11px', display: 'block' }}>Branch & Code</span>
+                            <span>{beneficiary.branch} ({beneficiary.branchCode})</span>
+                          </div>
+                          <div>
+                            <span style={{ color: '#64748B', fontSize: '11px', display: 'block' }}>Bank Code / Swift</span>
+                            <span>Bank Code: {beneficiary.bankCode} • {beneficiary.swiftCode}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>
-                      DEPOSIT SLIP / ONLINE TXN REFERENCE *
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#334155', marginBottom: '4px', letterSpacing: '0.02em' }}>
+                      TRANSACTION REFERENCE / CDM SLIP NUMBER *
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. BOC-TXN-984218"
+                      placeholder="e.g. CEFTS-984218 or CDM-88129"
                       value={bankRef}
-                      onChange={(e) => {
-                        setBankRef(e.target.value);
-                        if (paymentErrors.bankRef) setPaymentErrors(prev => ({ ...prev, bankRef: null }));
-                      }}
+                      onChange={handleBankRefChange}
                       style={{
                         width: '100%',
-                        padding: '10px 12px',
-                        border: paymentErrors.bankRef ? '1.5px solid #EF4444' : '1px solid #CBD5E1',
-                        borderRadius: '6px',
+                        padding: '11px 14px',
+                        border: paymentErrors.bankRef ? '1.5px solid #DC2626' : '1px solid #CBD5E1',
+                        borderRadius: '8px',
                         fontSize: '13px',
                         boxSizing: 'border-box',
-                        outline: 'none'
+                        outline: 'none',
+                        transition: 'border-color 0.2s',
+                        backgroundColor: '#FFFFFF'
                       }}
                     />
                     {paymentErrors.bankRef && (
-                      <div style={{ color: '#EF4444', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
-                        {paymentErrors.bankRef}
+                      <div style={{ color: '#DC2626', fontSize: '11px', marginTop: '4px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <AlertCircle size={12} />
+                        <span>{paymentErrors.bankRef}</span>
                       </div>
                     )}
+                    <div style={{ fontSize: '11px', color: '#64748B', marginTop: '6px' }}>
+                      💡 Transfer via your bank app (CEFTS) or cash deposit machine. Enter the reference number above to confirm.
+                    </div>
                   </div>
                 </div>
               )}
 
+              {/* Tab Form Content 3: Pay at Hospital Counter */}
+              {paymentMethod === 'Counter' && (
+                <div style={{
+                  padding: '22px 20px',
+                  borderRadius: '12px',
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                  marginBottom: '20px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    backgroundColor: '#F0FDF4',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 12px auto'
+                  }}>
+                    <Building2 size={24} color="#00796B" />
+                  </div>
+                  <h4 style={{ margin: '0 0 6px 0', fontSize: '15px', fontWeight: '800', color: '#0F172A' }}>
+                    Pay Upon Arrival at Hospital Counter
+                  </h4>
+                  <p style={{ margin: '0 auto 16px auto', fontSize: '12px', color: '#475569', lineHeight: '1.6', maxWidth: '460px' }}>
+                    Your appointment slot and sequential queue number will be reserved immediately. Please settle the fee of <strong>LKR {totalFee.toLocaleString()}</strong> at the hospital reception or channeling cashier desk upon arrival.
+                  </p>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '8px',
+                    backgroundColor: '#F8FAFC',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    textAlign: 'center',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '600' }}>ACCEPTED METHODS</div>
+                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#0F172A', marginTop: '2px' }}>Cash / Cards / QR</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '600' }}>TOKEN ALLOCATION</div>
+                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#0F172A', marginTop: '2px' }}>Instant Queue Number</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '600' }}>ARRIVAL TIME</div>
+                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#0F172A', marginTop: '2px' }}>20 Mins Prior</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Button: Disabled Until Active Method Pass Validation */}
               <button
                 type="button"
                 onClick={handleConfirmAndPay}
-                disabled={isProcessingPayment}
+                disabled={!isPaymentFormValid() || isProcessingPayment}
                 style={{
                   width: '100%',
                   padding: '14px',
                   borderRadius: '10px',
                   border: 'none',
-                  backgroundColor: '#00796B',
+                  backgroundColor: isPaymentFormValid() && !isProcessingPayment ? '#00796B' : '#94A3B8',
                   color: '#FFFFFF',
                   fontSize: '14px',
                   fontWeight: '800',
-                  cursor: isProcessingPayment ? 'not-allowed' : 'pointer',
+                  cursor: isPaymentFormValid() && !isProcessingPayment ? 'pointer' : 'not-allowed',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
-                  boxShadow: '0 4px 14px rgba(0,121,107,0.25)'
+                  boxShadow: isPaymentFormValid() && !isProcessingPayment ? '0 4px 14px rgba(0,121,107,0.28)' : 'none',
+                  transition: 'all 0.2s ease',
+                  opacity: isPaymentFormValid() && !isProcessingPayment ? 1 : 0.65
                 }}
               >
-                {isProcessingPayment ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle2 size={18} />}
-                {isProcessingPayment ? 'Authorizing & Verifying Payment...' : `Authorize & Pay LKR ${totalFee.toLocaleString()}`}
+                {isProcessingPayment ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>{paymentMethod === 'Counter' ? 'Confirming Reservation...' : 'Processing Payment...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={18} />
+                    <span>
+                      {paymentMethod === 'Counter'
+                        ? 'Confirm Booking & Pay at Counter'
+                        : `Authorize & Pay LKR ${totalFee.toLocaleString()}`}
+                    </span>
+                  </>
+                )}
               </button>
+
+              {/* Footer Trust Indicator */}
+              <div style={{
+                marginTop: '16px',
+                textAlign: 'center',
+                fontSize: '11px',
+                color: '#64748B',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
+              }}>
+                <ShieldCheck size={14} color="#00796B" />
+                <span>Private Hospital Healthcare Portal • Central Bank of Sri Lanka (CBSL) Compliant</span>
+              </div>
             </div>
           ) : (
             /* Appointment Confirmed / Reserved State (with QR Code) */
             <div style={{
               backgroundColor: '#FFFFFF',
               borderRadius: '16px',
-              padding: '32px 24px',
+              padding: '0',
               border: confirmedAppointment.paymentStatus === 'Paid' ? '2px solid #00796B' : '2px solid #F59E0B',
               boxShadow: '0 4px 20px rgba(0,77,64,0.08)',
               maxWidth: '560px',
               margin: '0 auto',
-              textAlign: 'center'
+              textAlign: 'center',
+              overflow: 'hidden'
             }}>
+
+              {/* ── Top email alert banner ── */}
+              <div style={{
+                background: confirmedAppointment.paymentStatus === 'Paid'
+                  ? 'linear-gradient(90deg, #d1fae5 0%, #ecfdf5 100%)'
+                  : 'linear-gradient(90deg, #fef3c7 0%, #fffbeb 100%)',
+                borderBottom: confirmedAppointment.paymentStatus === 'Paid'
+                  ? '1px solid #6ee7b7'
+                  : '1px solid #fde68a',
+                padding: '10px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                fontSize: '12.5px',
+                fontWeight: '700',
+                color: confirmedAppointment.paymentStatus === 'Paid' ? '#065f46' : '#92400e',
+                letterSpacing: '0.01em',
+                animation: 'slideInUp 0.35s ease-out'
+              }}>
+                <span style={{ fontSize: '15px' }}>📧</span>
+                {confirmedAppointment.paymentStatus === 'Paid'
+                  ? 'Appointment confirmation & check-in QR code sent to your registered email!'
+                  : 'Reservation pass & check-in QR code have been sent to your registered email!'}
+              </div>
+
+              {/* Card body */}
+              <div style={{ padding: '28px 24px 32px' }}>
               <div style={{
                 width: '64px',
                 height: '64px',
@@ -2667,7 +2939,6 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 </p>
               </div>
 
-              {/* Actions */}
               <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
                 {confirmedAppointment.paymentStatus === 'Paid' ? (
                   <button
@@ -2733,6 +3004,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 >
                   <Calendar size={15} /> Go to My Appointments
                 </button>
+              </div>
               </div>
             </div>
           )}

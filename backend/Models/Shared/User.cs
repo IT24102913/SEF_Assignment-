@@ -34,9 +34,5 @@ public class User
 
     public bool IsEmailVerified { get; set; } = true;
 
-    public string? EmailVerificationToken { get; set; }
-
-    public DateTime? EmailVerificationTokenExpiresAt { get; set; }
-
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

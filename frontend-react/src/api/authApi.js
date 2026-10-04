@@ -66,6 +66,9 @@ export const logout = () => {
     sessionStorage.removeItem('user');
 };
 
+
+
+
 // Named exports so components can do: import { api, getErrorMessage } from '../../api/authApi'
 export { api };
 export const getErrorMessage = extractErrorMessage;

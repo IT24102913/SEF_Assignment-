@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { register as apiRegister } from '../api/authApi';
 import loginBg from '../assets/hut.png';
@@ -216,8 +217,7 @@ const SuccessPopup = ({ onClose }) => (
             <h2 style={popupStyles.title}>Registration Successful! 🎉</h2>
             <p style={popupStyles.message}>
                 Your account has been created successfully.<br />
-                A secure verification link has been dispatched to your email.<br />
-                Please verify your email address to activate sign in.
+                You can now sign in with your email and password.
             </p>
             <button style={popupStyles.btn} onClick={onClose}>
                 Proceed to Sign In →
@@ -436,40 +436,9 @@ const Login = () => {
                             </div>
 
                             {siError && (
-                                <div style={{ ...s.errorBox, display: 'flex', alignItems: 'flex-start', gap: '8px' }} className="animate-fade-in">
-                                    <XCircle size={15} color="#B91C1C" style={{ marginTop: '2px', flexShrink: 0 }} />
-                                    <div style={{ flex: 1 }}>
-                                        <div>{siError}</div>
-                                        {siError.toLowerCase().includes('verif') && siEmail && (
-                                            <button
-                                                type="button"
-                                                onClick={async () => {
-                                                    try {
-                                                        const res = await apiRegister; // or api call
-                                                        const authApi = (await import('../api/authApi')).default;
-                                                        await authApi.post('/auth/resend-verification', { email: siEmail.trim() });
-                                                        setSiError('Verification email resent! Please check your inbox.');
-                                                    } catch {
-                                                        setSiError('Failed to resend verification email.');
-                                                    }
-                                                }}
-                                                style={{
-                                                    marginTop: '6px',
-                                                    background: 'none',
-                                                    border: 'none',
-                                                    color: '#00796B',
-                                                    fontWeight: '700',
-                                                    fontSize: '11px',
-                                                    textDecoration: 'underline',
-                                                    cursor: 'pointer',
-                                                    padding: 0,
-                                                    display: 'block'
-                                                }}
-                                            >
-                                                Resend Verification Email →
-                                            </button>
-                                        )}
-                                    </div>
+                                <div style={s.errorBox} className="animate-fade-in">
+                                    <XCircle size={15} color="#B91C1C" />
+                                    <span>{siError}</span>
                                 </div>
                             )}
 
