@@ -56,6 +56,20 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     address: user?.address || '',
     notes: ''
   });
+
+  useEffect(() => {
+    if (user) {
+      setPatientDetails(prev => ({
+        ...prev,
+        fullName: prev.fullName || user.fullName || user.name || '',
+        nic: prev.nic || user.nicNumber || '',
+        phone: prev.phone || user.phoneNumber || '',
+        email: prev.email || user.email || '',
+        address: prev.address || user.address || ''
+      }));
+    }
+  }, [user]);
+
   const [formErrors, setFormErrors] = useState({});
   const [bookingType, setBookingType] = useState('Reservation'); // 'Reservation' or 'OnlinePayment'
   const [validatingAvailability, setValidatingAvailability] = useState(false);
@@ -234,7 +248,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
       if (Array.isArray(res.data)) {
         // Filter out expired/past time slots immediately
         const validUpcomingSessions = res.data.filter(s => !s.isExpired);
-        
+
         setAvailableSessions(validUpcomingSessions);
         // Default to first available date
         if (validUpcomingSessions.length > 0) {
@@ -296,8 +310,10 @@ const DoctorChannelingSection = ({ user, showToast }) => {
         error = 'Invalid Sri Lankan contact number';
       }
     } else if (field === 'email') {
-      if (trimmed && !/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
-        error = 'Invalid email address format (e.g., missing @ or domain)';
+      if (!trimmed) {
+        error = 'Email address is required to receive your confirmation slip and check-in QR code';
+      } else if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+        error = 'Invalid email address format (e.g. name@gmail.com)';
       }
     }
     return error;
@@ -386,8 +402,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   const isPaymentFormValid = () => {
     if (paymentMethod === 'CreditCard') {
       return !checkCardNumberError(cardData.number) &&
-             !checkExpiryError(cardData.expiry) &&
-             !checkCvvError(cardData.cvv);
+        !checkExpiryError(cardData.expiry) &&
+        !checkCvvError(cardData.cvv);
     }
     if (paymentMethod === 'BankTransfer') {
       return !checkBankRefError(bankRef);
@@ -2061,11 +2077,11 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
                 <div>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: formErrors.email ? '#EF4444' : '#37474F', marginBottom: '6px' }}>
-                    EMAIL ADDRESS
+                    EMAIL ADDRESS *
                   </label>
                   <input
                     type="email"
-                    placeholder="e.g. patient@gmail.com"
+                    placeholder="e.g. yourname@gmail.com"
                     value={patientDetails.email}
                     onChange={(e) => handleChange('email', e.target.value)}
                     style={{
@@ -2078,7 +2094,13 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                       backgroundColor: formErrors.email ? '#FEF2F2' : '#FFFFFF'
                     }}
                   />
-                  {formErrors.email && <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>{formErrors.email}</div>}
+                  {formErrors.email ? (
+                    <div style={{ fontSize: '11px', color: '#EF4444', marginTop: '4px', fontWeight: '600' }}>{formErrors.email}</div>
+                  ) : (
+                    <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#64748B' }}>
+                      Your reservation slip &amp; hospital QR code will be emailed directly to this address.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -2840,171 +2862,172 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
               {/* Card body */}
               <div style={{ padding: '28px 24px 32px' }}>
-              <div style={{
-                width: '64px',
-                height: '64px',
-                borderRadius: '50%',
-                backgroundColor: confirmedAppointment.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
-                color: confirmedAppointment.paymentStatus === 'Paid' ? '#15803D' : '#B45309',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 16px auto'
-              }}>
-                <CheckCircle2 size={36} />
-              </div>
-
-              <span style={{
-                backgroundColor: confirmedAppointment.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
-                color: confirmedAppointment.paymentStatus === 'Paid' ? '#15803D' : '#B45309',
-                fontSize: '11px',
-                fontWeight: '800',
-                padding: '4px 12px',
-                borderRadius: '20px',
-                textTransform: 'uppercase'
-              }}>
-                {confirmedAppointment.paymentStatus === 'Paid' ? '✓ PAYMENT CONFIRMED & VERIFIED' : 'RESERVATION PASS — PAYMENT DUE AT DESK'}
-              </span>
-
-              <h2 style={{ margin: '10px 0 4px 0', fontSize: '20px', fontWeight: '900', color: '#004D40' }}>
-                {confirmedAppointment.paymentStatus === 'Paid' ? 'Appointment & Payment Confirmed!' : 'Place Reserved Successfully!'}
-              </h2>
-              <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748B' }}>
-                Ref: <strong>{confirmedAppointment.appointmentNumber}</strong>
-              </p>
-
-              {/* Queue Number Badge */}
-              <div style={{
-                backgroundColor: '#E0F2F1',
-                borderRadius: '10px',
-                padding: '12px 24px',
-                marginBottom: '16px',
-                display: 'inline-block'
-              }}>
-                <div style={{ fontSize: '11px', color: '#00796B', fontWeight: '700', textTransform: 'uppercase' }}>
-                  Assigned Queue Number
-                </div>
-                <div style={{ fontSize: '32px', fontWeight: '900', color: '#004D40' }}>
-                  Queue #{String(confirmedAppointment.queueNumber).padStart(2, '0')}
-                </div>
-              </div>
-
-              {/* Key Details Card */}
-              <div style={{
-                backgroundColor: '#F8FAFC',
-                borderRadius: '10px',
-                padding: '16px',
-                textAlign: 'left',
-                fontSize: '13px',
-                color: '#334155',
-                marginBottom: '20px',
-                lineHeight: '1.7'
-              }}>
-                <div><strong>Doctor:</strong> {confirmedAppointment.doctorName} ({confirmedAppointment.specialization})</div>
-                <div><strong>Date & Time:</strong> {confirmedAppointment.appointmentDate} at {confirmedAppointment.timeSlot}</div>
-                <div><strong>Hospital:</strong> {confirmedAppointment.hospitalBranch}</div>
-                <div><strong>Patient:</strong> {confirmedAppointment.patientName} (NIC: {confirmedAppointment.patientNic})</div>
-                {confirmedAppointment.paymentStatus === 'Paid' ? (
-                  <div style={{ color: '#15803D', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
-                    Payment: LKR {confirmedAppointment.totalAmount?.toLocaleString()} Paid ({confirmedAppointment.paymentMethod} • Ref: {confirmedAppointment.paymentReference || 'VERIFIED'})
-                  </div>
-                ) : (
-                  <div style={{ color: '#B45309', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
-                    Amount Due on Arrival: LKR {confirmedAppointment.totalAmount?.toLocaleString()} (Cash / Card at Hospital Desk)
-                  </div>
-                )}
-              </div>
-
-              {/* Real-time QR Code for Check-in */}
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
-                  Hospital Check-in QR Code:
-                </div>
                 <div style={{
-                  display: 'inline-block',
-                  padding: '10px',
-                  backgroundColor: '#FFFFFF',
-                  borderRadius: '10px',
-                  border: '1px solid #E2E8F0',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+                  width: '64px',
+                  height: '64px',
+                  borderRadius: '50%',
+                  backgroundColor: confirmedAppointment.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
+                  color: confirmedAppointment.paymentStatus === 'Paid' ? '#15803D' : '#B45309',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px auto'
                 }}>
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(confirmedAppointment.qrToken || confirmedAppointment.qrCodeText || confirmedAppointment.appointmentNumber)}`}
-                    alt="Appointment Check-in QR"
-                    style={{ width: '160px', height: '160px', display: 'block' }}
-                  />
+                  <CheckCircle2 size={36} />
                 </div>
-                <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: '#94A3B8' }}>
-                  Present this QR code at the Channeling Desk on arrival for expedited check-in
+
+                <span style={{
+                  backgroundColor: confirmedAppointment.paymentStatus === 'Paid' ? '#DCFCE7' : '#FEF3C7',
+                  color: confirmedAppointment.paymentStatus === 'Paid' ? '#15803D' : '#B45309',
+                  fontSize: '11px',
+                  fontWeight: '800',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  textTransform: 'uppercase'
+                }}>
+                  {confirmedAppointment.paymentStatus === 'Paid' ? '✓ PAYMENT CONFIRMED & VERIFIED' : 'RESERVATION PASS — PAYMENT DUE AT DESK'}
+                </span>
+
+                <h2 style={{ margin: '10px 0 4px 0', fontSize: '20px', fontWeight: '900', color: '#004D40' }}>
+                  {confirmedAppointment.paymentStatus === 'Paid' ? 'Appointment & Payment Confirmed!' : 'Place Reserved Successfully!'}
+                </h2>
+                <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748B' }}>
+                  Ref: <strong>{confirmedAppointment.appointmentNumber}</strong>
                 </p>
-              </div>
 
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                {confirmedAppointment.paymentStatus === 'Paid' ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveReceiptApt(confirmedAppointment)}
-                    style={{
-                      padding: '10px 20px',
-                      borderRadius: '8px',
-                      border: '1px solid #00796B',
-                      backgroundColor: '#00796B',
-                      color: '#FFFFFF',
-                      fontSize: '13px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <FileText size={15} /> View Official Receipt
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setActiveReceiptApt(confirmedAppointment)}
-                    style={{
-                      padding: '10px 20px',
-                      borderRadius: '8px',
-                      border: '1px solid #CBD5E1',
-                      backgroundColor: '#FFFFFF',
-                      color: '#475569',
-                      fontSize: '13px',
-                      fontWeight: '700',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}
-                  >
-                    <FileText size={15} /> View Reservation Slip
-                  </button>
-                )}
+                {/* Queue Number Badge */}
+                <div style={{
+                  backgroundColor: '#E0F2F1',
+                  borderRadius: '10px',
+                  padding: '12px 24px',
+                  marginBottom: '16px',
+                  display: 'inline-block'
+                }}>
+                  <div style={{ fontSize: '11px', color: '#00796B', fontWeight: '700', textTransform: 'uppercase' }}>
+                    Assigned Queue Number
+                  </div>
+                  <div style={{ fontSize: '32px', fontWeight: '900', color: '#004D40' }}>
+                    Queue #{String(confirmedAppointment.queueNumber).padStart(2, '0')}
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentStep(6);
-                    fetchMyAppointmentsList();
-                  }}
-                  style={{
-                    padding: '10px 20px',
-                    borderRadius: '8px',
-                    border: '1px solid #CFD8DC',
+                {/* Key Details Card */}
+                <div style={{
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  textAlign: 'left',
+                  fontSize: '13px',
+                  color: '#334155',
+                  marginBottom: '20px',
+                  lineHeight: '1.7'
+                }}>
+                  <div><strong>Doctor:</strong> {confirmedAppointment.doctorName} ({confirmedAppointment.specialization})</div>
+                  <div><strong>Date & Time:</strong> {confirmedAppointment.appointmentDate} at {confirmedAppointment.timeSlot}</div>
+                  <div><strong>Hospital:</strong> {confirmedAppointment.hospitalBranch}</div>
+                  <div><strong>Patient:</strong> {confirmedAppointment.patientName} (NIC: {confirmedAppointment.patientNic})</div>
+                  <div><strong>Confirmation Sent To:</strong> <span style={{ color: '#00796B', fontWeight: '700' }}>{confirmedAppointment.patientEmail || patientDetails.email}</span> <span style={{ color: '#64748B', fontSize: '11px' }}>(Check Inbox &amp; Spam)</span></div>
+                  {confirmedAppointment.paymentStatus === 'Paid' ? (
+                    <div style={{ color: '#15803D', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
+                      Payment: LKR {confirmedAppointment.totalAmount?.toLocaleString()} Paid ({confirmedAppointment.paymentMethod} • Ref: {confirmedAppointment.paymentReference || 'VERIFIED'})
+                    </div>
+                  ) : (
+                    <div style={{ color: '#B45309', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
+                      Amount Due on Arrival: LKR {confirmedAppointment.totalAmount?.toLocaleString()} (Cash / Card at Hospital Desk)
+                    </div>
+                  )}
+                </div>
+
+                {/* Real-time QR Code for Check-in */}
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '8px' }}>
+                    Hospital Check-in QR Code:
+                  </div>
+                  <div style={{
+                    display: 'inline-block',
+                    padding: '10px',
                     backgroundColor: '#FFFFFF',
-                    color: '#37474F',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Calendar size={15} /> Go to My Appointments
-                </button>
-              </div>
+                    borderRadius: '10px',
+                    border: '1px solid #E2E8F0',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+                  }}>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(confirmedAppointment.qrToken || confirmedAppointment.qrCodeText || confirmedAppointment.appointmentNumber)}`}
+                      alt="Appointment Check-in QR"
+                      style={{ width: '160px', height: '160px', display: 'block' }}
+                    />
+                  </div>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '11px', color: '#94A3B8' }}>
+                    Present this QR code at the Channeling Desk on arrival for expedited check-in
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {confirmedAppointment.paymentStatus === 'Paid' ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveReceiptApt(confirmedAppointment)}
+                      style={{
+                        padding: '10px 20px',
+                        borderRadius: '8px',
+                        border: '1px solid #00796B',
+                        backgroundColor: '#00796B',
+                        color: '#FFFFFF',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <FileText size={15} /> View Official Receipt
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setActiveReceiptApt(confirmedAppointment)}
+                      style={{
+                        padding: '10px 20px',
+                        borderRadius: '8px',
+                        border: '1px solid #CBD5E1',
+                        backgroundColor: '#FFFFFF',
+                        color: '#475569',
+                        fontSize: '13px',
+                        fontWeight: '700',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <FileText size={15} /> View Reservation Slip
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentStep(6);
+                      fetchMyAppointmentsList();
+                    }}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '8px',
+                      border: '1px solid #CFD8DC',
+                      backgroundColor: '#FFFFFF',
+                      color: '#37474F',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <Calendar size={15} /> Go to My Appointments
+                  </button>
+                </div>
               </div>
             </div>
           )}
