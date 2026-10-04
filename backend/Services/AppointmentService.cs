@@ -14,17 +14,20 @@ public class AppointmentService : IAppointmentService
     private readonly IConfiguration _configuration;
     private readonly ILogger<AppointmentService> _logger;
     private readonly IEmailSender _emailSender;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public AppointmentService(
         ApplicationDbContext context,
         IConfiguration configuration,
         ILogger<AppointmentService> logger,
-        IEmailSender emailSender)
+        IEmailSender emailSender,
+        IServiceScopeFactory scopeFactory)
     {
         _context       = context;
         _configuration = configuration;
         _logger        = logger;
         _emailSender   = emailSender;
+        _scopeFactory  = scopeFactory;
     }
 
     private static readonly string[] FixedSpecialties = new[]
@@ -442,6 +445,16 @@ public class AppointmentService : IAppointmentService
         var paymentMethod = isReservation ? "PayOnArrival" : "CreditCard";
         var qrToken = Guid.NewGuid();
 
+        var patientEmail = request.PatientEmail?.Trim();
+        if (string.IsNullOrWhiteSpace(patientEmail) && patientId.HasValue)
+        {
+            var user = await _context.Users.FindAsync(patientId.Value);
+            if (user != null && !string.IsNullOrWhiteSpace(user.Email))
+            {
+                patientEmail = user.Email.Trim();
+            }
+        }
+
         var appointment = new DoctorAppointment
         {
             AppointmentNumber = aptNumber,
@@ -451,7 +464,7 @@ public class AppointmentService : IAppointmentService
             PatientId = patientId,
             PatientName = request.PatientName.Trim(),
             PatientPhone = request.PatientPhone.Trim(),
-            PatientEmail = request.PatientEmail.Trim(),
+            PatientEmail = patientEmail ?? string.Empty,
             PatientNic = request.PatientNic.Trim(),
             PatientAddress = request.PatientAddress?.Trim(),
             AppointmentDate = aptDateTime,
@@ -475,18 +488,27 @@ public class AppointmentService : IAppointmentService
         _context.DoctorAppointments.Add(appointment);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}, BookingType={Type}",
-            appointment.AppointmentNumber, doctor.Id, appointment.QueueNumber, appointment.BookingType);
+        _logger.LogInformation("Booked appointment {AptNo} for Doctor {DoctorId}, Queue #{QueueNo}, BookingType={Type}, PatientEmail={Email}",
+            appointment.AppointmentNumber, doctor.Id, appointment.QueueNumber, appointment.BookingType, appointment.PatientEmail);
 
-        // Send booking confirmation email with embedded QR code (fire-and-forget)
+        // Send booking confirmation email with embedded QR code (using dedicated background DI scope)
         var capturedBooking = appointment;
         var capturedHospital  = doctor.HospitalBranch;
-        var capturedEmailer   = _emailSender;
+        var capturedScopeFactory = _scopeFactory;
         var capturedLogger2   = _logger;
         _ = Task.Run(async () =>
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(capturedBooking.PatientEmail))
+                {
+                    capturedLogger2.LogWarning("[Email] Skipped booking confirmation email for {AptNo}: patient email is empty", capturedBooking.AppointmentNumber);
+                    return;
+                }
+
+                using var scope = capturedScopeFactory.CreateScope();
+                var emailer = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+
                 var payStatus     = isReservation ? "PendingAtDesk" : "PendingPayment";
                 var qrJson        = BuildQrPayload(
                     capturedBooking.AppointmentNumber,
@@ -515,13 +537,16 @@ public class AppointmentService : IAppointmentService
                     statusLabel,
                     capturedBooking.PaymentReference ?? "Pending",
                     isReservation);
-                await capturedEmailer.SendEmailWithInlineQrAsync(
+
+                capturedLogger2.LogInformation("[Email] Dispatching booking confirmation to {Email} for {AptNo}...", capturedBooking.PatientEmail, capturedBooking.AppointmentNumber);
+                var success = await emailer.SendEmailWithInlineQrAsync(
                     capturedBooking.PatientEmail, capturedBooking.PatientName,
                     emailSubject, html, qrBytes);
+                capturedLogger2.LogInformation("[Email] Dispatch result for {Email} ({AptNo}): Success={Success}", capturedBooking.PatientEmail, capturedBooking.AppointmentNumber, success);
             }
             catch (Exception ex)
             {
-                capturedLogger2.LogWarning(ex, "[Email] Failed to send booking confirmation to {Email}", capturedBooking.PatientEmail);
+                capturedLogger2.LogError(ex, "[Email] Failed to send booking confirmation to {Email}", capturedBooking.PatientEmail);
             }
         });
 
@@ -576,14 +601,23 @@ public class AppointmentService : IAppointmentService
         await _context.SaveChangesAsync();
         _logger.LogInformation("Payment processed for Appointment {AptNo}, Status Confirmed", apt.AppointmentNumber);
 
-        // Send payment confirmation email with embedded QR code (fire-and-forget)
+        // Send payment confirmation email with embedded QR code (using dedicated background DI scope)
         var capturedApt     = apt;
-        var capturedEmailer2 = _emailSender;
+        var capturedScopeFactory2 = _scopeFactory;
         var capturedLogger  = _logger;
         _ = Task.Run(async () =>
         {
             try
             {
+                if (string.IsNullOrWhiteSpace(capturedApt.PatientEmail))
+                {
+                    capturedLogger.LogWarning("[Email] Skipped payment confirmation email for {AptNo}: patient email is empty", capturedApt.AppointmentNumber);
+                    return;
+                }
+
+                using var scope = capturedScopeFactory2.CreateScope();
+                var emailer = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+
                 var qrJson = BuildQrPayload(
                     capturedApt.AppointmentNumber,
                     capturedApt.PatientName,
@@ -606,14 +640,17 @@ public class AppointmentService : IAppointmentService
                     capturedApt.Doctor?.HospitalBranch ?? "Health Bridge Hospital",
                     capturedApt.PaymentMethod ?? "Credit / Debit Card",
                     capturedApt.PaymentReference ?? "VERIFIED");
-                await capturedEmailer2.SendEmailWithInlineQrAsync(
+
+                capturedLogger.LogInformation("[Email] Dispatching payment confirmation to {Email} for {AptNo}...", capturedApt.PatientEmail, capturedApt.AppointmentNumber);
+                var success = await emailer.SendEmailWithInlineQrAsync(
                     capturedApt.PatientEmail, capturedApt.PatientName,
                     $"\u2705 Payment & Appointment Confirmed - Ref: {capturedApt.AppointmentNumber} - Health Bridge Hospital",
                     html, qrBytes);
+                capturedLogger.LogInformation("[Email] Payment confirmation result for {Email} ({AptNo}): Success={Success}", capturedApt.PatientEmail, capturedApt.AppointmentNumber, success);
             }
             catch (Exception ex)
             {
-                capturedLogger.LogWarning(ex, "[Email] Failed to send payment confirmation to {Email}", capturedApt.PatientEmail);
+                capturedLogger.LogError(ex, "[Email] Failed to send payment confirmation to {Email}", capturedApt.PatientEmail);
             }
         });
 

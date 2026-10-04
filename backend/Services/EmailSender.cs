@@ -167,22 +167,47 @@ public class EmailSender : IEmailSender
                 message.Body = new TextPart("html") { Text = htmlContent };
             }
 
-            bool isGmail = smtpServer.Contains("gmail.com", StringComparison.OrdinalIgnoreCase);
-            var secureOption = MailKit.Security.SecureSocketOptions.StartTls;
+            var primarySocketOption = smtpPort == 465
+                ? MailKit.Security.SecureSocketOptions.SslOnConnect
+                : MailKit.Security.SecureSocketOptions.StartTls;
 
-            using var client = new SmtpClient();
-            using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            try
+            {
+                using var client = new SmtpClient();
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 
-            _logger.LogInformation("[EmailSender] Connecting to {Server}:{Port} ({Mode})",
-                smtpServer, smtpPort, isGmail ? "Gmail/StartTLS" : "SMTP/StartTLS");
+                _logger.LogInformation("[EmailSender] Connecting to {Server}:{Port} ({Option})", smtpServer, smtpPort, primarySocketOption);
+                await client.ConnectAsync(smtpServer, smtpPort, primarySocketOption, cts.Token);
+                await client.AuthenticateAsync(smtpUser!, smtpPass!, cts.Token);
+                await client.SendAsync(message, cts.Token);
+                await client.DisconnectAsync(true, cts.Token);
 
-            await client.ConnectAsync(smtpServer, smtpPort, secureOption, cts.Token);
-            await client.AuthenticateAsync(smtpUser!, smtpPass!, cts.Token);
-            await client.SendAsync(message, cts.Token);
-            await client.DisconnectAsync(true, cts.Token);
+                _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, smtpPort);
+                return true;
+            }
+            catch (Exception primaryEx) when (smtpPort != 465)
+            {
+                _logger.LogWarning(primaryEx, "[EmailSender] Primary SMTP port {Port} connection failed: {Msg}. Retrying via SSL Port 465 fallback...", smtpPort, primaryEx.Message);
 
-            _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP ({Server})", toEmail, smtpServer);
-            return true;
+                try
+                {
+                    using var retryClient = new SmtpClient();
+                    using var retryCts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+                    await retryClient.ConnectAsync(smtpServer, 465, MailKit.Security.SecureSocketOptions.SslOnConnect, retryCts.Token);
+                    await retryClient.AuthenticateAsync(smtpUser!, smtpPass!, retryCts.Token);
+                    await retryClient.SendAsync(message, retryCts.Token);
+                    await retryClient.DisconnectAsync(true, retryCts.Token);
+
+                    _logger.LogInformation("[EmailSender] ✅ Email delivered to {Email} via SMTP SSL Port 465 fallback", toEmail);
+                    return true;
+                }
+                catch (Exception retryEx)
+                {
+                    _logger.LogError(retryEx, "[EmailSender] SSL Port 465 fallback also failed for {Email}: {Msg}", toEmail, retryEx.Message);
+                    return false;
+                }
+            }
         }
         catch (MailKit.Net.Smtp.SmtpCommandException smtpEx)
         {
