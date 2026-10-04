@@ -1,6 +1,5 @@
 using MailKit.Net.Smtp;
 using MimeKit;
-using MimeKit.Utils;
 using Microsoft.Extensions.Options;
 
 namespace HealthBridge.Api.Services;
@@ -29,10 +28,11 @@ public class EmailSender : IEmailSender
 
     // ── Plain HTML email (no inline attachment) ─────────────────────────────
     public Task<bool> SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
-        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent, null, null);
+        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent);
 
-    // ── HTML email with an inline QR code image (CID-based) ─────────────────
-    // The HTML body should reference the image as: <img src="cid:{imageCid}">
+    // ── HTML email with QR code already embedded as base64 data: URI in the HTML body ──
+    // qrPngBytes is accepted for API compatibility but the QR is baked into htmlContent as
+    // data:image/png;base64,... — no multipart/related needed, maximises mobile client support.
     public Task<bool> SendEmailWithInlineQrAsync(
         string toEmail,
         string toName,
@@ -40,16 +40,14 @@ public class EmailSender : IEmailSender
         string htmlContent,
         byte[] qrPngBytes,
         string imageCid = "appointment_qr_code")
-        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent, qrPngBytes, imageCid);
+        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent);
 
     // ── Core dispatch logic ──────────────────────────────────────────────────
     private async Task<bool> SendEmailCoreAsync(
         string toEmail,
         string toName,
         string subject,
-        string htmlContent,
-        byte[]? inlineImageBytes,
-        string? inlineImageCid)
+        string htmlContent)
     {
         if (string.IsNullOrWhiteSpace(toEmail)) return false;
 
@@ -80,13 +78,12 @@ public class EmailSender : IEmailSender
 
         var brevoApiKey = _config["Brevo:ApiKey"];
 
-        bool hasValidSmtp   = !string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)
-                              && !smtpUser!.StartsWith("YOUR_") && !smtpPass!.StartsWith("YOUR_");
-        bool hasValidHttpApi = !string.IsNullOrWhiteSpace(brevoApiKey) && !brevoApiKey!.StartsWith("YOUR_");
-        bool hasInlineImage  = inlineImageBytes is { Length: > 0 } && !string.IsNullOrWhiteSpace(inlineImageCid);
+        bool hasValidSmtp    = !string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)
+                               && !smtpUser!.StartsWith("YOUR_") && !smtpPass!.StartsWith("YOUR_");
+        bool hasValidHttpApi  = !string.IsNullOrWhiteSpace(brevoApiKey) && !brevoApiKey!.StartsWith("YOUR_");
 
-        // ── 2. Brevo REST (no inline image support in REST; skip if QR must be CID-embedded) ──
-        if (hasValidHttpApi && !hasInlineImage)
+        // ── 2. Brevo REST (plain HTML; QR is already base64-embedded in the HTML body) ──
+        if (hasValidHttpApi)
         {
             try
             {
@@ -136,32 +133,7 @@ public class EmailSender : IEmailSender
             message.To.Add(new MailboxAddress(string.IsNullOrWhiteSpace(toName) ? toEmail : toName, toEmail));
             message.Subject = subject;
 
-            MimeEntity body;
-
-            if (hasInlineImage)
-            {
-                // Build multipart/related so the inline image is referenced by cid:
-                var htmlPart = new TextPart("html") { Text = htmlContent };
-
-                var qrImage = new MimePart("image", "png")
-                {
-                    Content            = new MimeContent(new MemoryStream(inlineImageBytes!)),
-                    ContentDisposition = new ContentDisposition(ContentDisposition.Inline),
-                    ContentTransferEncoding = ContentEncoding.Base64,
-                    ContentId          = MimeUtils.GenerateMessageId()   // will be overridden below
-                };
-                // Force the CID to match what the HTML references
-                qrImage.ContentId = inlineImageCid!.Trim('<', '>');
-
-                var related = new MultipartRelated { htmlPart, qrImage };
-                body = related;
-            }
-            else
-            {
-                body = new TextPart("html") { Text = htmlContent };
-            }
-
-            message.Body = body;
+            message.Body = new TextPart("html") { Text = htmlContent };
 
             // Detect Gmail to use OAuth-less App-Password path (StartTls on 587)
             bool isGmail = smtpServer.Contains("gmail.com", StringComparison.OrdinalIgnoreCase);
