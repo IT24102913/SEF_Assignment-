@@ -498,7 +498,6 @@ public class AppointmentService : IAppointmentService
                     capturedHospital ?? "Health Bridge Hospital",
                     payStatus);
                 var qrBytes       = GenerateQrCodeBytes(qrJson);
-                var qrBase64      = qrBytes.Length > 0 ? Convert.ToBase64String(qrBytes) : string.Empty;
                 var statusLabel   = isReservation ? "Pay at Hospital Counter" : "Pending Payment";
                 var emailSubject  = isReservation
                     ? $"Reservation Confirmed - Ref: {capturedBooking.AppointmentNumber} - Health Bridge Hospital"
@@ -515,7 +514,6 @@ public class AppointmentService : IAppointmentService
                     capturedHospital ?? "Health Bridge Hospital",
                     statusLabel,
                     capturedBooking.PaymentReference ?? "Pending",
-                    qrBase64,
                     isReservation);
                 await capturedEmailer.SendEmailWithInlineQrAsync(
                     capturedBooking.PatientEmail, capturedBooking.PatientName,
@@ -596,7 +594,6 @@ public class AppointmentService : IAppointmentService
                     capturedApt.Doctor?.HospitalBranch ?? "Health Bridge Hospital",
                     "Paid");
                 var qrBytes  = GenerateQrCodeBytes(qrJson);
-                var qrBase64 = qrBytes.Length > 0 ? Convert.ToBase64String(qrBytes) : string.Empty;
                 var html = BuildAppointmentEmailHtml(
                     capturedApt.PatientName,
                     capturedApt.AppointmentNumber,
@@ -608,8 +605,7 @@ public class AppointmentService : IAppointmentService
                     capturedApt.PatientNic ?? "",
                     capturedApt.Doctor?.HospitalBranch ?? "Health Bridge Hospital",
                     capturedApt.PaymentMethod ?? "Credit / Debit Card",
-                    capturedApt.PaymentReference ?? "VERIFIED",
-                    qrBase64);
+                    capturedApt.PaymentReference ?? "VERIFIED");
                 await capturedEmailer2.SendEmailWithInlineQrAsync(
                     capturedApt.PatientEmail, capturedApt.PatientName,
                     $"\u2705 Payment & Appointment Confirmed - Ref: {capturedApt.AppointmentNumber} - Health Bridge Hospital",
@@ -1450,12 +1446,16 @@ public class AppointmentService : IAppointmentService
         string hospitalBranch,
         string paymentMethod,
         string paymentReference,
-        string qrBase64,
         bool isReservation = false)
     {
-        var qrImgTag = !string.IsNullOrWhiteSpace(qrBase64)
-            ? $"<img src='data:image/png;base64,{qrBase64}' alt='Hospital Check-in QR Code' width='180' height='180' style='display:block;margin:0 auto;border:6px solid #e2e8f0;border-radius:10px;' />"
-            : $"<p style='font-family:monospace;font-size:11px;word-break:break-all;color:#334155;padding:12px;background:#f1f5f9;border-radius:8px;'>{appointmentNumber}</p>";
+        // QR image is delivered as a CID-linked resource by EmailSender.
+        // The HTML references it via cid: so the MIME multipart/related
+        // envelope (built by BodyBuilder.LinkedResources) renders it natively
+        // inside Gmail mobile app without being blocked as an external image.
+        var qrImgTag =
+            "<img src='cid:appointment_qr_code' alt='Hospital Check-in QR Code' " +
+            "width='180' height='180' " +
+            "style='display:block;margin:0 auto;border:6px solid #e2e8f0;border-radius:10px;' />";
 
         // ---- Reservation vs Paid visual variants ----
         var topBadgeText    = isReservation ? "RESERVATION PASS — PAYMENT DUE AT DESK"  : "&#x2714; PAYMENT CONFIRMED &amp; VERIFIED";

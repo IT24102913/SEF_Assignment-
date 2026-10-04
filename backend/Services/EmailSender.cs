@@ -28,11 +28,13 @@ public class EmailSender : IEmailSender
 
     // ── Plain HTML email (no inline attachment) ─────────────────────────────
     public Task<bool> SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
-        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent);
+        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent, null, "appointment_qr_code");
 
-    // ── HTML email with QR code already embedded as base64 data: URI in the HTML body ──
-    // qrPngBytes is accepted for API compatibility but the QR is baked into htmlContent as
-    // data:image/png;base64,... — no multipart/related needed, maximises mobile client support.
+    // ── HTML + inline QR via multipart/related (CID-based) ──────────────────
+    // The HTML body must reference: <img src="cid:{imageCid}">
+    // qrPngBytes is the raw PNG bytes; they are attached as a LinkedResource
+    // with ContentId = imageCid, producing a proper multipart/related envelope
+    // that Gmail mobile app renders natively.
     public Task<bool> SendEmailWithInlineQrAsync(
         string toEmail,
         string toName,
@@ -40,18 +42,20 @@ public class EmailSender : IEmailSender
         string htmlContent,
         byte[] qrPngBytes,
         string imageCid = "appointment_qr_code")
-        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent);
+        => SendEmailCoreAsync(toEmail, toName, subject, htmlContent, qrPngBytes, imageCid);
 
     // ── Core dispatch logic ──────────────────────────────────────────────────
     private async Task<bool> SendEmailCoreAsync(
         string toEmail,
         string toName,
         string subject,
-        string htmlContent)
+        string htmlContent,
+        byte[]? qrPngBytes,
+        string imageCid)
     {
         if (string.IsNullOrWhiteSpace(toEmail)) return false;
 
-        // ── 1. Resolve credentials (SmtpSettings section wins over Brevo section) ──
+        // ── 1. Resolve credentials ──────────────────────────────────────────
         var smtpServer = !string.IsNullOrWhiteSpace(_smtpSettings.SmtpServer)
             ? _smtpSettings.SmtpServer
             : (_config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com");
@@ -78,12 +82,15 @@ public class EmailSender : IEmailSender
 
         var brevoApiKey = _config["Brevo:ApiKey"];
 
-        bool hasValidSmtp    = !string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)
-                               && !smtpUser!.StartsWith("YOUR_") && !smtpPass!.StartsWith("YOUR_");
-        bool hasValidHttpApi  = !string.IsNullOrWhiteSpace(brevoApiKey) && !brevoApiKey!.StartsWith("YOUR_");
+        bool hasInlineQr   = qrPngBytes is { Length: > 0 };
+        bool hasValidSmtp  = !string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)
+                             && !smtpUser!.StartsWith("YOUR_") && !smtpPass!.StartsWith("YOUR_");
+        bool hasValidHttpApi = !string.IsNullOrWhiteSpace(brevoApiKey) && !brevoApiKey!.StartsWith("YOUR_");
 
-        // ── 2. Brevo REST (plain HTML; QR is already base64-embedded in the HTML body) ──
-        if (hasValidHttpApi)
+        // ── 2. Brevo REST — only used for plain-HTML mails (no QR attachment) ──
+        //    Brevo REST API does not support multipart/related linked resources,
+        //    so skip it when an inline QR is requested.
+        if (hasValidHttpApi && !hasInlineQr)
         {
             try
             {
@@ -119,7 +126,7 @@ public class EmailSender : IEmailSender
             }
         }
 
-        // ── 3. SMTP (Gmail / Brevo SMTP) — supports CID inline images ──
+        // ── 3. SMTP via MailKit — multipart/related when QR bytes are present ──
         if (!hasValidSmtp)
         {
             _logger.LogWarning("[EmailSender] No valid SMTP credentials configured. Email to {Email} skipped.", toEmail);
@@ -133,16 +140,41 @@ public class EmailSender : IEmailSender
             message.To.Add(new MailboxAddress(string.IsNullOrWhiteSpace(toName) ? toEmail : toName, toEmail));
             message.Subject = subject;
 
-            message.Body = new TextPart("html") { Text = htmlContent };
+            if (hasInlineQr)
+            {
+                // ── Build multipart/related using MimeKit BodyBuilder ──────────
+                // BodyBuilder.LinkedResources produces the exact MIME structure:
+                //   Content-Type: multipart/related
+                //     └─ text/html  (references cid:{imageCid})
+                //     └─ image/png  (Content-ID: <{imageCid}>; Content-Transfer-Encoding: base64)
+                // This is the format Gmail mobile app renders inline images from.
+                var builder = new BodyBuilder();
+                builder.HtmlBody = htmlContent; // must contain <img src="cid:{imageCid}">
 
-            // Detect Gmail to use OAuth-less App-Password path (StartTls on 587)
+                var linkedImg = (MimePart) builder.LinkedResources.Add(
+                    "qr_code.png",
+                    qrPngBytes!,
+                    new ContentType("image", "png"));
+                linkedImg.ContentId               = imageCid;
+                linkedImg.ContentTransferEncoding  = ContentEncoding.Base64;
+
+                message.Body = builder.ToMessageBody();
+
+                _logger.LogInformation("[EmailSender] Built multipart/related with CID={Cid} ({Bytes} bytes)", imageCid, qrPngBytes!.Length);
+            }
+            else
+            {
+                message.Body = new TextPart("html") { Text = htmlContent };
+            }
+
             bool isGmail = smtpServer.Contains("gmail.com", StringComparison.OrdinalIgnoreCase);
             var secureOption = MailKit.Security.SecureSocketOptions.StartTls;
 
             using var client = new SmtpClient();
             using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 
-            _logger.LogInformation("[EmailSender] Connecting to {Server}:{Port} ({Mode})", smtpServer, smtpPort, isGmail ? "Gmail/StartTLS" : "SMTP/StartTLS");
+            _logger.LogInformation("[EmailSender] Connecting to {Server}:{Port} ({Mode})",
+                smtpServer, smtpPort, isGmail ? "Gmail/StartTLS" : "SMTP/StartTLS");
 
             await client.ConnectAsync(smtpServer, smtpPort, secureOption, cts.Token);
             await client.AuthenticateAsync(smtpUser!, smtpPass!, cts.Token);
