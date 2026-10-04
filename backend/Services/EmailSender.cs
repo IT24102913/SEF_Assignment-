@@ -58,27 +58,28 @@ public class EmailSender : IEmailSender
         // ── 1. Resolve credentials ──────────────────────────────────────────
         var smtpServer = !string.IsNullOrWhiteSpace(_smtpSettings.SmtpServer)
             ? _smtpSettings.SmtpServer
-            : (_config["Brevo:SmtpServer"] ?? "smtp-relay.brevo.com");
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpServer") ?? _config["SmtpSettings:SmtpServer"] ?? "smtp.gmail.com");
 
+        var smtpPortStr = Environment.GetEnvironmentVariable("SmtpSettings__SmtpPort") ?? _config["SmtpSettings:SmtpPort"];
         var smtpPort = _smtpSettings.SmtpPort > 0
             ? _smtpSettings.SmtpPort
-            : (int.TryParse(_config["Brevo:SmtpPort"], out var p) ? p : 587);
+            : (int.TryParse(smtpPortStr, out var p) ? p : 465);
 
         var smtpUser = !string.IsNullOrWhiteSpace(_smtpSettings.SmtpUser)
             ? _smtpSettings.SmtpUser
-            : _config["Brevo:SmtpUser"];
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpUser") ?? _config["SmtpSettings:SmtpUser"] ?? "teeranya123danansuriya@gmail.com");
 
         var smtpPass = !string.IsNullOrWhiteSpace(_smtpSettings.SmtpPass)
             ? _smtpSettings.SmtpPass
-            : _config["Brevo:SmtpPass"];
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpPass") ?? _config["SmtpSettings:SmtpPass"] ?? "rvci rqxr toba cxgg");
 
         var senderEmail = !string.IsNullOrWhiteSpace(_smtpSettings.SenderEmail)
             ? _smtpSettings.SenderEmail
-            : (_config["Brevo:FromEmail"] ?? "noreply@healthbridge.com");
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SenderEmail") ?? _config["SmtpSettings:SenderEmail"] ?? "teeranya123danansuriya@gmail.com");
 
         var senderName = !string.IsNullOrWhiteSpace(_smtpSettings.SenderName)
             ? _smtpSettings.SenderName
-            : (_config["Brevo:FromName"] ?? "HealthBridge System");
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SenderName") ?? _config["SmtpSettings:SenderName"] ?? "Health Bridge Hospital");
 
         var brevoApiKey = _config["Brevo:ApiKey"];
 
