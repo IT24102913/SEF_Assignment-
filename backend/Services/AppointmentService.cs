@@ -536,7 +536,8 @@ public class AppointmentService : IAppointmentService
                     capturedHospital ?? "Health Bridge Hospital",
                     statusLabel,
                     capturedBooking.PaymentReference ?? "Pending",
-                    isReservation);
+                    isReservation,
+                    qrJson);
 
                 capturedLogger2.LogInformation("[Email] Dispatching booking confirmation to {Email} for {AptNo}...", capturedBooking.PatientEmail, capturedBooking.AppointmentNumber);
                 var success = await emailer.SendEmailWithInlineQrAsync(
@@ -639,7 +640,9 @@ public class AppointmentService : IAppointmentService
                     capturedApt.PatientNic ?? "",
                     capturedApt.Doctor?.HospitalBranch ?? "Health Bridge Hospital",
                     capturedApt.PaymentMethod ?? "Credit / Debit Card",
-                    capturedApt.PaymentReference ?? "VERIFIED");
+                    capturedApt.PaymentReference ?? "VERIFIED",
+                    false,
+                    qrJson);
 
                 capturedLogger.LogInformation("[Email] Dispatching payment confirmation to {Email} for {AptNo}...", capturedApt.PatientEmail, capturedApt.AppointmentNumber);
                 var success = await emailer.SendEmailWithInlineQrAsync(
@@ -1483,16 +1486,30 @@ public class AppointmentService : IAppointmentService
         string hospitalBranch,
         string paymentMethod,
         string paymentReference,
-        bool isReservation = false)
+        bool isReservation = false,
+        string? qrPayload = null)
     {
-        // QR image is delivered as a CID-linked resource by EmailSender.
-        // The HTML references it via cid: so the MIME multipart/related
-        // envelope (built by BodyBuilder.LinkedResources) renders it natively
-        // inside Gmail mobile app without being blocked as an external image.
-        var qrImgTag =
-            "<img src='cid:appointment_qr_code' alt='Hospital Check-in QR Code' " +
-            "width='180' height='180' " +
-            "style='display:block;margin:0 auto;border:6px solid #e2e8f0;border-radius:10px;' />";
+        // QR image is rendered via public CDN (api.qrserver.com) so Gmail and all mobile clients load it reliably
+        var rawPayload = !string.IsNullOrWhiteSpace(qrPayload) ? qrPayload : appointmentNumber;
+        var encodedData = Uri.EscapeDataString(rawPayload);
+        var qrUrl = $"https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=png&data={encodedData}";
+
+        var qrImgTag = $"""
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;text-align:center;">
+          <tr>
+            <td align="center" style="background:#ffffff;padding:12px;border:3px solid #006652;border-radius:12px;">
+              <img src="{qrUrl}" alt="Hospital Check-in QR Code" width="180" height="180" style="display:block;margin:0 auto;border:0;" />
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-top:8px;">
+              <span style="font-size:11px;font-weight:700;color:#006652;letter-spacing:0.06em;text-transform:uppercase;">
+                &#x26A1; Scan at reception desk for instant check-in
+              </span>
+            </td>
+          </tr>
+        </table>
+        """;
 
         // ---- Reservation vs Paid visual variants ----
         var topBadgeText    = isReservation ? "RESERVATION PASS — PAYMENT DUE AT DESK"  : "&#x2714; PAYMENT CONFIRMED &amp; VERIFIED";
