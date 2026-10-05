@@ -13,6 +13,7 @@ export default function StaffPortal() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const roleParam = searchParams.get('role');
+  const [hasLoggedOut, setHasLoggedOut] = useState(false);
 
   const createPharmacistSession = (currentUser) => ({
     role: 'Pharmacist',
@@ -22,24 +23,67 @@ export default function StaffPortal() {
     user: currentUser
   });
 
-  const [staffSession, setStaffSession] = useState(() => {
-    if (roleParam === 'Pharmacist' || (user && user.role === 'Pharmacist')) {
-      return createPharmacistSession(user);
+  const createConsultantSession = (currentUser) => ({
+    role: 'Consultant',
+    staffId: currentUser?.fullName || currentUser?.email || 'DOC-01',
+    roleTitle: 'Consultant (Doctor)',
+    accentColor: '#0d7c6b',
+    user: currentUser
+  });
+
+  const createLaboratorianSession = (currentUser) => ({
+    role: 'Laboratorian',
+    staffId: currentUser?.fullName || currentUser?.email || 'LAB-01',
+    roleTitle: 'Laboratorian (Lab Staff)',
+    accentColor: '#16a34a',
+    user: currentUser
+  });
+
+  const createAdminSession = (currentUser) => ({
+    role: 'Admin',
+    staffId: currentUser?.fullName || currentUser?.email || 'ADMIN-01',
+    roleTitle: 'Hospital Administrator',
+    accentColor: '#ea580c',
+    user: currentUser
+  });
+
+  const resolveInitialSession = (currentUser, targetRole) => {
+    if (!currentUser) return null;
+    if (targetRole === 'Pharmacist' || currentUser.role === 'Pharmacist') {
+      return createPharmacistSession(currentUser);
+    }
+    if (targetRole === 'Consultant' || targetRole === 'Doctor' || currentUser.role === 'Doctor') {
+      return createConsultantSession(currentUser);
+    }
+    if (targetRole === 'Laboratorian' || targetRole === 'Laboratory' || currentUser.role === 'Laboratory') {
+      return createLaboratorianSession(currentUser);
+    }
+    if (targetRole === 'Admin' || (currentUser.role === 'Admin' && targetRole === 'Admin')) {
+      return createAdminSession(currentUser);
     }
     return null;
+  };
+
+  const [staffSession, setStaffSession] = useState(() => {
+    return resolveInitialSession(user, roleParam);
   });
 
   useEffect(() => {
-    if (!staffSession && (roleParam === 'Pharmacist' || (user && user.role === 'Pharmacist'))) {
-      setStaffSession(createPharmacistSession(user));
+    if (!hasLoggedOut && !staffSession && user) {
+      const resolved = resolveInitialSession(user, roleParam);
+      if (resolved) {
+        setStaffSession(resolved);
+      }
     }
-  }, [roleParam, user]);
+  }, [roleParam, user, hasLoggedOut]);
 
   const handleLogin = (session) => {
+    setHasLoggedOut(false);
     setStaffSession(session);
   };
 
   const handleLogout = () => {
+    setHasLoggedOut(true);
     setStaffSession(null);
     if (roleParam) {
       setSearchParams({});
