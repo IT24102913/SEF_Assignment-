@@ -626,12 +626,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: const [
                           Icon(Icons.verified_user_outlined, size: 14, color: Color(0xFF0D9488)),
                           SizedBox(width: 6),
-                          Text(
-                            'Protected by Health Bridge Security System.',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF0D9488),
+                          Flexible(
+                            child: Text(
+                              'Protected by Health Bridge Security System.',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0D9488),
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],

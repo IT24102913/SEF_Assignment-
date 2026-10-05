@@ -14,7 +14,7 @@ using Moq;
 using System.Reflection;
 using Xunit;
 
-namespace HealthBridge.Tests.Controllers;
+namespace HealthBridge.Tests.Controllers.Appointments;
 
 public class DoctorAppointmentsControllerTests
 {
