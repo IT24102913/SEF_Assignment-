@@ -104,6 +104,92 @@ const Orders = () => {
         } catch (e) { return []; }
     });
     const [warningMessages, setWarningMessages] = useState({});
+    // ─────────────────────────────────────────────────────────────────────
+    // Builds human-readable, categorized reason cards explaining WHY the
+    // AI flagged a prescription. Parses safetyFlags from the backend + the
+    // order's own fields to surface specific evidence per category.
+    // ─────────────────────────────────────────────────────────────────────
+    const buildAiDetailReasons = (order, safetyFlags = []) => {
+        const reasons = [];
+        const flagsLower = safetyFlags.map(f => f.toLowerCase());
+        const hasRxImage = !!(order.prescriptionImageUrl || order.imageUrl);
+
+        // ── CATEGORY 1: Document Authenticity / Vision Issues ──────────────
+        const visionIssues = [];
+
+        // Watermark / VOID stamp
+        if (flagsLower.some(f => f.includes('watermark') || f.includes('void') || f.includes('sample') || f.includes('specimen') || f.includes('training') || f.includes('do not use')))
+            visionIssues.push({ icon: '🔏', text: 'Watermark or "VOID/SAMPLE" stamp detected — prescription is marked as a training or specimen document, not a real issued one.' });
+
+        // Flat vector / digital template
+        if (flagsLower.some(f => f.includes('vector') || f.includes('flat_vector') || f.includes('computer template') || f.includes('graphic')))
+            visionIssues.push({ icon: '🖥️', text: 'Prescription appears to be a computer-generated vector graphic template, not a photographed real paper document.' });
+
+        // Screenshot / UI chrome
+        if (flagsLower.some(f => f.includes('screenshot') || f.includes('ui chrome') || f.includes('browser') || f.includes('taskbar') || f.includes('window')))
+            visionIssues.push({ icon: '📸', text: 'Image appears to be a screenshot of software or a website, not a photo of a physical prescription paper.' });
+
+        // Non-medical image
+        if (flagsLower.some(f => f.includes('non-medical') || f.includes('non_medical') || f.includes('non-prescription') || f.includes('not a valid doctor')))
+            visionIssues.push({ icon: '🚫', text: 'Uploaded image is not a medical prescription — it appears to be an unrelated photo, document, or digital graphic.' });
+
+        // Forgery / tampered
+        if (flagsLower.some(f => f.includes('forgery') || f.includes('forged') || f.includes('tampered') || f.includes('annotation') || f.includes('mismatch')))
+            visionIssues.push({ icon: '⚠️', text: 'AI detected signs of document tampering or annotation error labels (e.g. FORGERY / MISMATCH overlaid on fields).' });
+
+        // ── CATEGORY 2: Missing / Suspicious Document Fields ───────────────
+        const fieldIssues = [];
+
+        // Fake phone number
+        if (flagsLower.some(f => f.includes('phone') && (f.includes('placeholder') || f.includes('555') || f.includes('000-0000') || f.includes('fake'))))
+            fieldIssues.push({ icon: '📞', text: 'Doctor\'s clinic phone number is a placeholder (e.g. 555-XXXX or 000-0000) — not a real registered clinic number.' });
+
+        // Invalid email
+        if (flagsLower.some(f => f.includes('email') && (f.includes('invalid') || f.includes('garbled') || f.includes('domain'))))
+            fieldIssues.push({ icon: '📧', text: 'Clinic email address has an invalid or nonsensical domain — suggests the document was generated using dummy data.' });
+
+        // No signature or stamp
+        if (flagsLower.some(f => f.includes('signature') || f.includes('stamp') || f.includes('seal') || f.includes('no doctor')))
+            fieldIssues.push({ icon: '✍️', text: 'No valid doctor\'s signature, stamp, or clinic seal detected — all real prescriptions must have at least one of these to be legally valid.' });
+
+        // Old prescription
+        if (flagsLower.some(f => f.includes('months old') || f.includes('old') || (f.includes('months') && f.includes('threshold'))))
+            fieldIssues.push({ icon: '📅', text: 'Prescription date is older than 6 months — prescriptions expire and cannot be used for refills after the threshold period.' });
+
+        // No doctor / clinic name
+        if (flagsLower.some(f => f.includes('no doctor') || (f.includes('doctor') && f.includes('name')) || (f.includes('clinic') && f.includes('name'))))
+            fieldIssues.push({ icon: '👨‍⚕️', text: 'Doctor name or clinic name is missing — a valid prescription must clearly identify the issuing physician and their registered clinic.' });
+
+        // ── CATEGORY 3: Anti-Abuse / Pattern Issues ────────────────────────
+        const patternIssues = [];
+
+        // Duplicate prescription image
+        if (flagsLower.some(f => f.includes('duplicate prescription') || f.includes('reuse attempt')))
+            patternIssues.push({ icon: '🔁', text: 'The same prescription image has been uploaded on multiple orders — prescription reuse is a safety violation.' });
+
+        // High velocity orders
+        if (flagsLower.some(f => f.includes('high velocity') || f.includes('orders within 7 days')))
+            patternIssues.push({ icon: '⏱️', text: 'Patient has placed an unusually high number of orders within a 7-day window — pattern consistent with medication stockpiling abuse.' });
+
+        // Repeat medication
+        if (flagsLower.some(f => f.includes('repeat medication') || f.includes('times within 7 days')))
+            patternIssues.push({ icon: '💊', text: 'Same medication ordered multiple times within 7 days — potential early refill attempt or duplicate ordering abuse.' });
+
+        // Early refill
+        if (flagsLower.some(f => f.includes('early refill')))
+            patternIssues.push({ icon: '🔄', text: 'Refill is being requested before the minimum required interval since last fulfillment — possible early refill abuse.' });
+
+        // Suspicious history
+        if (flagsLower.some(f => f.includes('suspicious') || f.includes('previous suspicious')))
+            patternIssues.push({ icon: '🚨', text: 'This patient has multiple previously flagged high-risk orders in their history — elevated risk profile.' });
+
+        if (visionIssues.length > 0) reasons.push({ category: '🤖 Document Authenticity (AI Vision Analysis)', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', items: visionIssues });
+        if (fieldIssues.length > 0) reasons.push({ category: '📋 Missing / Suspicious Prescription Fields', color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', items: fieldIssues });
+        if (patternIssues.length > 0) reasons.push({ category: '📊 Behavioral Pattern Flags (Anti-Abuse)', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', items: patternIssues });
+
+        return reasons;
+    };
+
     const evaluatePrescriptionSafetyClient = (currentOrder, allOrdersList = []) => {
         if (!currentOrder) {
             return {
@@ -171,18 +257,18 @@ const Orders = () => {
             const orderNum = String(currentOrder.orderNumber || '');
             const notesLower = String(currentOrder.notes || currentOrder.patientNote || '').toLowerCase();
 
-            const nonMedicalKeywords = [
-                "scores", "vector", "assignment", "worksheet", "school", "reading", "writing",
-                "homework", "math", "exercise", "teacher", "library", "bus", "friends", "kid",
-                "child", "sentence", "alphabet", "student", "class", "grade", "essay", "drawing",
-                "sketch", "nonmedical", "fake", "invalid", "worksheetdigital",
-                "laptop", "computer", "keyboard", "screen", "desktop", "photo", "poster", "naruto",
-                "code", "picture", "img", "screenshot", "table", "device", "camera", "whatsapp", "tele", "image"
+            // NOTE: Only match on order-level metadata/notes — never on the image URL itself,
+            // because cloud storage URLs (Cloudinary, AWS S3, Firebase) contain generic words
+            // like "image", "photo", "upload" etc. that would cause false positives.
+            const nonMedicalNoteKeywords = [
+                "scores", "vector", "assignment", "worksheet", "homework", "math", "exercise",
+                "teacher", "library", "alphabet", "student", "class", "grade", "essay", "drawing",
+                "sketch", "nonmedical", "worksheetdigital", "naruto"
             ];
 
-            if (nonMedicalKeywords.some(kw => rxLower.includes(kw) || notesLower.includes(kw)) ||
-                currentOrder.isNonMedicalUpload ||
-                orderNum.includes("2519") || orderNum.includes("2226") || orderNum.includes("7074")) {
+            // Only flag based on admin-set flag OR suspicious order-level notes (NOT url)
+            if (currentOrder.isNonMedicalUpload ||
+                nonMedicalNoteKeywords.some(kw => notesLower.includes(kw))) {
                 isNonMedicalDoc = true;
             }
 
@@ -219,7 +305,7 @@ const Orders = () => {
             return (nowMs - oTime) <= sevenDaysMs && (o.status !== 'Cancelled');
         });
 
-        if (past7DaysOrders.length >= 2) {
+        if (past7DaysOrders.length >= 3) {
             flags.push(`⚠️ High Velocity Order History: Patient placed ${past7DaysOrders.length + 1} orders within 7 days`);
             riskScore += 35;
         }
@@ -288,8 +374,10 @@ const Orders = () => {
             riskScore += 50;
         }
 
-        const previousSuspiciousCount = patientHistory.filter(o => o.status === 'Cancelled' || (o.safetyRiskScore && o.safetyRiskScore >= 70)).length;
-        if (previousSuspiciousCount > 0) {
+        // Only count orders that were explicitly flagged by the AI safety system (risk >= 70).
+        // Cancelled orders are NOT suspicious — patients cancel for legitimate reasons.
+        const previousSuspiciousCount = patientHistory.filter(o => o.safetyRiskScore && o.safetyRiskScore >= 70).length;
+        if (previousSuspiciousCount > 1) {
             flags.push("Multiple suspicious attempts detected in patient history");
             riskScore += 25;
         }
@@ -299,7 +387,8 @@ const Orders = () => {
         let recommendedAction = "APPROVE";
         if (riskScore >= 70 || isDuplicateRx || isNonMedicalDoc) {
             recommendedAction = "BLOCK_AND_FLAG_FOR_REVIEW";
-        } else if (riskScore >= 30 || flags.some(f => !f.includes("Verified"))) {
+        } else if (riskScore >= 40 || flags.some(f => f.includes("⚠️"))) {
+            // Only escalate to manual review if there are actual warning flags (⚠️ prefix)
             recommendedAction = "REQUIRE_MANUAL_REVIEW";
         }
 
@@ -1079,7 +1168,7 @@ const Orders = () => {
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px', fontSize: '12px', background: 'rgba(255,255,255,0.7)', padding: '8px 10px', borderRadius: '6px' }}>
                                             <div>
                                                 <strong>Handwriting Reading:</strong>
-                                                <div style={{ color: '#059669', fontWeight: 700 }}>{safety.handwritingStatus}</div>
+                                                <div style={{ color: safety.handwritingStatus.includes('⚠️') || safety.handwritingStatus.includes('Non-Medical') ? '#DC2626' : '#059669', fontWeight: 700 }}>{safety.handwritingStatus}</div>
                                             </div>
                                             <div>
                                                 <strong>Duplication Check:</strong>
@@ -1152,12 +1241,58 @@ const Orders = () => {
                                                 <div><strong>Violating Patient:</strong> {selectedOrder.customerName} ({selectedOrder.customerEmail || 'No Email'})</div>
                                                 <div><strong>Violation Date:</strong> {new Date(selectedOrder.createdAt).toLocaleString()}</div>
                                                 <div><strong>Offending Order #:</strong> {selectedOrder.orderNumber}</div>
-                                                {safety.isNonMedicalDoc && (
-                                                    <div style={{ marginTop: '4px', color: '#B91C1C', fontWeight: 700 }}>
-                                                        {"🤖 AI Identification Reason: Uploaded image contains R-Programming assignment code (scores <- c(85, 90, 78, 92, NA, 88)), which is a non-medical prescription violation."}
+                                                {safety.flags && safety.flags.length > 0 && (
+                                                    <div style={{ marginTop: '4px', color: '#B91C1C', fontWeight: 600, fontSize: '11px' }}>
+                                                        🤖 AI Flags: {safety.flags.filter(f => f.includes('⚠️')).length} violation signal(s) detected by Gemini 3.8 Flash vision analysis.
                                                     </div>
                                                 )}
                                             </div>
+
+                                            {/* ── WHY AI FLAGGED THIS PRESCRIPTION — Detailed Reason Breakdown ── */}
+                                            {(() => {
+                                                const allFlags = [
+                                                    ...(Array.isArray(selectedOrder.safetyFlags)
+                                                        ? selectedOrder.safetyFlags
+                                                        : typeof selectedOrder.safetyFlags === 'string'
+                                                            ? selectedOrder.safetyFlags.split(',').map(s => s.trim()).filter(Boolean)
+                                                            : []),
+                                                    ...safety.flags
+                                                ];
+                                                const detailReasons = buildAiDetailReasons(selectedOrder, allFlags);
+                                                if (detailReasons.length === 0) return null;
+                                                return (
+                                                    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '12px 14px' }}>
+                                                        <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#0F172A', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            🔍 Why AI Flagged This Prescription — Detailed Analysis
+                                                        </div>
+                                                        {detailReasons.map((section, si) => (
+                                                            <div key={si} style={{ marginBottom: si < detailReasons.length - 1 ? '10px' : 0 }}>
+                                                                <div style={{
+                                                                    fontSize: '11px', fontWeight: 800, color: section.color,
+                                                                    background: section.bg, border: `1px solid ${section.border}`,
+                                                                    borderRadius: '6px', padding: '4px 8px', marginBottom: '6px',
+                                                                    display: 'inline-block'
+                                                                }}>
+                                                                    {section.category}
+                                                                </div>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                    {section.items.map((item, ii) => (
+                                                                        <div key={ii} style={{
+                                                                            display: 'flex', alignItems: 'flex-start', gap: '8px',
+                                                                            background: section.bg, border: `1px solid ${section.border}`,
+                                                                            borderRadius: '6px', padding: '6px 10px', fontSize: '11.5px',
+                                                                            color: '#1E293B', lineHeight: 1.5
+                                                                        }}>
+                                                                            <span style={{ fontSize: '14px', flexShrink: 0 }}>{item.icon}</span>
+                                                                            <span>{item.text}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()}
 
                                             {/* Patient Submitted Appeal & Doctor Letter Viewer (if exists) */}
                                             {(() => {
