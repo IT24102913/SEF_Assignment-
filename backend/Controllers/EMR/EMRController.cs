@@ -229,6 +229,22 @@ public class EMRController : ControllerBase
         [FromQuery] string? category,
         [FromQuery] string? status)
     {
+        // Auto-resolve patientCode for logged-in patient if not explicitly supplied
+        if (string.IsNullOrWhiteSpace(patientCode) && User.Identity?.IsAuthenticated == true)
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier) 
+                           ?? User.FindFirstValue("sub") 
+                           ?? User.FindFirstValue("nameid");
+            if (int.TryParse(userIdClaim, out var userId))
+            {
+                var patient = await _context.Patients.FirstOrDefaultAsync(p => p.UserId == userId);
+                if (patient != null)
+                {
+                    patientCode = patient.PatientCode;
+                }
+            }
+        }
+
         var reports = await _emrService.GetLabReportsAsync(patientCode, search, category, status);
         return Ok(reports);
     }

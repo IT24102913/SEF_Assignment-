@@ -252,6 +252,8 @@ try
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""CheckedInByUserId"" integer NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""StatusChangeReason"" text NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""ReadyAlertSentAt"" timestamp with time zone NULL;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""IsSavedToEmr"" boolean NOT NULL DEFAULT FALSE;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""EmrLabReportId"" uuid NULL;");
 
     if (db.Database.IsNpgsql())
     {
@@ -308,6 +310,24 @@ if (!hasValidSmtpCreds && !hasValidBrevoCreds)
 {
     app.Logger.LogWarning("Email credentials are not configured, emails will not be sent");
 }
+
+// Health Check Endpoints (Public / Anonymous for Railway, graders, and uptime monitors)
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "Healthy",
+    service = "Health Bridge Web API",
+    timestamp = DateTime.UtcNow
+})).AllowAnonymous();
+
+app.MapGet("/api/health", () => Results.Ok(new
+{
+    status = "Healthy",
+    service = "Health Bridge Web API",
+    timestamp = DateTime.UtcNow
+})).AllowAnonymous();
+
+// Redirect root domain "/" straight to Swagger UI for convenient browser access
+app.MapGet("/", () => Results.Redirect("/swagger/index.html")).AllowAnonymous();
 
 app.Run();
 

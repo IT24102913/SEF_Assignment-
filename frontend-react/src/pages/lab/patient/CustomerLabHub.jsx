@@ -224,6 +224,32 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                             </span>
                         )}
                     </button>
+                    <button
+                        onClick={() => {
+                            if (!isLoggedIn) {
+                                requireAuth('schedule a laboratory appointment', () => setActiveTab('book'));
+                                return;
+                            }
+                            setActiveTab('book');
+                        }}
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '10px 20px',
+                            borderRadius: '12px',
+                            fontSize: '14px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            border: 'none',
+                            background: activeTab === 'book' ? '#059669' : '#F1F5F9',
+                            color: activeTab === 'book' ? '#FFFFFF' : '#475569',
+                            boxShadow: activeTab === 'book' ? '0 4px 14px rgba(5, 150, 105, 0.3)' : 'none'
+                        }}
+                    >
+                        <Calendar size={16} /> Book Lab Appointment
+                    </button>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -283,6 +309,33 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                         setTrackingRelatedBookings(list);
                     }}
                 />
+            )}
+
+            {/* TAB: SCHEDULE APPOINTMENT (EMBEDDED) */}
+            {activeTab === 'book' && (
+                <div style={{ maxWidth: '1060px', margin: '0 auto 40px auto' }}>
+                    <BookLabTestModal
+                        isEmbedded={true}
+                        test={bookingTest && bookingTest.id ? bookingTest : null}
+                        initialTest={bookingTest && bookingTest.id ? bookingTest : null}
+                        user={user}
+                        onClose={() => {
+                            setBookingTest(null);
+                            setActiveTab('hub');
+                        }}
+                        onSuccess={() => {
+                            setBookingTest(null);
+                            setActiveTab('bookings');
+                            loadHubData();
+                        }}
+                        onViewMyBookings={() => {
+                            setBookingTest(null);
+                            setInitialBookingFilter('ALL');
+                            setActiveTab('bookings');
+                            loadHubData();
+                        }}
+                    />
+                </div>
             )}
 
             {/* TAB: HUB OVERVIEW */}
@@ -949,6 +1002,12 @@ const CustomerLabHub = ({ user: propUser, onNavigate, showToast, initialTab = 'h
                     initialTest={bookingTest?.id ? bookingTest : null}
                     user={user}
                     onClose={() => setBookingTest(null)}
+                    onViewMyBookings={() => {
+                        setBookingTest(null);
+                        setInitialBookingFilter('ALL');
+                        setActiveTab('bookings');
+                        loadHubData();
+                    }}
                     onSuccess={(newBooking) => {
                         setBookingTest(null);
                         loadHubData();

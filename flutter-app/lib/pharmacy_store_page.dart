@@ -1891,28 +1891,118 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
   bool get _requiresVerification =>
       _hasRxItems || _prescriptionImageFile != null || _isDirectRxOnly;
 
-  Future<void> _submitOrder() async {
+  List<String> _collectValidationErrors() {
+    final List<String> errors = [];
+
+    // Full Name
+    final name = _nameCtrl.text.trim();
+    if (name.isEmpty) {
+      errors.add('Full name field is empty');
+    } else if (RegExp(r'[0-9]').hasMatch(name)) {
+      errors.add('Full name cannot contain numbers');
+    } else if (!RegExp(r'^[a-zA-Z\s\.\-]+$').hasMatch(name)) {
+      errors.add('Full name cannot contain symbols');
+    }
+
+    // Email
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      errors.add('Email address field is empty');
+    } else if (!email.contains('@') || !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      errors.add('Email address field must contain @ and a valid domain (e.g. name@gmail.com)');
+    }
+
+    // Phone Number
+    final phone = _phoneCtrl.text.trim();
+    if (phone.isEmpty) {
+      errors.add('Telephone field is empty');
+    } else if (phone.length != 10 || !RegExp(r'^\d{10}$').hasMatch(phone)) {
+      errors.add('Phone number must be exactly 10 digits (numbers only)');
+    }
+
+    // Delivery Address
+    final address = _addressCtrl.text.trim();
+    if (address.isEmpty) {
+      errors.add('Delivery address field is empty');
+    } else if (RegExp(r'^\d+$').hasMatch(address)) {
+      errors.add('Delivery address cannot be only numbers');
+    }
+
+    // Prescription Upload (Mandatory checks)
     if (_isDirectRxOnly && _prescriptionImageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Doctor prescription photo is mandatory for direct prescription orders!'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
+      errors.add('Doctor prescription photo is mandatory for direct prescription orders');
+    } else if (_hasRxItems && _prescriptionImageFile == null) {
+      errors.add('Doctor prescription photo is mandatory for prescription-restricted items');
     }
 
-    if (_hasRxItems && _prescriptionImageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Doctor prescription photo is mandatory for prescription-restricted items!'),
-          backgroundColor: Colors.red,
+    return errors;
+  }
+
+  void _showValidationErrorDialog(List<String> errors) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: const Color(0xFFFEF2F2),
+        title: Row(
+          children: const [
+            Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Missing / Invalid Field',
+              style: TextStyle(color: Color(0xFF991B1B), fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
         ),
-      );
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please correct the following field mistakes before submitting:',
+              style: TextStyle(fontSize: 12, color: Color(0xFF7F1D1D), fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            ...errors.map((err) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('• ', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.bold, fontSize: 14)),
+                      Expanded(
+                        child: Text(
+                          err,
+                          style: const TextStyle(color: Color(0xFFB91C1C), fontSize: 12.5, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Fix Mistakes', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitOrder() async {
+    final formValid = _formKey.currentState?.validate() ?? false;
+    final errors = _collectValidationErrors();
+
+    if (!formValid || errors.isNotEmpty) {
+      _showValidationErrorDialog(errors);
       return;
     }
-
-    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _submitting = true);
 
@@ -1997,6 +2087,7 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
           padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(context).padding.bottom + 30),
           child: Form(
             key: _formKey,
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2031,7 +2122,12 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
                 TextFormField(
                   controller: _nameCtrl,
                   decoration: const InputDecoration(labelText: 'Full Name *', border: OutlineInputBorder()),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Enter full name' : null,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Enter full name';
+                    if (RegExp(r'[0-9]').hasMatch(v.trim())) return 'Full name cannot contain numbers';
+                    if (!RegExp(r'^[a-zA-Z\s\.\-]+$').hasMatch(v.trim())) return 'Full name cannot contain symbols';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
@@ -2042,20 +2138,37 @@ class _CheckoutModalSheetState extends State<CheckoutModalSheet> {
                     hintText: 'e.g. yourname@gmail.com',
                     border: OutlineInputBorder(),
                   ),
-                  validator: (v) => v == null || v.trim().isEmpty || !v.contains('@') ? 'Enter a valid email address (@ required)' : null,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Enter email address';
+                    if (!v.contains('@') || !RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v.trim())) {
+                      return 'Please enter a valid email address with @';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _phoneCtrl,
+                  keyboardType: TextInputType.phone,
                   decoration: const InputDecoration(labelText: 'Phone Number *', border: OutlineInputBorder()),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Enter phone number' : null,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Telephone field is empty';
+                    if (v.trim().length != 10 || !RegExp(r'^\d{10}$').hasMatch(v.trim())) {
+                      return 'Phone number must be exactly 10 digits';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _addressCtrl,
                   maxLines: 2,
                   decoration: const InputDecoration(labelText: 'Delivery Address *', border: OutlineInputBorder()),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Enter delivery address' : null,
+                  validator: (v) {
+                    if (v == null || v.trim().isEmpty) return 'Enter delivery address';
+                    if (RegExp(r'^\d+$').hasMatch(v.trim())) return 'Delivery address cannot be only numbers';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 20),
 

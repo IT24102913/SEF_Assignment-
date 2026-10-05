@@ -352,7 +352,11 @@ function App() {
                         <Route path="profile" element={<HealthPassport />} />
                         <Route path="notifications" element={<NotificationsCenter />} />
                     </Route>
-                    <Route path="/emr/staff" element={<EmrStaffPortal />} />
+                    <Route path="/emr/staff" element={
+                        <ProtectedRoute allowedRoles={['Pharmacist', 'Admin', 'Doctor', 'Laboratory', 'Staff', 'HospitalAdmin']}>
+                            <EmrStaffPortal />
+                        </ProtectedRoute>
+                    } />
                     <Route path="/emr/admin" element={<EmrStaffPortal />} />
                     <Route path="/admin/records" element={<Navigate to="/emr/admin" replace />} />
                     <Route path="/admin/staff" element={

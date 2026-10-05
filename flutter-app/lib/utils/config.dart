@@ -57,7 +57,7 @@ class ApiConfig {
   static List<String> get candidateHosts {
     return [
       'http://localhost:5126',
-      'http://10.38.103.162:5126',
+      'http://192.168.1.6:5126',
       'http://127.0.0.1:5126',
       'http://10.0.2.2:5126',
       productionHost,
@@ -83,7 +83,7 @@ class ApiConfig {
         }
       } catch (_) {}
     }
-    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://192.168.1.5:5126';
+    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://192.168.1.6:5126';
     return '$_activeHost/api';
   }
 }

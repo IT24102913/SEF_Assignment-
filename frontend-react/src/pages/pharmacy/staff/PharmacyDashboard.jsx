@@ -14,7 +14,8 @@ import {
     ArrowLeft,
     LogOut,
     Sparkles,
-    CheckCircle2
+    CheckCircle2,
+    FileText
 } from 'lucide-react';
 
 const PharmacyDashboard = () => {
@@ -76,6 +77,16 @@ const PharmacyDashboard = () => {
             color: '#047857',
             badge: 'Predictive Neural Model',
             path: '/pharmacist/ai-forecast',
+        },
+        {
+            id: 'emr',
+            icon: FileText,
+            title: 'Electronic Medical Records',
+            description: 'Encrypted patient history, health summaries and electronic charts.',
+            color: '#9333ea',
+            badge: '256-Bit Vault',
+            path: '/emr/staff?role=Pharmacist',
+            actionText: 'Open Portal',
         },
     ];
 
@@ -237,7 +248,7 @@ const PharmacyDashboard = () => {
 
                                 <div style={styles.cardFooter}>
                                     <span style={{ ...styles.accessLink, color: module.color }}>
-                                        Manage Module
+                                        {module.actionText || 'Manage Module'}
                                         <ArrowRight size={16} />
                                     </span>
                                 </div>

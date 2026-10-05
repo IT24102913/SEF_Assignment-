@@ -1097,24 +1097,116 @@ class _ActiveBookingCard extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            // If report is delivered, give immediate download button on active card
-            if (booking.status == 'ReportDelivered' && booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty) ...[
+            // If report is delivered, show 30-day retention notice and actions on active card
+            if (booking.status == 'ReportDelivered' && (booking.resultFileUrl != null || booking.isReportExpired)) ...[
               Container(
                 margin: const EdgeInsets.only(bottom: 10),
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () => _MyBookingsScreenState._downloadReport(context, booking.resultFileUrl!),
-                  icon: const Icon(Icons.picture_as_pdf, size: 16),
-                  label: const Text('Download Delivered Report PDF'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF059669),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
-                  ),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline, color: Color(0xFF0284C7), size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '30-Day Report Retention Notice',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            booking.isSavedToEmr
+                                ? '✓ Permanently saved in your EMR health records.'
+                                : 'Available to download for 30 days after issue (${booking.retentionDaysRemaining ?? 30} days left). Unarchived files are purged from database storage after 30 days.',
+                            style: const TextStyle(fontSize: 11.5, color: Color(0xFF475569)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              Row(
+                children: [
+                  if (booking.resultFileUrl != null && !booking.isReportExpired)
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _MyBookingsScreenState._downloadReport(context, booking.resultFileUrl!),
+                        icon: const Icon(Icons.picture_as_pdf, size: 15),
+                        label: const Text('Download PDF'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF059669),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  if (booking.isSavedToEmr)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.bookmark_added, color: Color(0xFF047857), size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Saved in EMR',
+                            style: TextStyle(color: Color(0xFF047857), fontSize: 11.5, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        try {
+                          await LabApiService.saveBookingToEmr(booking.id);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Lab report archived permanently to your EMR profile!'),
+                                backgroundColor: kSuccess,
+                              ),
+                            );
+                            onRefresh();
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed to save to EMR: $e'), backgroundColor: kDanger),
+                            );
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.bookmark_add_outlined, size: 16, color: Color(0xFF0284C7)),
+                      label: const Text('Save to EMR'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0284C7),
+                        side: const BorderSide(color: Color(0xFF7DD3FC)),
+                        backgroundColor: const Color(0xFFF0F9FF),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
             ],
 
             // Actions: Primary Live Specimen Tracker + Cancel
@@ -1218,15 +1310,61 @@ class _ActiveBookingCard extends StatelessWidget {
 
 // ─── 2. Report Document Card (Official PDF & Pathologist Sign-Off) ────────────
 
-class _ReportDocumentCard extends StatelessWidget {
+class _ReportDocumentCard extends StatefulWidget {
   final LabBooking booking;
   final void Function(String url) onDownload;
 
   const _ReportDocumentCard({required this.booking, required this.onDownload});
 
   @override
+  State<_ReportDocumentCard> createState() => _ReportDocumentCardState();
+}
+
+class _ReportDocumentCardState extends State<_ReportDocumentCard> {
+  late bool _isSavedToEmr;
+  bool _isSavingEmr = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSavedToEmr = widget.booking.isSavedToEmr;
+  }
+
+  Future<void> _handleSaveToEmr() async {
+    setState(() => _isSavingEmr = true);
+    try {
+      await LabApiService.saveBookingToEmr(widget.booking.id);
+      if (mounted) {
+        setState(() {
+          _isSavedToEmr = true;
+          _isSavingEmr = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Lab report archived permanently to your EMR medical profile!'),
+            backgroundColor: kSuccess,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSavingEmr = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not save to EMR: ${e.toString().replaceAll("Exception: ", "")}'),
+            backgroundColor: kDanger,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final booking = widget.booking;
     final hasFile = booking.resultFileUrl != null && booking.resultFileUrl!.trim().isNotEmpty;
+    final isExpired = booking.isReportExpired && !_isSavedToEmr;
 
     return FadeSlideAnimation(
       child: Container(
@@ -1358,60 +1496,176 @@ class _ReportDocumentCard extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
 
-            // Primary Download CTA & Share
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      if (hasFile) {
-                        onDownload(booking.resultFileUrl!);
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Report file is currently being processed. Please refresh in a moment.'),
-                            backgroundColor: kWarning,
+            // 30-Day Retention Notice Card
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isExpired
+                    ? const Color(0xFFFEF2F2)
+                    : (_isSavedToEmr ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC)),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isExpired
+                      ? const Color(0xFFFECACA)
+                      : (_isSavedToEmr ? const Color(0xFFA7F3D0) : const Color(0xFFE2E8F0)),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    isExpired
+                        ? Icons.cancel_outlined
+                        : (_isSavedToEmr ? Icons.bookmark_added : Icons.info_outline),
+                    color: isExpired
+                        ? const Color(0xFFDC2626)
+                        : (_isSavedToEmr ? const Color(0xFF059669) : const Color(0xFF0284C7)),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isExpired
+                              ? 'Report Retention Expired'
+                              : (_isSavedToEmr ? 'Archived to Patient EMR' : '30-Day Retention Notice'),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            color: isExpired
+                                ? const Color(0xFF991B1B)
+                                : (_isSavedToEmr ? const Color(0xFF065F46) : const Color(0xFF0F172A)),
                           ),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.file_download_outlined, size: 18),
-                    label: Text(hasFile ? 'Download Official PDF' : 'Processing PDF...'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF059669),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isExpired
+                              ? 'This report exceeded the 30-day temporary retention window and was removed from database storage.'
+                              : (_isSavedToEmr
+                                  ? 'This lab report is permanently archived in your EMR health profile and will never be purged.'
+                                  : 'Reports can be downloaded for 30 days after issue (${booking.retentionDaysRemaining ?? 30} days left). Save to EMR to preserve it permanently.'),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: isExpired
+                                ? const Color(0xFFB91C1C)
+                                : (_isSavedToEmr ? const Color(0xFF047857) : const Color(0xFF475569)),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                IconButton.filledTonal(
-                  onPressed: () {
-                    if (hasFile) {
-                      Clipboard.setData(ClipboardData(text: booking.resultFileUrl!));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Report download link copied to clipboard!'),
-                          backgroundColor: kPrimary,
-                          duration: Duration(seconds: 2),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            // Primary Download CTA & Share & Save to EMR
+            Column(
+              children: [
+                Row(
+                  children: [
+                    if (!isExpired)
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (hasFile) {
+                              widget.onDownload(booking.resultFileUrl!);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Report file is currently being processed. Please refresh in a moment.'),
+                                  backgroundColor: kWarning,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.file_download_outlined, size: 18),
+                          label: Text(hasFile ? 'Download Official PDF' : 'Processing PDF...'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF059669),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
                         ),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Report link not ready yet.'), backgroundColor: kWarning),
-                      );
-                    }
-                  },
-                  style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFFE6F4EA),
-                    foregroundColor: const Color(0xFF059669),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: const Icon(Icons.share_outlined, size: 18),
-                  tooltip: 'Share Report',
+                      ),
+                    const SizedBox(width: 8),
+                    if (hasFile && !isExpired)
+                      IconButton.filledTonal(
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: booking.resultFileUrl!));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Report download link copied to clipboard!'),
+                              backgroundColor: kPrimary,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFFE6F4EA),
+                          foregroundColor: const Color(0xFF059669),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: const Icon(Icons.share_outlined, size: 18),
+                        tooltip: 'Share Report',
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Save to EMR Action Button or Saved Badge
+                SizedBox(
+                  width: double.infinity,
+                  child: _isSavedToEmr
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.bookmark_added, color: Color(0xFF047857), size: 16),
+                              SizedBox(width: 6),
+                              Text(
+                                'Saved to EMR Health Profile (Permanent)',
+                                style: TextStyle(
+                                  color: Color(0xFF047857),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : OutlinedButton.icon(
+                          onPressed: _isSavingEmr ? null : _handleSaveToEmr,
+                          icon: _isSavingEmr
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                                )
+                              : const Icon(Icons.bookmark_add_outlined, size: 16, color: Color(0xFF0284C7)),
+                          label: Text(_isSavingEmr ? 'Archiving to EMR...' : 'Save Report to EMR Profile'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0284C7),
+                            side: const BorderSide(color: Color(0xFF7DD3FC), width: 1.5),
+                            backgroundColor: const Color(0xFFF0F9FF),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                          ),
+                        ),
                 ),
               ],
             ),

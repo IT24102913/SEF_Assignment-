@@ -3,9 +3,9 @@ import {
   Microscope, Calendar, Clock, Download, AlertCircle, 
   CheckCircle2, XCircle, Search, RefreshCw, Sparkles, 
   ShieldCheck, FileText, ArrowRight, Eye, Trash2, Plus,
-  CreditCard, DollarSign, X
+  CreditCard, DollarSign, X, BookmarkCheck, FolderPlus, CheckCircle
 } from 'lucide-react';
-import { getMyBookings, cancelBooking, payBookingOnline, selectPayAtCounter } from '../../../api/labApi';
+import { getMyBookings, cancelBooking, payBookingOnline, selectPayAtCounter, saveReportToEmr } from '../../../api/labApi';
 import BookingTrackingModal from './BookingTrackingModal';
 import toast from 'react-hot-toast';
 
@@ -24,6 +24,7 @@ export default function MyLabBookingsSection({
   const [selectedTrackingBooking, setSelectedTrackingBooking] = useState(null);
   const [trackingRelatedBookings, setTrackingRelatedBookings] = useState([]);
   const [cancellingId, setCancellingId] = useState(null);
+  const [savingEmrId, setSavingEmrId] = useState(null);
   const [paymentModalBooking, setPaymentModalBooking] = useState(null);
   const [payingCard, setPayingCard] = useState(false);
 
@@ -148,6 +149,20 @@ export default function MyLabBookingsSection({
     } else {
       setSelectedTrackingBooking(booking);
       setTrackingRelatedBookings(related);
+    }
+  };
+
+  const handleSaveToEmr = async (booking) => {
+    try {
+      setSavingEmrId(booking.id);
+      const res = await saveReportToEmr(booking.id);
+      toast.success(res.data?.message || 'Lab report archived to your permanent EMR profile!', { duration: 4500 });
+      setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, isSavedToEmr: true, emrLabReportId: res.data?.emrReportId } : b));
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Could not archive report to EMR.';
+      toast.error(msg);
+    } finally {
+      setSavingEmrId(null);
     }
   };
 
@@ -676,6 +691,61 @@ export default function MyLabBookingsSection({
                   </div>
                 )}
 
+                {/* 30-Day Retention Notice & EMR Archival Banner */}
+                {siblingBookings.some(sb => ['ReportDelivered', 'Completed'].includes(sb.status) && (sb.resultFileUrl || sb.isReportExpired)) && (
+                  <div style={{
+                    marginTop: '14px',
+                    marginBottom: '10px',
+                    padding: '12px 14px',
+                    borderRadius: '10px',
+                    backgroundColor: '#F8FAFC',
+                    border: '1.5px solid #E2E8F0',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                      <AlertCircle size={18} color="#0284C7" style={{ flexShrink: 0, marginTop: '2px' }} />
+                      <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#334155' }}>
+                        <div style={{ fontWeight: 800, color: '#0F172A', marginBottom: '2px' }}>
+                          30-Day Lab Report Retention Policy
+                        </div>
+                        Official lab reports are available for direct download within <strong>30 days</strong> of issue. After 30 days, temporary lab files are automatically purged from database storage. Save reports to your <strong>EMR Profile</strong> to keep them permanently accessible.
+                      </div>
+                    </div>
+
+                    {/* Status per report item */}
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {siblingBookings.map(sb => {
+                        if (!['ReportDelivered', 'Completed'].includes(sb.status)) return null;
+                        const testName = sb.labTest?.name || 'Lab Test';
+                        if (sb.isReportExpired && !sb.isSavedToEmr) {
+                          return (
+                            <div key={sb.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#DC2626', fontWeight: 700, backgroundColor: '#FEF2F2', padding: '5px 10px', borderRadius: '6px' }}>
+                              <XCircle size={14} color="#DC2626" />
+                              <span>{testName}: 30-day download period expired. Unarchived file removed from database storage.</span>
+                            </div>
+                          );
+                        }
+                        if (sb.isSavedToEmr) {
+                          return (
+                            <div key={sb.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', color: '#047857', fontWeight: 700, backgroundColor: '#ECFDF5', padding: '5px 10px', borderRadius: '6px' }}>
+                              <BookmarkCheck size={14} color="#059669" />
+                              <span>{testName}: Permanently archived in your EMR Medical Profile.</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={sb.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', fontSize: '11.5px', color: '#0369A1', backgroundColor: '#F0F9FF', padding: '5px 10px', borderRadius: '6px', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <Clock size={14} color="#0284C7" />
+                              <span><strong>{testName}</strong>: {sb.retentionDaysRemaining != null ? `${sb.retentionDaysRemaining} days remaining` : '30-day retention'} before removal.</span>
+                            </div>
+                            <span style={{ fontSize: '11px', color: '#0284C7', fontWeight: 700 }}>Archive to EMR to prevent deletion</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* Card Footer Actions */}
                 <div style={styles.cardFooter}>
                   <div style={{
@@ -692,7 +762,7 @@ export default function MyLabBookingsSection({
                               : (isCancelledOrRejected ? '✗ Order Cancelled' : 'Payment Required')))}
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                     {/* Track Sample Button */}
                     <button
                       type="button"
@@ -709,20 +779,77 @@ export default function MyLabBookingsSection({
                       <Eye size={14} /> Track Sample
                     </button>
 
-                    {/* Download Report Buttons */}
+                    {/* Download & EMR Archive Actions */}
                     {siblingBookings.map(sb => {
                       const hasReport = Boolean(sb.resultFileUrl) && ['ReportDelivered', 'Completed'].includes(sb.status);
-                      if (!hasReport) return null;
+                      if (!hasReport && !sb.isReportExpired) return null;
+                      const labelPrefix = isMultiTestAppointment ? `${(sb.labTest?.name || 'Test').split(' ')[0]} ` : '';
+
+                      if (sb.isReportExpired && !sb.isSavedToEmr) {
+                        return (
+                          <span key={sb.id} style={{ fontSize: '11.5px', color: '#94A3B8', fontWeight: 600, padding: '6px 10px', backgroundColor: '#F1F5F9', borderRadius: '6px' }}>
+                            {labelPrefix}Expired
+                          </span>
+                        );
+                      }
+
                       return (
-                        <button
-                          key={sb.id}
-                          type="button"
-                          style={styles.downloadBtn}
-                          onClick={() => window.open(sb.resultFileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', '_blank')}
-                          title={`Download Report for ${sb.labTest?.name}`}
-                        >
-                          <Download size={14} /> {isMultiTestAppointment ? `${(sb.labTest?.name || 'Test').split(' ')[0]} PDF` : 'PDF Report'}
-                        </button>
+                        <div key={sb.id} style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            style={styles.downloadBtn}
+                            onClick={() => window.open(sb.resultFileUrl || 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf', '_blank')}
+                            title={`Download Report for ${sb.labTest?.name}`}
+                          >
+                            <Download size={14} /> {labelPrefix}PDF Report
+                          </button>
+
+                          {/* Save to EMR button or Saved in EMR badge */}
+                          {sb.isSavedToEmr ? (
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '6px 12px',
+                                borderRadius: '8px',
+                                backgroundColor: '#ECFDF5',
+                                border: '1.5px solid #A7F3D0',
+                                color: '#047857',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                              }}
+                              title="Report archived permanently in your EMR health records"
+                            >
+                              <BookmarkCheck size={14} color="#059669" />
+                              Saved in EMR
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={savingEmrId === sb.id}
+                              onClick={() => handleSaveToEmr(sb)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '6px 12px',
+                                borderRadius: '8px',
+                                backgroundColor: '#F0F9FF',
+                                border: '1.5px solid #7DD3FC',
+                                color: '#0369A1',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: savingEmrId === sb.id ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              title="Save permanently to EMR to prevent 30-day automatic deletion"
+                            >
+                              <FolderPlus size={14} color="#0284C7" />
+                              {savingEmrId === sb.id ? 'Saving...' : `${labelPrefix}Save to EMR`}
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
 

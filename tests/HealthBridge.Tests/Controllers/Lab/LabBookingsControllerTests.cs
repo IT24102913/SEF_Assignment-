@@ -330,4 +330,151 @@ public class LabBookingsControllerTests
         // Assert
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
+
+    [Fact]
+    public async Task SaveToEmr_ValidDeliveredReport_SuccessfullyArchivesToEmr()
+    {
+        // Arrange
+        using var db = CreateInMemoryDbContext();
+        var test = new LabTest { Id = Guid.NewGuid(), Name = "Full Blood Count", Category = "Hematology", Price = 1500, IsActive = true };
+        db.LabTests.Add(test);
+
+        var booking = new LabBooking
+        {
+            Id = Guid.NewGuid(),
+            PatientId = 42,
+            PatientName = "Sunil Perera",
+            PatientEmail = "sunil@example.com",
+            LabTestId = test.Id,
+            LabTest = test,
+            Status = BookingStatus.ReportDelivered,
+            ResultFileUrl = "https://res.cloudinary.com/healthbridge/report_42.pdf",
+            ResultsUploadedAt = DateTime.UtcNow.AddDays(-2),
+            QueueToken = "LAB-420",
+            TechnicianNotes = "WBC 7.2, Platelets 220k. Optimal reference values."
+        };
+        db.LabBookings.Add(booking);
+        await db.SaveChangesAsync();
+
+        var mockEmail = new Mock<IEmailService>();
+        var mockScopeFactory = new Mock<IServiceScopeFactory>();
+        var controller = new LabBookingsController(
+            db,
+            mockEmail.Object,
+            null!,
+            mockScopeFactory.Object,
+            NullLogger<LabBookingsController>.Instance
+        );
+
+        // Act
+        var result = await controller.SaveToEmr(booking.Id);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var updatedBooking = await db.LabBookings.FindAsync(booking.Id);
+        Assert.NotNull(updatedBooking);
+        Assert.True(updatedBooking.IsSavedToEmr);
+        Assert.NotNull(updatedBooking.EmrLabReportId);
+
+        // Verify report in EMR LabReports table
+        var emrReport = await db.LabReports.FindAsync(updatedBooking.EmrLabReportId.Value);
+        Assert.NotNull(emrReport);
+        Assert.Equal("Full Blood Count", emrReport.TestTitle);
+        Assert.Equal("Hematology", emrReport.Category);
+        Assert.Equal("https://res.cloudinary.com/healthbridge/report_42.pdf", emrReport.FileUrl);
+
+        // Verify patient record in EMR
+        var patient = await db.Patients.FindAsync(emrReport.PatientId);
+        Assert.NotNull(patient);
+        Assert.Equal("sunil@example.com", patient.Email);
+    }
+
+    [Fact]
+    public async Task SaveToEmr_NotDeliveredStatus_ReturnsBadRequest()
+    {
+        // Arrange
+        using var db = CreateInMemoryDbContext();
+        var test = new LabTest { Id = Guid.NewGuid(), Name = "Biochemistry Panel", Category = "Biochemistry", Price = 2500, IsActive = true };
+        db.LabTests.Add(test);
+
+        var booking = new LabBooking
+        {
+            Id = Guid.NewGuid(),
+            PatientId = 15,
+            PatientName = "Kamal H",
+            PatientEmail = "kamal@example.com",
+            LabTestId = test.Id,
+            LabTest = test,
+            Status = BookingStatus.TestingInProgress, // Not delivered yet
+            ResultFileUrl = null
+        };
+        db.LabBookings.Add(booking);
+        await db.SaveChangesAsync();
+
+        var controller = new LabBookingsController(
+            db,
+            new Mock<IEmailService>().Object,
+            null!,
+            new Mock<IServiceScopeFactory>().Object,
+            NullLogger<LabBookingsController>.Instance
+        );
+
+        // Act
+        var result = await controller.SaveToEmr(booking.Id);
+
+        // Assert
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task PurgeExpiredReports_CleansUpReportsOlderThan30DaysIfNotSavedToEmr()
+    {
+        // Arrange
+        using var db = CreateInMemoryDbContext();
+        var oldUnsavedBooking = new LabBooking
+        {
+            Id = Guid.NewGuid(),
+            PatientId = 99,
+            PatientName = "Old Patient",
+            PatientEmail = "old@example.com",
+            Status = BookingStatus.ReportDelivered,
+            ResultFileUrl = "https://cloudinary.com/old_report.pdf",
+            ResultsUploadedAt = DateTime.UtcNow.AddDays(-35), // Expired > 30 days
+            IsSavedToEmr = false
+        };
+
+        var oldSavedBooking = new LabBooking
+        {
+            Id = Guid.NewGuid(),
+            PatientId = 100,
+            PatientName = "Protected Patient",
+            PatientEmail = "protected@example.com",
+            Status = BookingStatus.ReportDelivered,
+            ResultFileUrl = "https://cloudinary.com/protected_report.pdf",
+            ResultsUploadedAt = DateTime.UtcNow.AddDays(-35),
+            IsSavedToEmr = true // Protected
+        };
+
+        db.LabBookings.AddRange(oldUnsavedBooking, oldSavedBooking);
+        await db.SaveChangesAsync();
+
+        var controller = new LabBookingsController(
+            db,
+            new Mock<IEmailService>().Object,
+            null!,
+            new Mock<IServiceScopeFactory>().Object,
+            NullLogger<LabBookingsController>.Instance
+        );
+
+        // Act
+        var result = await controller.PurgeExpiredReports();
+
+        // Assert
+        Assert.IsType<OkObjectResult>(result);
+        var refreshedOld = await db.LabBookings.FindAsync(oldUnsavedBooking.Id);
+        var refreshedSaved = await db.LabBookings.FindAsync(oldSavedBooking.Id);
+
+        Assert.Null(refreshedOld!.ResultFileUrl); // Purged
+        Assert.NotNull(refreshedSaved!.ResultFileUrl); // Kept safe because saved in EMR
+    }
 }
