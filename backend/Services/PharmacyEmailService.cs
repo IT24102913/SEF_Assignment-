@@ -1,6 +1,8 @@
 using MailKit.Net.Smtp;
 using MimeKit;
 using HealthBridge.Api.DTOs.Pharmacy;
+using System.Net;
+using System.Net.Sockets;
 
 namespace HealthBridge.Api.Services;
 
@@ -17,16 +19,53 @@ public class PharmacyEmailService : IPharmacyEmailService
         _httpClient = httpClientFactory?.CreateClient() ?? new HttpClient();
     }
 
-    private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent)
+    private async Task SendEmailAsync(string toEmail, string toName, string subject, string htmlContent, byte[]? qrPngBytes = null, string? qrPayload = null)
     {
-        var fromEmail = _config["PharmacyBrevo:FromEmail"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromEmail") ?? _config["Brevo:FromEmail"] ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") ?? "Healthbridgeyourpharmacy@gmail.com";
-        var fromName = _config["PharmacyBrevo:FromName"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromName") ?? _config["Brevo:FromName"] ?? Environment.GetEnvironmentVariable("Brevo__FromName") ?? "Health Bridge Pharmacy";
-        var apiKey = _config["PharmacyBrevo:ApiKey"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__ApiKey") ?? _config["Brevo:ApiKey"] ?? Environment.GetEnvironmentVariable("Brevo__ApiKey");
+        var fromEmail = _config["PharmacyBrevo:FromEmail"] 
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromEmail") 
+            ?? _config["Brevo:FromEmail"] 
+            ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") 
+            ?? "diniruga@gmail.com";
+
+        var fromName = _config["PharmacyBrevo:FromName"] 
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__FromName") 
+            ?? _config["Brevo:FromName"] 
+            ?? Environment.GetEnvironmentVariable("Brevo__FromName") 
+            ?? "Health Bridge Pharmacy";
+
+        var apiKey = _config["PharmacyBrevo:ApiKey"] 
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__ApiKey") 
+            ?? _config["Brevo:ApiKey"] 
+            ?? Environment.GetEnvironmentVariable("Brevo__ApiKey");
 
         _logger.LogInformation("[PharmacyEmail] Attempting to send email FROM={From} TO={To} SUBJECT={Subject}", fromEmail, toEmail, subject);
 
+        string processedHtml = htmlContent;
+        var attachments = new List<object>();
+
+        if (!string.IsNullOrWhiteSpace(qrPayload))
+        {
+            var qrUrl = $"https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=png&data={Uri.EscapeDataString(qrPayload)}";
+            processedHtml = processedHtml.Replace("cid:appointment_qr_code", qrUrl, StringComparison.OrdinalIgnoreCase)
+                                         .Replace("cid:order_qr_code", qrUrl, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (qrPngBytes != null && qrPngBytes.Length > 0)
+        {
+            var base64Qr = Convert.ToBase64String(qrPngBytes);
+            var dataUri = $"data:image/png;base64,{base64Qr}";
+            processedHtml = processedHtml.Replace("cid:appointment_qr_code", dataUri, StringComparison.OrdinalIgnoreCase)
+                                         .Replace("cid:order_qr_code", dataUri, StringComparison.OrdinalIgnoreCase);
+
+            attachments.Add(new
+            {
+                name = "qr_code.png",
+                content = base64Qr
+            });
+        }
+
         // 1. Try Brevo HTTPS REST API first (Cloud/Railway safe — ports 587/465 are blocked by Railway firewall)
-        if (!string.IsNullOrWhiteSpace(apiKey))
+        if (!string.IsNullOrWhiteSpace(apiKey) && !apiKey.StartsWith("YOUR_"))
         {
             try
             {
@@ -35,15 +74,19 @@ public class PharmacyEmailService : IPharmacyEmailService
                     sender = new { name = fromName, email = fromEmail },
                     to = new[] { new { email = toEmail, name = string.IsNullOrWhiteSpace(toName) ? toEmail : toName } },
                     subject = subject,
-                    htmlContent = htmlContent
+                    htmlContent = processedHtml,
+                    attachment = attachments.Count > 0 ? attachments : null
                 };
 
                 using var requestMsg = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
                 requestMsg.Headers.Add("api-key", apiKey);
                 requestMsg.Headers.Add("Accept", "application/json");
-                requestMsg.Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
+                requestMsg.Content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }),
+                    System.Text.Encoding.UTF8,
+                    "application/json");
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
                 var response = await _httpClient.SendAsync(requestMsg, cts.Token);
                 var responseBody = await response.Content.ReadAsStringAsync(cts.Token);
 
@@ -63,7 +106,7 @@ public class PharmacyEmailService : IPharmacyEmailService
             }
         }
 
-        // 2. SMTP fallback (uses existing Gmail appsettings.json configs with Port 587 -> Port 465 SSL fallback)
+        // 2. Fail-safe SMTP fallback (for local development or environments where SMTP port is unblocked)
         try
         {
             var smtpServer = _config["PharmacyBrevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpServer") ?? _config["Brevo:SmtpServer"] ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer") ?? "smtp.gmail.com";
@@ -77,15 +120,38 @@ public class PharmacyEmailService : IPharmacyEmailService
             message.To.Add(new MailboxAddress(toName, toEmail));
             message.Subject = subject;
 
-            var bodyBuilder = new BodyBuilder { HtmlBody = htmlContent };
+            var bodyBuilder = new BodyBuilder { HtmlBody = processedHtml };
+            if (qrPngBytes != null && qrPngBytes.Length > 0)
+            {
+                bodyBuilder.Attachments.Add("qr_code.png", qrPngBytes, new ContentType("image", "png"));
+            }
             message.Body = bodyBuilder.ToMessageBody();
+
+            // Resolve IPv4 explicitly to avoid Linux IPv6 routing timeouts
+            string connectHost = smtpServer;
+            try
+            {
+                var hostAddresses = await Dns.GetHostAddressesAsync(smtpServer);
+                var ipv4 = hostAddresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                if (ipv4 != null)
+                {
+                    connectHost = ipv4.ToString();
+                }
+            }
+            catch (Exception dnsEx)
+            {
+                _logger.LogWarning(dnsEx, "[PharmacyEmail] DNS resolution fallback to hostname {Server}", smtpServer);
+            }
 
             try
             {
                 using var client = new SmtpClient();
+                client.CheckCertificateRevocation = false;
+                client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
                 var socketOptions = smtpPort == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls;
-                await client.ConnectAsync(smtpServer, smtpPort, socketOptions, cts.Token);
+                await client.ConnectAsync(connectHost, smtpPort, socketOptions, cts.Token);
                 await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
                 await client.SendAsync(message, cts.Token);
                 await client.DisconnectAsync(true, cts.Token);
@@ -100,8 +166,11 @@ public class PharmacyEmailService : IPharmacyEmailService
                 if (smtpPort != 465)
                 {
                     using var fallbackClient = new SmtpClient();
+                    fallbackClient.CheckCertificateRevocation = false;
+                    fallbackClient.ServerCertificateValidationCallback = (s, c, h, e) => true;
+
                     using var fallbackCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                    await fallbackClient.ConnectAsync(smtpServer, 465, MailKit.Security.SecureSocketOptions.SslOnConnect, fallbackCts.Token);
+                    await fallbackClient.ConnectAsync(connectHost, 465, MailKit.Security.SecureSocketOptions.SslOnConnect, fallbackCts.Token);
                     await fallbackClient.AuthenticateAsync(smtpUser, smtpPass, fallbackCts.Token);
                     await fallbackClient.SendAsync(message, fallbackCts.Token);
                     await fallbackClient.DisconnectAsync(true, fallbackCts.Token);
