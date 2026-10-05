@@ -250,6 +250,8 @@ try
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""CheckedInByUserId"" integer NULL;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""IsSavedToEmr"" boolean NOT NULL DEFAULT FALSE;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""EmrLabReportId"" uuid NULL;");
 }
 catch (Exception ex)
 {

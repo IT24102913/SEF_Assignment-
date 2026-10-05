@@ -28,6 +28,7 @@ export const createBooking = (data) => api.post('/bookings', data);
 export const uploadPrescription = (bookingId, imageUrl) => api.post(`/bookings/${bookingId}/prescription`, { prescriptionImageUrl: imageUrl });
 export const cancelBooking = (id, patientId) => api.delete(`/bookings/${id}?patientId=${patientId}`);
 export const getSlots = (date) => api.get(`/slots?date=${date}`);
+export const saveReportToEmr = (bookingId) => api.post(`/bookings/${bookingId}/save-to-emr`);
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 export const getAllBookings = (status = '') => api.get(`/admin/bookings?status=${status}`);

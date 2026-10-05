@@ -44,6 +44,11 @@ class LabBooking {
   final double amountPaid;
   final String? paidAt;
   final String createdAt;
+  final bool isSavedToEmr;
+  final String? emrLabReportId;
+  final int? retentionDaysRemaining;
+  final bool isReportExpired;
+  final String? reportExpiryDate;
 
   LabBooking({required this.id, required this.patientId, required this.patientName,
     required this.patientEmail, required this.status, required this.bookingDate,
@@ -58,7 +63,12 @@ class LabBooking {
     this.receiptNumber,
     this.amountPaid = 0.0,
     this.paidAt,
-    required this.createdAt});
+    required this.createdAt,
+    this.isSavedToEmr = false,
+    this.emrLabReportId,
+    this.retentionDaysRemaining,
+    this.isReportExpired = false,
+    this.reportExpiryDate});
 
   factory LabBooking.fromJson(Map<String, dynamic> j) => LabBooking(
     id: j['id']?.toString() ?? '',
@@ -86,6 +96,11 @@ class LabBooking {
     amountPaid: (j['amountPaid'] as num?)?.toDouble() ?? 0.0,
     paidAt: j['paidAt']?.toString(),
     createdAt: j['createdAt']?.toString() ?? '',
+    isSavedToEmr: j['isSavedToEmr'] == true,
+    emrLabReportId: j['emrLabReportId']?.toString(),
+    retentionDaysRemaining: j['retentionDaysRemaining'] != null ? (j['retentionDaysRemaining'] as num).toInt() : null,
+    isReportExpired: j['isReportExpired'] == true,
+    reportExpiryDate: j['reportExpiryDate']?.toString(),
   );
 }
 
@@ -236,6 +251,36 @@ class LabApiService {
       } catch (_) {}
       throw Exception(msg);
     }
+  }
+
+  // Save report to patient EMR system permanently
+  static Future<bool> saveBookingToEmr(String bookingId) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.post(
+          Uri.parse('$host/api/lab/bookings/$bookingId/save-to-emr'),
+          headers: _headers,
+        ).timeout(const Duration(seconds: 8));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          return true;
+        }
+      } catch (_) {}
+    }
+    final res = await _client.post(
+      Uri.parse('$baseUrl/bookings/$bookingId/save-to-emr'),
+      headers: _headers,
+    ).timeout(const Duration(seconds: 8));
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return true;
+    }
+    String msg = 'Failed to save report to EMR';
+    try {
+      final data = jsonDecode(res.body);
+      if (data is Map && data['message'] != null) {
+        msg = data['message'];
+      }
+    } catch (_) {}
+    throw Exception(msg);
   }
 
   // Payments (Centralized Subsystem)

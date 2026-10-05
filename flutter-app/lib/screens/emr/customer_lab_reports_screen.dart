@@ -308,6 +308,28 @@ class _CustomerLabReportsScreenState extends State<CustomerLabReportsScreen> {
                       'Ordered by ${report.orderedDoctor}',
                       style: const TextStyle(fontSize: 12, color: HealthBridgeTheme.textSecondary),
                     ),
+                    if (report.orderedDoctor == 'HealthBridge Diagnostic Labs') ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.biotech, size: 12, color: Color(0xFF047857)),
+                            SizedBox(width: 4),
+                            Text(
+                              'Synced from Lab Hub',
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF047857)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
