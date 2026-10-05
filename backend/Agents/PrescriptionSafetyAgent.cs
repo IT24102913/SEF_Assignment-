@@ -167,7 +167,7 @@ public class PrescriptionSafetyAgent
                                 && visionValidation.DocumentClassification != "NON_MEDICAL_IMAGE"
                                 && visionValidation.DocumentClassification != "NON_PRESCRIPTION_DOCUMENT")
                             {
-                                verifiedSignals.Add($"✅ Handwriting OCR Verified ({visionValidation.DocumentClassification})");
+                                verifiedSignals.Add($"✅ Printed Prescription OCR Verified ({visionValidation.DocumentClassification})");
                             }
 
                             // ─────────────────────────────────────────────

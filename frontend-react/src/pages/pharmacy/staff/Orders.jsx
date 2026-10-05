@@ -183,6 +183,10 @@ const Orders = () => {
         if (flagsLower.some(f => f.includes('suspicious') || f.includes('previous suspicious')))
             patternIssues.push({ icon: '🚨', text: 'This patient has multiple previously flagged high-risk orders in their history — elevated risk profile.' });
 
+        // Handwritten prescription policy
+        if (flagsLower.some(f => f.includes('handwritten') || f.includes('handwriting')))
+            visionIssues.push({ icon: '✍️', text: 'Handwritten prescription detected — system policy requires printed doctor prescriptions only.' });
+
         if (visionIssues.length > 0) reasons.push({ category: '🤖 Document Authenticity (AI Vision Analysis)', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', items: visionIssues });
         if (fieldIssues.length > 0) reasons.push({ category: '📋 Missing / Suspicious Prescription Fields', color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', items: fieldIssues });
         if (patternIssues.length > 0) reasons.push({ category: '📊 Behavioral Pattern Flags (Anti-Abuse)', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', items: patternIssues });
@@ -221,7 +225,7 @@ const Orders = () => {
                 aiAgent: "Gemini 3.8 Flash (Agentic AI)",
                 riskScore: currentOrder.safetyRiskScore,
                 flags,
-                handwritingStatus: !hasRxImage ? "N/A - Direct OTC Order (No Rx Image)" : hasViolation ? "⚠️ Non-Medical / Invalid Upload" : "Cursive Handwriting Decoded",
+                handwritingStatus: !hasRxImage ? "N/A - Direct OTC Order (No Rx Image)" : hasViolation ? "⚠️ Non-Medical / Invalid Upload" : "Printed Rx Text Verified",
                 duplicationStatus: !hasRxImage ? "N/A - Direct OTC Purchase" : flags.some(f => f.toLowerCase().includes("duplicate")) ? "Duplicate Rx Detected" : hasViolation ? "Invalid Document Uploaded" : "Unique Prescription",
                 recommendedAction: currentOrder.safetyRecommendedAction || (currentOrder.safetyRiskScore >= 70 ? "BLOCK_AND_FLAG_FOR_REVIEW" : currentOrder.safetyRiskScore >= 30 ? "REQUIRE_MANUAL_REVIEW" : "APPROVE")
             };
@@ -279,7 +283,7 @@ const Orders = () => {
                 flags.push("⚠️ PRESCRIPTION VIOLATION: Duplicate prescription image upload reuse attempt detected across order history");
                 riskScore += 75;
             } else {
-                flags.push("Doctor Handwriting OCR & Cursive Reading Verified (Gemini 3.8 Flash)");
+                flags.push("Printed Prescription OCR Verified (Gemini 3.8 Flash)");
             }
         } else if (currentOrder.requiresPrescription || (Array.isArray(currentOrder.items) && currentOrder.items.some(i => i && i.requiresPrescription))) {
             flags.push("Missing prescription receipt image for prescription-required medication");
@@ -396,7 +400,7 @@ const Orders = () => {
             aiAgent: "Gemini 3.8 Flash (Agentic AI)",
             riskScore,
             flags,
-            handwritingStatus: !hasRxImage ? "N/A - Direct OTC Order (No Rx Image)" : isNonMedicalDoc ? "⚠️ Non-Medical Image Uploaded" : "Cursive Handwriting Decoded",
+            handwritingStatus: !hasRxImage ? "N/A - Direct OTC Order (No Rx Image)" : isNonMedicalDoc ? "⚠️ Non-Medical Image Uploaded" : "Printed Rx Text Verified",
             duplicationStatus: !hasRxImage ? "N/A - Direct OTC Purchase" : isDuplicateRx ? "Duplicate Rx Image Detected" : duplicateItems.length > 0 ? "Duplicate Items Detected" : isNonMedicalDoc ? "Invalid Document Uploaded" : "Unique Prescription",
             recommendedAction,
             isNonMedicalDoc
@@ -1151,7 +1155,7 @@ const Orders = () => {
                                     }}>
                                         <div style={{ fontWeight: 800, fontSize: '14px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span>⚠️ Agentic AI Safety &amp; Handwriting Assessment</span>
+                                                <span>⚠️ Agentic AI Safety &amp; Printed Rx Assessment</span>
                                             </span>
                                             <span style={{
                                                 fontSize: '11px',
@@ -1167,7 +1171,7 @@ const Orders = () => {
 
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px', fontSize: '12px', background: 'rgba(255,255,255,0.7)', padding: '8px 10px', borderRadius: '6px' }}>
                                             <div>
-                                                <strong>Handwriting Reading:</strong>
+                                                <strong>Printed Rx Verification:</strong>
                                                 <div style={{ color: safety.handwritingStatus.includes('⚠️') || safety.handwritingStatus.includes('Non-Medical') ? '#DC2626' : '#059669', fontWeight: 700 }}>{safety.handwritingStatus}</div>
                                             </div>
                                             <div>
