@@ -58,11 +58,6 @@ jobs:
             ## HealthBridge Flutter Mobile Application (Android)
             - **Target Platform:** Android (Universal Release APK)
             - **Backend Connected:** `https://sefassignment-production.up.railway.app`
-            
-            ### Instructions for Evaluators:
-            1. Download `app-release.apk` below directly to your Android device or emulator.
-            2. Enable *Install from Unknown Sources* if prompted.
-            3. Open and log in using either patient credentials or register a new account.
           files: flutter-app/build/app/outputs/flutter-apk/app-release.apk
           draft: false
           prerelease: false
