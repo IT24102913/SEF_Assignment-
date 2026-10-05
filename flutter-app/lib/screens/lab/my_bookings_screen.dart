@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/auth_service.dart';
 import '../../services/lab_api_service.dart';
 import '../../services/emr_api_service.dart';
+import '../../main.dart';
 import 'package:lab_patient_app/utils/config.dart';
 import '../../utils/theme.dart';
 import 'booking_screen.dart';
@@ -44,12 +45,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Future<void> _loadUser() async {
     final user = await AuthService.getUser();
     final effectiveId = user?.userId ?? (AuthState.userId?.isNotEmpty == true ? AuthState.userId : null);
-    final effectiveEmail = user?.email ?? (AuthState.email?.isNotEmpty == true ? AuthState.email : null);
+    final effectiveEmail = user?.email ?? (AuthState.email?.isNotEmpty == true ? AuthState.email : AppSession.loggedInUserEmail);
     if ((effectiveId == null || effectiveId.isEmpty) && (effectiveEmail == null || effectiveEmail.isEmpty)) {
       if (mounted) Navigator.pushReplacementNamed(context, '/login');
       return;
     }
-    _userId = effectiveId ?? '1';
+    _userId = effectiveId ?? '';
     _userEmail = effectiveEmail;
     _load();
   }

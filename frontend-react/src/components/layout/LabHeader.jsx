@@ -2,54 +2,67 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getDashboardPath } from '../../utils/navigation';
-import { getAllBookings } from '../../api/labApi';
+import { getAllBookings, getStats } from '../../api/labApi';
 import { 
   Activity, Clock, ClipboardList, TestTube, 
   Microscope, ArrowLeft, LogOut, Sparkles, FlaskConical 
 } from 'lucide-react';
 import logoImage from '../../assets/mediz.png';
 
+let cachedHeaderCounts = {
+  pendingApprovals: 0,
+  pendingTests: 0,
+};
+
 export default function LabHeader() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  const [counts, setCounts] = useState({
-    pendingApprovals: 0,
-    pendingTests: 0,
-  });
+  const [counts, setCounts] = useState(cachedHeaderCounts);
 
   const fetchCounts = () => {
-    getAllBookings('')
+    getStats()
       .then(res => {
-        const all = res.data || [];
-        const pendingApprovals = all.filter(b => 
-          b.status === 'PendingLabApproval' ||
-          b.status === 'PendingPrescriptionUpload' ||
-          b.status === 'PendingAIVerification'
-        ).length;
-        const pendingTests = all.filter(b => 
-          b.status === 'Confirmed' ||
-          b.status === 'SampleCollected' ||
-          b.status === 'TestingInProgress' ||
-          b.status === 'ResultVerification' ||
-          b.status === 'ResultsReady' ||
-          b.status === 'ReportDelivered'
-        ).length;
-        setCounts({ pendingApprovals, pendingTests });
+        if (res?.data) {
+          const newCounts = {
+            pendingApprovals: res.data.pendingApproval ?? 0,
+            pendingTests: res.data.pendingTestsCount ?? 0,
+          };
+          cachedHeaderCounts = newCounts;
+          setCounts(newCounts);
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        getAllBookings('')
+          .then(res => {
+            const all = res.data || [];
+            const pendingApprovals = all.filter(b => {
+              const s = (b.status || '').toLowerCase();
+              return s === 'pendinglabapproval' || s === 'pendingprescriptionupload' || s === 'pendingaiverification';
+            }).length;
+            const pendingTests = all.filter(b => {
+              const s = (b.status || '').toLowerCase();
+              return s === 'confirmed' || s === 'samplecollected' || s === 'testinginprogress' ||
+                     s === 'resultverification' || s === 'resultsready' || s === 'reportdelivered';
+            }).length;
+            const newCounts = { pendingApprovals, pendingTests };
+            cachedHeaderCounts = newCounts;
+            setCounts(newCounts);
+          })
+          .catch(() => {});
+      });
   };
 
   useEffect(() => {
     fetchCounts();
-    const interval = setInterval(fetchCounts, 8000);
+    const interval = setInterval(fetchCounts, 10000);
     window.addEventListener('lab-booking-updated', fetchCounts);
     return () => {
       clearInterval(interval);
       window.removeEventListener('lab-booking-updated', fetchCounts);
     };
-  }, [location.pathname]);
+  }, []);
 
   const navItems = [
     { path: '/laboratory/dashboard', label: 'Clinical Overview', icon: Activity },
