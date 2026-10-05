@@ -105,6 +105,7 @@ builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IDoctorEmailService, DoctorEmailService>();
 builder.Services.AddScoped<IPharmacyEmailService, PharmacyEmailService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();

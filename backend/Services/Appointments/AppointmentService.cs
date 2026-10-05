@@ -16,7 +16,7 @@ public class AppointmentService : IAppointmentService
     private readonly ILogger<AppointmentService> _logger;
     private readonly IEmailSender _emailSender;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IEmailService? _emailService;
+    private readonly IDoctorEmailService? _emailService;
 
     public AppointmentService(
         ApplicationDbContext context,
@@ -24,7 +24,7 @@ public class AppointmentService : IAppointmentService
         ILogger<AppointmentService> logger,
         IEmailSender emailSender,
         IServiceScopeFactory scopeFactory,
-        IEmailService? emailService = null)
+        IDoctorEmailService? emailService = null)
     {
         _context       = context;
         _configuration = configuration;
@@ -1546,7 +1546,7 @@ public class AppointmentService : IAppointmentService
                 try
                 {
                     using var scope = capturedScopeFactory.CreateScope();
-                    var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                    var emailSvc = scope.ServiceProvider.GetRequiredService<IDoctorEmailService>();
                     foreach (var apt in capturedApts)
                     {
                         if (string.IsNullOrWhiteSpace(apt.PatientEmail)) continue;
@@ -1643,7 +1643,7 @@ public class AppointmentService : IAppointmentService
                 try
                 {
                     using var scope = capturedScopeFactory.CreateScope();
-                    var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                    var emailSvc = scope.ServiceProvider.GetRequiredService<IDoctorEmailService>();
                     foreach (var item in aptRecs)
                     {
                         if (string.IsNullOrWhiteSpace(item.PatientEmail)) continue;
@@ -1759,7 +1759,7 @@ public class AppointmentService : IAppointmentService
                 try
                 {
                     using var scope = capturedScopeFactory.CreateScope();
-                    var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
+                    var emailSvc = scope.ServiceProvider.GetRequiredService<IDoctorEmailService>();
                     foreach (var item in itemsToSend)
                     {
                         if (string.IsNullOrWhiteSpace(item.PatientEmail)) continue;
