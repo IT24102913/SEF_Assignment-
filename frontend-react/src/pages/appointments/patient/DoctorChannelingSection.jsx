@@ -1827,56 +1827,98 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   })}
                 </div>
 
-                {/* Time Slots Grid */}
+                {/* OPD Clinic Session Cards */}
                 <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: '700', color: '#37474F' }}>
-                  Select Time Slot for {selectedSessionDate}
+                  Select Consultation Session for {selectedSessionDate}
                 </h4>
 
                 {sessionsForSelectedDate.length === 0 ? (
                   <p style={{ color: '#78909C', fontSize: '13px', margin: '10px 0 20px 0' }}>
-                    No upcoming time slots remaining for this date.
+                    No consultation sessions scheduled for this date.
                   </p>
                 ) : (
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-                    gap: '10px',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '14px',
                     marginBottom: '20px'
                   }}>
                     {sessionsForSelectedDate.map(session => {
                       const isSelected = selectedSession?.id === session.id;
-                      const disabled = !session.isAvailable;
+                      const disabled = !session.isAvailable || session.isExpired;
+                      const sessionType = session.sessionType || 'Morning';
+                      
+                      const icon = sessionType === 'Morning' ? '🌅' : sessionType === 'Evening' ? '🌇' : '🌙';
+                      const defaultRange = sessionType === 'Morning' ? '08:30 AM – 12:00 PM' : sessionType === 'Evening' ? '04:30 PM – 07:30 PM' : '08:00 PM – 10:00 PM';
+                      const timeRange = session.timeRange || defaultRange;
+                      const slotsLeft = session.slotsLeft !== undefined ? session.slotsLeft : Math.max(0, session.maxCapacity - session.currentBookings);
 
                       return (
-                        <button
+                        <div
                           key={session.id}
-                          disabled={disabled}
-                          onClick={() => setSelectedSession(session)}
                           style={{
-                            padding: '12px 10px',
-                            borderRadius: '8px',
-                            border: isSelected ? '2px solid #00796B' : '1px solid #B2DFDB',
-                            backgroundColor: disabled ? '#ECEFF1' : isSelected ? '#E0F2F1' : '#FFFFFF',
-                            color: disabled ? '#90A4AE' : '#004D40',
-                            fontWeight: '700',
-                            fontSize: '13px',
-                            cursor: disabled ? 'not-allowed' : 'pointer',
-                            textAlign: 'center',
-                            boxShadow: isSelected ? '0 2px 8px rgba(0,121,107,0.2)' : 'none'
+                            padding: '16px 18px',
+                            borderRadius: '12px',
+                            border: isSelected ? '2px solid #00796B' : '1px solid #CBD5E1',
+                            backgroundColor: disabled ? '#F8FAFC' : isSelected ? '#E0F2F1' : '#FFFFFF',
+                            boxShadow: isSelected ? '0 4px 12px rgba(0,121,107,0.18)' : '0 1px 3px rgba(0,0,0,0.04)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            transition: 'all 0.2s ease',
+                            opacity: disabled ? 0.65 : 1
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                            <Clock size={13} /> {session.timeFormatted}
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                              <span style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>{icon}</span> {sessionType} Session
+                              </span>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                backgroundColor: disabled ? '#F1F5F9' : '#DCFCE7',
+                                color: disabled ? '#64748B' : '#15803D'
+                              }}>
+                                {disabled ? 'Full' : `${slotsLeft} of ${session.maxCapacity} slots left`}
+                              </span>
+                            </div>
+
+                            <div style={{ fontSize: '12.5px', color: '#475569', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <Clock size={13} color="#00796B" /> {timeRange}
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#64748B', marginTop: '4px' }}>
+                              Arrival by session start time. Tokens called in arrival sequence.
+                            </div>
                           </div>
-                          <div style={{
-                            fontSize: '10px',
-                            marginTop: '4px',
-                            color: disabled ? '#B0BEC5' : '#00796B',
-                            fontWeight: '600'
-                          }}>
-                            {disabled ? 'Booked' : 'Available'}
-                          </div>
-                        </button>
+
+                          <button
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => setSelectedSession(session)}
+                            style={{
+                              width: '100%',
+                              padding: '9px 12px',
+                              borderRadius: '7px',
+                              border: 'none',
+                              backgroundColor: disabled ? '#E2E8F0' : isSelected ? '#004D40' : '#00796B',
+                              color: disabled ? '#94A3B8' : '#FFFFFF',
+                              fontSize: '12.5px',
+                              fontWeight: '700',
+                              cursor: disabled ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '6px',
+                              transition: 'background-color 0.15s'
+                            }}
+                          >
+                            {isSelected ? '✓ Selected' : disabled ? 'Unavailable' : `Select ${sessionType}`}
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -2895,19 +2937,23 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   Ref: <strong>{confirmedAppointment.appointmentNumber}</strong>
                 </p>
 
-                {/* Queue Number Badge */}
+                {/* Queue Number / Token Badge */}
                 <div style={{
                   backgroundColor: '#E0F2F1',
                   borderRadius: '10px',
-                  padding: '12px 24px',
+                  padding: '14px 24px',
                   marginBottom: '16px',
-                  display: 'inline-block'
+                  display: 'inline-block',
+                  border: '1px solid #B2DFDB'
                 }}>
-                  <div style={{ fontSize: '11px', color: '#00796B', fontWeight: '700', textTransform: 'uppercase' }}>
-                    Assigned Queue Number
+                  <div style={{ fontSize: '11px', color: '#00796B', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Session Consultation Token
                   </div>
-                  <div style={{ fontSize: '32px', fontWeight: '900', color: '#004D40' }}>
-                    Queue #{String(confirmedAppointment.queueNumber).padStart(2, '0')}
+                  <div style={{ fontSize: '34px', fontWeight: '900', color: '#004D40', letterSpacing: '1px' }}>
+                    {confirmedAppointment.queueLabel || (confirmedAppointment.sessionType ? `${confirmedAppointment.sessionType[0]}-${String(confirmedAppointment.queueNumber).padStart(2, '0')}` : `Token: #${String(confirmedAppointment.queueNumber).padStart(2, '0')}`)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#00796B', marginTop: '2px', fontWeight: '600' }}>
+                    {confirmedAppointment.doctorName} — {confirmedAppointment.sessionType || 'OPD'} Session ({confirmedAppointment.timeSlot})
                   </div>
                 </div>
 
@@ -2923,10 +2969,25 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   lineHeight: '1.7'
                 }}>
                   <div><strong>Doctor:</strong> {confirmedAppointment.doctorName} ({confirmedAppointment.specialization})</div>
-                  <div><strong>Date & Time:</strong> {confirmedAppointment.appointmentDate} at {confirmedAppointment.timeSlot}</div>
+                  <div><strong>Session & Time:</strong> {confirmedAppointment.sessionType ? `${confirmedAppointment.sessionType} Session (${confirmedAppointment.timeSlot})` : confirmedAppointment.timeSlot} on {confirmedAppointment.appointmentDate}</div>
+                  <div><strong>Your Session Token:</strong> <span style={{ color: '#00796B', fontWeight: '800' }}>{confirmedAppointment.queueLabel || `#${confirmedAppointment.queueNumber}`}</span></div>
                   <div><strong>Hospital:</strong> {confirmedAppointment.hospitalBranch}</div>
                   <div><strong>Patient:</strong> {confirmedAppointment.patientName} (NIC: {confirmedAppointment.patientNic})</div>
                   <div><strong>Confirmation Sent To:</strong> <span style={{ color: '#00796B', fontWeight: '700' }}>{confirmedAppointment.patientEmail || patientDetails.email}</span> <span style={{ color: '#64748B', fontSize: '11px' }}>(Check Inbox &amp; Spam)</span></div>
+                  
+                  {/* Arrival Instructions */}
+                  <div style={{
+                    marginTop: '10px',
+                    padding: '8px 12px',
+                    backgroundColor: '#FEF3C7',
+                    borderRadius: '6px',
+                    border: '1px solid #FDE68A',
+                    fontSize: '12px',
+                    color: '#92400E',
+                    fontWeight: '600'
+                  }}>
+                    ℹ️ <strong>Patient Notice:</strong> Please arrive at the hospital channeling reception by the session start time ({confirmedAppointment.timeSlot?.split('–')[0]?.split('-')[0]?.trim() || 'session start'}). Consultations are conducted sequentially by token number.
+                  </div>
                   {confirmedAppointment.paymentStatus === 'Paid' ? (
                     <div style={{ color: '#15803D', fontWeight: '700', borderTop: '1px solid #E2E8F0', paddingTop: '6px', marginTop: '6px' }}>
                       Payment: LKR {confirmedAppointment.totalAmount?.toLocaleString()} Paid ({confirmedAppointment.paymentMethod} • Ref: {confirmedAppointment.paymentReference || 'VERIFIED'})
@@ -3242,11 +3303,97 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         {apt.doctorName}
                       </h4>
                       <div style={{ fontSize: '12px', color: '#546E7A' }}>
-                        {apt.specialization} • {apt.appointmentDate} at {apt.timeSlot} • <strong>Queue #{String(apt.queueNumber).padStart(2, '0')}</strong>
+                        {apt.specialization} • {apt.appointmentDate} • {apt.sessionType ? `${apt.sessionType} Session (${apt.timeSlot})` : apt.timeSlot} • <strong style={{ color: '#00796B' }}>Token: {apt.queueLabel || `#${String(apt.queueNumber).padStart(2, '0')}`}</strong>
                       </div>
                       <div style={{ fontSize: '11px', color: '#90A4AE', marginTop: '2px' }}>
                         Hospital: {apt.hospitalBranch}
                       </div>
+
+                      {/* Live Status card for today's appointments */}
+                      {apt.isToday && (
+                        <div style={{
+                          marginTop: '10px',
+                          backgroundColor: '#F0FDF4',
+                          border: '1.5px solid #86EFAC',
+                          borderRadius: '10px',
+                          padding: '10px 14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: apt.sessionStatus === 'Active' ? '#16A34A' : apt.sessionStatus === 'Delayed' ? '#D97706' : '#2563EB',
+                                display: 'inline-block'
+                              }} />
+                              <span style={{ fontSize: '12px', fontWeight: '800', color: '#065F46' }}>
+                                Dr. {apt.doctorName} · Room {apt.roomNumber || 'Consultation Suite'}
+                              </span>
+                            </div>
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: '700',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              backgroundColor: apt.sessionStatus === 'Active' ? '#DCFCE7' : apt.sessionStatus === 'Delayed' ? '#FEF3C7' : '#E0F2FE',
+                              color: apt.sessionStatus === 'Active' ? '#15803D' : apt.sessionStatus === 'Delayed' ? '#B45309' : '#0369A1'
+                            }}>
+                              {apt.sessionStatus || 'Scheduled'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', fontSize: '12px' }}>
+                            <span style={{ color: '#065F46' }}>
+                              Your token: <strong style={{ color: '#047857', fontSize: '13px' }}>{apt.queueLabel || `#${String(apt.queueNumber).padStart(2, '0')}`}</strong>
+                            </span>
+                            <span style={{ color: '#065F46' }}>
+                              Currently serving: <strong style={{ color: '#00796B', fontSize: '13px' }}>{apt.currentlyServingLabel || 'Not started'}</strong>
+                            </span>
+                          </div>
+
+                          {apt.sessionStatus === 'Delayed' && (
+                            <div style={{
+                              backgroundColor: '#FEF3C7',
+                              border: '1px solid #FCD34D',
+                              borderRadius: '6px',
+                              padding: '5px 10px',
+                              fontSize: '11px',
+                              color: '#92400E',
+                              fontWeight: '700'
+                            }}>
+                              Delayed — new estimated start {apt.expectedStartTime ? new Date(apt.expectedStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'shortly'}{apt.delayReason ? ` (${apt.delayReason})` : ''}
+                            </div>
+                          )}
+
+                          {apt.estimatedConsultationTime && (
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '6px',
+                              fontSize: '11px',
+                              color: '#065F46',
+                              backgroundColor: '#ECFDF5',
+                              padding: '5px 8px',
+                              borderRadius: '6px'
+                            }}>
+                              <span>
+                                Estimated consultation time: <strong>{apt.estimatedConsultationTime} (approximate)</strong>
+                              </span>
+                              {apt.recommendedArrivalTime && (
+                                <span style={{ color: '#047857', fontWeight: '600' }}>
+                                  Recommended arrival: {apt.recommendedArrivalTime}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Right: Actions */}
@@ -3397,7 +3544,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               Hospital Check-in QR
             </h3>
             <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#78909C' }}>
-              Ref: {activeQrApt.appointmentNumber} • Queue #{String(activeQrApt.queueNumber).padStart(2, '0')}
+              Ref: {activeQrApt.appointmentNumber} • Token: <strong>{activeQrApt.queueLabel || `#${String(activeQrApt.queueNumber).padStart(2, '0')}`}</strong>
             </p>
 
             <div style={{
@@ -3418,7 +3565,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
             <div style={{ fontSize: '12px', color: '#37474F', marginBottom: '16px' }}>
               <strong>{activeQrApt.doctorName}</strong> ({activeQrApt.specialization})<br />
-              {activeQrApt.appointmentDate} • {activeQrApt.timeSlot}
+              {activeQrApt.sessionType ? `${activeQrApt.sessionType} Session • ${activeQrApt.timeSlot}` : activeQrApt.timeSlot}<br />
+              {activeQrApt.appointmentDate}
             </div>
 
             <button

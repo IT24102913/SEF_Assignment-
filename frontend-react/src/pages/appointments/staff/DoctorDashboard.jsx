@@ -571,7 +571,7 @@ const DoctorDashboard = () => {
               <Info size={20} color="#2563EB" />
               <div>
                 <span style={{ fontWeight: '800', fontSize: '13px' }}>
-                  Notice: Your next session with booked patients is on {nextBookedSession.sessionDate} at {nextBookedSession.timeFormatted} ({nextBookedSession.currentBookings} Patient{nextBookedSession.currentBookings > 1 ? 's' : ''} Booked).
+                  Notice: Your next session with booked patients is on {nextBookedSession.sessionDate} — {nextBookedSession.sessionType ? `${nextBookedSession.sessionType} Session • ` : ''}{nextBookedSession.timeRange || nextBookedSession.timeFormatted} ({nextBookedSession.currentBookings} Patient{nextBookedSession.currentBookings > 1 ? 's' : ''} Booked).
                 </span>
                 <div style={{ fontSize: '11px', color: '#3B82F6', marginTop: '2px' }}>
                   Room: {resolveRoomName(nextBookedSession)} • Status: {nextBookedSession.sessionStatus}
@@ -751,8 +751,11 @@ const DoctorDashboard = () => {
                               {sess.sessionStatus}
                             </span>
                           </div>
-                          <div style={{ fontSize: '14px', fontWeight: '800', color: '#1E293B' }}>
-                            {sess.timeFormatted}
+                          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>
+                            {sess.sessionType ? `${sess.sessionType === 'Morning' ? '🌅 Morning' : sess.sessionType === 'Evening' ? '🌇 Evening' : '🌙 Night'} Session` : sess.timeFormatted}
+                          </div>
+                          <div style={{ fontSize: '12px', fontWeight: '700', color: '#00796B', marginTop: '2px' }}>
+                            {sess.timeRange || sess.timeFormatted}
                           </div>
                           <div style={{ fontSize: '11px', color: '#64748B', marginTop: '3px' }}>
                             {resolveRoomName(sess)} • <strong>{sess.currentBookings || 0}/{sess.maxCapacity}</strong> booked
@@ -819,7 +822,9 @@ const DoctorDashboard = () => {
                         {sess.sessionStatus}
                       </span>
                     </div>
-                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>{sess.timeFormatted}</div>
+                    <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>
+                      {sess.sessionType ? `${sess.sessionType === 'Morning' ? '🌅 Morning' : sess.sessionType === 'Evening' ? '🌇 Evening' : '🌙 Night'} Session • ` : ''}{sess.timeRange || sess.timeFormatted}
+                    </div>
                     <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
                       Room: {resolveRoomName(sess)} • Bookings: <strong>{sess.currentBookings || 0}/{sess.maxCapacity}</strong>
                     </div>
@@ -1011,7 +1016,7 @@ const DoctorDashboard = () => {
             </h3>
             <span style={{ fontSize: '12px', color: '#64748B' }}>
               {activeSession
-                ? `${activeSession.sessionDate} • ${activeSession.timeFormatted} (Room: ${resolveRoomName(activeSession)})`
+                ? `${activeSession.sessionDate} • ${activeSession.sessionType ? `${activeSession.sessionType} Session • ` : ''}${activeSession.timeRange || activeSession.timeFormatted} • ${activeSession.sessionStatus} (Room: ${resolveRoomName(activeSession)})`
                 : 'No session selected'}
             </span>
           </div>

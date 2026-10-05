@@ -91,5 +91,10 @@ public class DoctorAppointment
 
     public DateTime? CalledAt { get; set; }
 
+    public DateTime? ReadyAlertSentAt { get; set; }
+
+    [MaxLength(500)]
+    public string? StatusChangeReason { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

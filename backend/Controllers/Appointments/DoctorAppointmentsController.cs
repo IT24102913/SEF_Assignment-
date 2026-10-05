@@ -345,6 +345,43 @@ public class DoctorAppointmentsController : ControllerBase
         {
             return BadRequest(new { message = ex.Message });
         }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Forces appointment status with an audit trail reason (Admin only).
+    /// Bypasses normal status transition rules.
+    /// </summary>
+    [HttpPut("{id}/force-status")]
+    [Authorize(Roles = UserRole.Admin)]
+    public async Task<IActionResult> ForceStatus(int id, [FromBody] ForceStatusDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto?.Status))
+            return BadRequest(new { message = "Status is required." });
+
+        if (string.IsNullOrWhiteSpace(dto?.Reason))
+            return BadRequest(new { message = "A valid reason is required for administrative status override." });
+
+        try
+        {
+            var updated = await _appointmentService.ForceStatusAsync(id, dto.Status, dto.Reason);
+            return Ok(updated);
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { message = "Appointment not found." });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     /// <summary>
@@ -405,6 +442,7 @@ public class DoctorAppointmentsController : ControllerBase
     /// Delete appointment record (Admin only).
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Roles = UserRole.Admin)]
     public async Task<IActionResult> DeleteAppointment(int id)
     {
         var deleted = await _appointmentService.DeleteAppointmentAsync(id);

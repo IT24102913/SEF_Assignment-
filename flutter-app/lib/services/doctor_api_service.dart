@@ -84,6 +84,8 @@ class DoctorSession {
   final String sessionDate;
   final String sessionTime;
   final String timeFormatted;
+  final String sessionType;
+  final String timeRange;
   final int maxCapacity;
   final int currentBookings;
   final bool isAvailable;
@@ -101,6 +103,8 @@ class DoctorSession {
     required this.sessionDate,
     required this.sessionTime,
     required this.timeFormatted,
+    this.sessionType = 'Morning',
+    this.timeRange = '08:30 AM – 12:00 PM',
     required this.maxCapacity,
     required this.currentBookings,
     required this.isAvailable,
@@ -119,7 +123,9 @@ class DoctorSession {
     sessionDate: json['sessionDate']?.toString() ?? '',
     sessionTime: json['sessionTime']?.toString() ?? '',
     timeFormatted: json['timeFormatted']?.toString() ?? '',
-    maxCapacity: (json['maxCapacity'] as num?)?.toInt() ?? 1,
+    sessionType: json['sessionType']?.toString() ?? 'Morning',
+    timeRange: json['timeRange']?.toString() ?? json['timeFormatted']?.toString() ?? '',
+    maxCapacity: (json['maxCapacity'] as num?)?.toInt() ?? 25,
     currentBookings: (json['currentBookings'] as num?)?.toInt() ?? 0,
     isAvailable: json['isAvailable'] == true,
     isExpired: json['isExpired'] == true,
@@ -183,6 +189,17 @@ class DoctorAppointment {
   final String queueStatus;
   final String? calledAt;
   final String? displaySummary;
+  final String? queueLabel;
+  final String? sessionType;
+  final String? estimatedConsultationTime;
+  final String? recommendedArrivalTime;
+  final int? currentlyServingQueueNumber;
+  final String? currentlyServingLabel;
+  final String? sessionStatus;
+  final String? expectedStartTime;
+  final String? delayReason;
+  final String? roomNumber;
+  final bool isToday;
 
   DoctorAppointment({
     required this.id,
@@ -218,6 +235,17 @@ class DoctorAppointment {
     this.queueStatus = 'Waiting',
     this.calledAt,
     this.displaySummary,
+    this.queueLabel,
+    this.sessionType,
+    this.estimatedConsultationTime,
+    this.recommendedArrivalTime,
+    this.currentlyServingQueueNumber,
+    this.currentlyServingLabel,
+    this.sessionStatus,
+    this.expectedStartTime,
+    this.delayReason,
+    this.roomNumber,
+    this.isToday = false,
   });
 
   factory DoctorAppointment.fromJson(Map<String, dynamic> json) => DoctorAppointment(
@@ -254,6 +282,17 @@ class DoctorAppointment {
     queueStatus: json['queueStatus']?.toString() ?? 'Waiting',
     calledAt: json['calledAt']?.toString(),
     displaySummary: json['displaySummary']?.toString(),
+    queueLabel: json['queueLabel']?.toString(),
+    sessionType: json['sessionType']?.toString(),
+    estimatedConsultationTime: json['estimatedConsultationTime']?.toString(),
+    recommendedArrivalTime: json['recommendedArrivalTime']?.toString(),
+    currentlyServingQueueNumber: (json['currentlyServingQueueNumber'] as num?)?.toInt(),
+    currentlyServingLabel: json['currentlyServingLabel']?.toString(),
+    sessionStatus: json['sessionStatus']?.toString(),
+    expectedStartTime: json['expectedStartTime']?.toString(),
+    delayReason: json['delayReason']?.toString(),
+    roomNumber: json['roomNumber']?.toString(),
+    isToday: json['isToday'] == true,
   );
 }
 

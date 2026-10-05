@@ -1,4 +1,5 @@
 using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
 using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 
@@ -182,7 +183,8 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<DoctorSession>(entity =>
         {
             entity.HasKey(s => s.Id);
-            entity.HasIndex(s => new { s.DoctorId, s.SessionDate, s.SessionTime }).IsUnique();
+            entity.Property(s => s.SessionType).HasConversion<string>();
+            entity.HasIndex(s => new { s.DoctorId, s.SessionDate, s.SessionType }).IsUnique();
             entity.HasOne(s => s.Doctor)
                   .WithMany(d => d.Sessions)
                   .HasForeignKey(s => s.DoctorId)
@@ -211,6 +213,10 @@ public class ApplicationDbContext : DbContext
             entity.HasIndex(a => a.AppointmentNumber).IsUnique();
             entity.HasIndex(a => a.PatientId);
             entity.HasIndex(a => a.Status);
+            entity.HasIndex(a => new { a.DoctorSessionId, a.QueueNumber })
+                  .HasDatabaseName("IX_DoctorAppointments_DoctorSessionId_QueueNumber")
+                  .HasFilter("\"Status\" <> 'Cancelled'")
+                  .IsUnique();
         });
 
         // Seed some lab tests
