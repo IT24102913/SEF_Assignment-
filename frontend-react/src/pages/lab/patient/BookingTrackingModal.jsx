@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   X, CheckCircle2, Clock, AlertCircle, Microscope, 
   Sparkles, ShieldCheck, FileText, Download, Calendar, 
-  User, Check, AlertTriangle, ArrowRight 
+  User, Check, AlertTriangle, ArrowRight, BookmarkCheck, FolderPlus 
 } from 'lucide-react';
+import { saveReportToEmr } from '../../../api/labApi';
+import toast from 'react-hot-toast';
 
 const STATUS_RANKS = {
   'PendingPrescriptionUpload': 0,
@@ -44,6 +46,28 @@ export default function BookingTrackingModal({ booking, relatedBookings = [], on
   const currentRank = STATUS_RANKS[status] ?? 0;
   const isFailed = status === 'Rejected' || status === 'Cancelled';
   const isRestricted = allBookings.some ? allBookings.some(b => b.labTest?.isRestricted || b.isRestricted) : (booking.labTest?.isRestricted || booking.isRestricted);
+
+  const [savingEmrId, setSavingEmrId] = useState(null);
+  const [savedEmrIds, setSavedEmrIds] = useState(() => {
+    const ids = new Set();
+    allBookings.forEach(b => {
+      if (b.isSavedToEmr) ids.add(b.id);
+    });
+    return ids;
+  });
+
+  const handleSaveToEmr = async (targetBooking) => {
+    try {
+      setSavingEmrId(targetBooking.id);
+      const res = await saveReportToEmr(targetBooking.id);
+      toast.success(res.data?.message || 'Lab report archived to your permanent EMR profile!', { duration: 4500 });
+      setSavedEmrIds(prev => new Set([...prev, targetBooking.id]));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not archive report to EMR.');
+    } finally {
+      setSavingEmrId(null);
+    }
+  };
 
   // Build timeline stages
   const stages = [];
@@ -304,20 +328,88 @@ export default function BookingTrackingModal({ booking, relatedBookings = [], on
           </div>
         </div>
 
+        {/* 30-Day Retention Notice */}
+        {allBookings.some(b => ['ReportDelivered', 'Completed'].includes(b.status) && (b.resultFileUrl || b.isReportExpired)) && (
+          <div style={{
+            margin: '0 28px 14px',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            backgroundColor: '#F8FAFC',
+            border: '1.5px solid #E2E8F0',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+              <AlertCircle size={18} color="#0284C7" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '12px', lineHeight: 1.5, color: '#334155' }}>
+                <strong style={{ color: '#0F172A', display: 'block', marginBottom: '2px' }}>
+                  30-Day Lab Report Retention Policy
+                </strong>
+                Direct download is available for 30 days after issue. Unsaved files are purged from the database after 30 days. Save reports to your <strong>EMR Profile</strong> to keep them permanently accessible.
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Footer Actions */}
         <div style={styles.footer}>
           {allBookings.some(b => b.resultFileUrl && ['ReportDelivered', 'Completed'].includes(b.status)) ? (
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
               {allBookings.map((b, idx) => {
                 if (!b.resultFileUrl || !['ReportDelivered', 'Completed'].includes(b.status)) return null;
+                const isSaved = savedEmrIds.has(b.id) || b.isSavedToEmr;
+                const testLabel = isMulti ? `${(b.labTest?.name || 'Test').split(' ')[0]} ` : '';
+
                 return (
-                  <button 
-                    key={b.id || idx}
-                    style={styles.downloadBtn}
-                    onClick={() => onDownloadReport ? onDownloadReport(b) : window.open(b.resultFileUrl, '_blank')}
-                  >
-                    <Download size={15} /> Download {isMulti ? `${(b.labTest?.name || 'Test').split(' ')[0]} PDF` : 'Official PDF Report'}
-                  </button>
+                  <div key={b.id || idx} style={{ display: 'inline-flex', gap: '6px', alignItems: 'center' }}>
+                    <button 
+                      style={styles.downloadBtn}
+                      onClick={() => onDownloadReport ? onDownloadReport(b) : window.open(b.resultFileUrl, '_blank')}
+                    >
+                      <Download size={15} /> Download {testLabel}PDF
+                    </button>
+
+                    {isSaved ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '7px 12px',
+                          borderRadius: '10px',
+                          backgroundColor: '#ECFDF5',
+                          border: '1.5px solid #A7F3D0',
+                          color: '#047857',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                        }}
+                        title="Permanently archived in your EMR Medical Profile"
+                      >
+                        <BookmarkCheck size={14} color="#059669" />
+                        Saved in EMR
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={savingEmrId === b.id}
+                        onClick={() => handleSaveToEmr(b)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '7px 12px',
+                          borderRadius: '10px',
+                          backgroundColor: '#F0F9FF',
+                          border: '1.5px solid #7DD3FC',
+                          color: '#0369A1',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          cursor: savingEmrId === b.id ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        <FolderPlus size={14} color="#0284C7" />
+                        {savingEmrId === b.id ? 'Saving...' : `${testLabel}Save to EMR`}
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>

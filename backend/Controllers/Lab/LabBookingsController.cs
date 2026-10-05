@@ -309,8 +309,175 @@ public class LabBookingsController : ControllerBase
         }));
     }
 
+    // POST /api/lab/bookings/{id}/save-to-emr — Save delivered report to permanent patient EMR profile
+    [HttpPost("{id:guid}/save-to-emr")]
+    public async Task<IActionResult> SaveToEmr(Guid id)
+    {
+        var booking = await _db.LabBookings
+            .Include(b => b.LabTest)
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+        if (booking == null)
+            return NotFound(new { message = "Lab booking not found." });
+
+        if (booking.Status != BookingStatus.ReportDelivered && booking.Status != BookingStatus.Completed)
+            return BadRequest(new { message = "Report is not yet delivered or completed for this booking." });
+
+        if (string.IsNullOrWhiteSpace(booking.ResultFileUrl))
+            return BadRequest(new { message = "No valid report file URL found for this booking." });
+
+        // If already saved to EMR, verify and return existing record
+        if (booking.IsSavedToEmr && booking.EmrLabReportId.HasValue)
+        {
+            var existingReport = await _db.LabReports.FindAsync(booking.EmrLabReportId.Value);
+            if (existingReport != null)
+            {
+                return Ok(new
+                {
+                    message = "This lab report is already permanently archived in your EMR profile.",
+                    isAlreadySaved = true,
+                    emrReportId = existingReport.Id,
+                    patientCode = existingReport.PatientCode,
+                    testTitle = existingReport.TestTitle,
+                    booking = MapToDto(booking)
+                });
+            }
+        }
+
+        // Find or create EMR patient profile
+        HealthBridge.Api.Models.EMR.Patient? patient = null;
+        if (booking.PatientId > 0)
+        {
+            patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == booking.PatientId);
+        }
+
+        if (patient == null && !string.IsNullOrWhiteSpace(booking.PatientEmail))
+        {
+            var lowerEmail = booking.PatientEmail.Trim().ToLower();
+            patient = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == lowerEmail);
+        }
+
+        if (patient == null)
+        {
+            var patientCount = await _db.Patients.CountAsync();
+            var newCode = $"PAT-{patientCount + 1001}";
+            patient = new HealthBridge.Api.Models.EMR.Patient
+            {
+                Id = Guid.NewGuid(),
+                UserId = booking.PatientId > 0 ? booking.PatientId : null,
+                PatientCode = newCode,
+                FullName = string.IsNullOrWhiteSpace(booking.PatientName) ? "Patient" : booking.PatientName,
+                Email = booking.PatientEmail,
+                Gender = "Other",
+                BloodGroup = "Unknown",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _db.Patients.Add(patient);
+            await _db.SaveChangesAsync();
+        }
+
+        // Create permanent EMR Lab Report entry
+        var testName = booking.LabTest?.Name ?? "Laboratory Diagnostic Test";
+        var emrLabReport = new HealthBridge.Api.Models.EMR.LabReport
+        {
+            Id = Guid.NewGuid(),
+            PatientId = patient.Id,
+            PatientCode = patient.PatientCode,
+            TestTitle = testName,
+            Category = booking.LabTest?.Category ?? "Laboratory Investigation",
+            OrderedDoctor = !string.IsNullOrWhiteSpace(booking.AIExtractedDoctorName)
+                ? booking.AIExtractedDoctorName
+                : "Central Laboratory Consultant",
+            ReportDate = booking.ResultsUploadedAt ?? DateTime.UtcNow,
+            Status = "Completed",
+            FileName = $"{booking.QueueToken ?? "LAB"}_{testName.Replace(" ", "_")}.pdf",
+            FileUrl = booking.ResultFileUrl,
+            ResultsSummary = !string.IsNullOrWhiteSpace(booking.TechnicianNotes)
+                ? booking.TechnicianNotes
+                : $"Verified laboratory diagnostic report for {testName}. Preserved from 30-day purge into permanent HealthBridge EMR profile.",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        _db.LabReports.Add(emrLabReport);
+
+        booking.IsSavedToEmr = true;
+        booking.EmrLabReportId = emrLabReport.Id;
+        booking.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("[Lab->EMR] Saved report {ReportId} for booking {BookingId} to patient {PatientCode}", emrLabReport.Id, booking.Id, patient.PatientCode);
+
+        return Ok(new
+        {
+            message = "Lab report successfully archived to your permanent EMR health profile! It is now protected from automatic deletion.",
+            isAlreadySaved = false,
+            emrReportId = emrLabReport.Id,
+            patientCode = patient.PatientCode,
+            testTitle = emrLabReport.TestTitle,
+            booking = MapToDto(booking)
+        });
+    }
+
+    // POST /api/lab/bookings/purge-expired — Enforce 30-day retention policy on unarchived lab reports
+    [HttpPost("purge-expired")]
+    public async Task<IActionResult> PurgeExpiredReports()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-30);
+        var expiredBookings = await _db.LabBookings
+            .Where(b => (b.Status == BookingStatus.ReportDelivered || b.Status == BookingStatus.Completed)
+                     && !b.IsSavedToEmr
+                     && !string.IsNullOrEmpty(b.ResultFileUrl)
+                     && (b.ResultsUploadedAt ?? b.UpdatedAt) < cutoff)
+            .ToListAsync();
+
+        int purgedCount = 0;
+        foreach (var b in expiredBookings)
+        {
+            b.ResultFileUrl = null;
+            b.TechnicianNotes = (b.TechnicianNotes ?? "") + " [System Notice: Temporary report purged after 30-day retention expiration. File was not archived to EMR.]";
+            b.UpdatedAt = DateTime.UtcNow;
+            purgedCount++;
+        }
+
+        if (purgedCount > 0)
+        {
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(new
+        {
+            purgedCount,
+            message = $"Processed retention policy: purged {purgedCount} expired report(s) older than 30 days."
+        });
+    }
+
     private static LabBookingResponse MapToDto(LabBooking b)
     {
+        int? retentionDays = null;
+        bool isExpired = false;
+        DateTime? expiryDate = null;
+        if (b.Status == BookingStatus.ReportDelivered || b.Status == BookingStatus.Completed)
+        {
+            var issuedAt = b.ResultsUploadedAt ?? b.UpdatedAt;
+            expiryDate = issuedAt.AddDays(30);
+            var remaining = (int)Math.Ceiling((expiryDate.Value - DateTime.UtcNow).TotalDays);
+            retentionDays = Math.Max(0, remaining);
+            isExpired = remaining <= 0;
+        }
+
+        string? accessibleResultUrl = null;
+        if (b.Status == BookingStatus.ReportDelivered || b.Status == BookingStatus.Completed)
+        {
+            // If report is past 30 days and NOT saved to EMR, the download link expires
+            if (!isExpired || b.IsSavedToEmr)
+            {
+                accessibleResultUrl = b.ResultFileUrl;
+            }
+        }
+
         var dto = new LabBookingResponse
         {
             Id = b.Id,
@@ -338,10 +505,13 @@ public class LabBookingsController : ControllerBase
             AIExtractedDoctorName = b.AIExtractedDoctorName,
             AIPrescriptionDate = b.AIPrescriptionDate,
             TechnicianNotes = b.TechnicianNotes,
-            ResultFileUrl = (b.Status == BookingStatus.ReportDelivered || b.Status == BookingStatus.Completed)
-                ? b.ResultFileUrl 
-                : null,
+            ResultFileUrl = accessibleResultUrl,
             ResultsUploadedAt = b.ResultsUploadedAt,
+            IsSavedToEmr = b.IsSavedToEmr,
+            EmrLabReportId = b.EmrLabReportId,
+            RetentionDaysRemaining = retentionDays,
+            IsReportExpired = isExpired && !b.IsSavedToEmr,
+            ReportExpiryDate = expiryDate,
             QueueToken = b.QueueToken,
             PriorityTier = b.PriorityTier,
             EstimatedServiceDurationMinutes = b.EstimatedServiceDurationMinutes,

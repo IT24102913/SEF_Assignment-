@@ -5,7 +5,7 @@ import '../../services/lab_api_service.dart';
 import 'package:lab_patient_app/utils/config.dart';
 import '../../utils/theme.dart';
 
-class BookingTrackingScreen extends StatelessWidget {
+class BookingTrackingScreen extends StatefulWidget {
   final LabBooking booking;
   final List<LabBooking>? relatedBookings;
 
@@ -15,9 +15,23 @@ class BookingTrackingScreen extends StatelessWidget {
     this.relatedBookings,
   });
 
-  List<LabBooking> get _allBookings => (relatedBookings != null && relatedBookings!.isNotEmpty)
-      ? relatedBookings!
-      : [booking];
+  @override
+  State<BookingTrackingScreen> createState() => _BookingTrackingScreenState();
+}
+
+class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
+  late bool _isSavedToEmr;
+  bool _isSavingEmr = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isSavedToEmr = widget.booking.isSavedToEmr;
+  }
+
+  List<LabBooking> get _allBookings => (widget.relatedBookings != null && widget.relatedBookings!.isNotEmpty)
+      ? widget.relatedBookings!
+      : [widget.booking];
 
   bool get _isMultiTest => _allBookings.length > 1;
 
@@ -50,6 +64,7 @@ class BookingTrackingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final booking = widget.booking;
     final status = booking.status;
     final isRestricted = _allBookings.any((b) => b.labTest?.isRestricted == true);
     final currentRank = _getStatusRank(status);
@@ -374,13 +389,61 @@ class BookingTrackingScreen extends StatelessWidget {
               ),
             ],
 
-            // Diagnostic PDF Report Download Banner only when delivered or completed
+            // Diagnostic PDF Report Download & 30-Day Retention Notice Banner
             if ((booking.status == 'ReportDelivered' || booking.status == 'Completed') &&
                 booking.resultFileUrl != null && booking.resultFileUrl!.isNotEmpty) ...[
+              // 30-Day Retention Policy Card
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _isSavedToEmr ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _isSavedToEmr ? const Color(0xFFA7F3D0) : const Color(0xFFE2E8F0),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      _isSavedToEmr ? Icons.bookmark_added : Icons.info_outline,
+                      color: _isSavedToEmr ? const Color(0xFF059669) : const Color(0xFF0284C7),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isSavedToEmr ? 'Archived in EMR Profile' : '30-Day Lab Report Retention Policy',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              color: _isSavedToEmr ? const Color(0xFF065F46) : const Color(0xFF0F172A)),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _isSavedToEmr
+                                ? 'This report is permanently preserved in your EMR medical records and will not be purged.'
+                                : 'Direct report download is available for 30 days after issue (${booking.retentionDaysRemaining ?? 30} days left). Temporary files are removed after 30 days. Save to EMR to keep permanently.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: _isSavedToEmr ? const Color(0xFF047857) : const Color(0xFF475569)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Download Report Action
               GestureDetector(
                 onTap: () => _downloadReport(context, booking.resultFileUrl!),
                 child: Container(
-                  margin: const EdgeInsets.only(bottom: 20),
+                  margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: const Color(0xFFECFDF5),
@@ -441,6 +504,75 @@ class BookingTrackingScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+
+              // Save to EMR button
+              Container(
+                margin: const EdgeInsets.only(bottom: 20),
+                width: double.infinity,
+                child: _isSavedToEmr
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.bookmark_added, color: Color(0xFF047857), size: 16),
+                            SizedBox(width: 6),
+                            Text(
+                              'Saved to EMR Health Profile (Permanent Record)',
+                              style: TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.w700, fontSize: 12.5),
+                            ),
+                          ],
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        onPressed: _isSavingEmr ? null : () async {
+                          setState(() => _isSavingEmr = true);
+                          try {
+                            await LabApiService.saveBookingToEmr(widget.booking.id);
+                            if (context.mounted) {
+                              setState(() {
+                                _isSavedToEmr = true;
+                                _isSavingEmr = false;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Lab report archived permanently to your EMR medical profile!'),
+                                  backgroundColor: kSuccess,
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              setState(() => _isSavingEmr = false);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to save to EMR: $e'), backgroundColor: kDanger),
+                              );
+                            }
+                          }
+                        },
+                        icon: _isSavingEmr
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0284C7)),
+                              )
+                            : const Icon(Icons.bookmark_add_outlined, size: 16, color: Color(0xFF0284C7)),
+                        label: Text(_isSavingEmr ? 'Archiving to EMR...' : 'Save Report to EMR Profile'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF0284C7),
+                          side: const BorderSide(color: Color(0xFF7DD3FC), width: 1.5),
+                          backgroundColor: const Color(0xFFF0F9FF),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                        ),
+                      ),
               ),
             ] else if (booking.status == 'ResultsReady') ...[
               // Informational card when results uploaded by staff but not yet delivered

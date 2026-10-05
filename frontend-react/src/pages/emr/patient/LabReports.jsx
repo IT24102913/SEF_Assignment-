@@ -323,6 +323,23 @@ export default function LabReports() {
                         {report.category}
                       </span>
                       Ordered by <strong style={{ color: '#0f172a' }}>{report.orderedDoctor}</strong> • {report.date}
+                      {report.orderedDoctor === 'HealthBridge Diagnostic Labs' && (
+                        <span style={{
+                          backgroundColor: '#ecfdf5',
+                          border: '1px solid #a7f3d0',
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          fontWeight: 700,
+                          color: '#047857',
+                          fontSize: '0.75rem',
+                          marginLeft: '8px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}>
+                          🔬 Lab Management Sync
+                        </span>
+                      )}
                     </div>
 
                     {/* Attached file indicator */}

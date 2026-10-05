@@ -68,6 +68,8 @@ public class LabBooking
     // Results
     public string? ResultFileUrl { get; set; }
     public DateTime? ResultsUploadedAt { get; set; }
+    public bool IsSavedToEmr { get; set; } = false;
+    public Guid? EmrLabReportId { get; set; }
 
     // Smart Queue & Agentic AI Workflow State
     public string? QueueToken { get; set; }

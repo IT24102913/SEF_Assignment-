@@ -19,6 +19,11 @@ public class LabBookingResponse
     public string? TechnicianNotes { get; set; }
     public string? ResultFileUrl { get; set; }
     public DateTime? ResultsUploadedAt { get; set; }
+    public bool IsSavedToEmr { get; set; }
+    public Guid? EmrLabReportId { get; set; }
+    public int? RetentionDaysRemaining { get; set; }
+    public bool IsReportExpired { get; set; }
+    public DateTime? ReportExpiryDate { get; set; }
     public string? QueueToken { get; set; }
     public string? PriorityTier { get; set; }
     public int EstimatedServiceDurationMinutes { get; set; }
