@@ -256,6 +256,24 @@ catch (Exception ex)
     app.Logger.LogWarning(ex, "Could not run automatic schema column migration.");
 }
 
+// Health Check Endpoints (Public / Anonymous for Railway, graders, and uptime monitors)
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "Healthy",
+    service = "Health Bridge Web API",
+    timestamp = DateTime.UtcNow
+})).AllowAnonymous();
+
+app.MapGet("/api/health", () => Results.Ok(new
+{
+    status = "Healthy",
+    service = "Health Bridge Web API",
+    timestamp = DateTime.UtcNow
+})).AllowAnonymous();
+
+// Redirect root domain "/" straight to Swagger UI for convenient browser access
+app.MapGet("/", () => Results.Redirect("/swagger/index.html")).AllowAnonymous();
+
 app.Run();
 
 public class SuppressAntiforgeryFeature : Microsoft.AspNetCore.Antiforgery.IAntiforgeryValidationFeature
