@@ -13,7 +13,7 @@ class OrdersErrorBoundary extends Component {
         if (this.state.hasError) {
             return (
                 <div style={{ padding: '60px 40px', textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
-                    <h2 style={{ color: '#DC2626', marginBottom: 12 }}>⚠️ Failed to load Prescription &amp; Orders Audit</h2>
+                    <h2 style={{ color: '#DC2626', marginBottom: 12 }}>Failed to load Prescription &amp; Orders Audit</h2>
                     <p style={{ color: '#64748B', maxWidth: 520, margin: '0 auto 24px' }}>
                         A rendering error occurred. This is usually caused by unexpected data from the server.
                     </p>
@@ -22,7 +22,7 @@ class OrdersErrorBoundary extends Component {
                         <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{this.state.error?.toString()}</pre>
                     </details>
                     <button onClick={() => this.setState({ hasError: false, error: null })} style={{ padding: '10px 24px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
-                        🔄 Retry
+                        Retry
                     </button>
                 </div>
             );
@@ -54,7 +54,16 @@ import {
     ShieldAlert,
     Lock,
     UserX,
-    FileText
+    FileText,
+    Bot,
+    Bell,
+    Pill,
+    RefreshCw,
+    AlertTriangle,
+    RotateCcw,
+    Camera,
+    AlertOctagon,
+    Mail
 } from 'lucide-react';
 
 const Orders = () => {
@@ -119,77 +128,77 @@ const Orders = () => {
 
         // Watermark / VOID stamp
         if (flagsLower.some(f => f.includes('watermark') || f.includes('void') || f.includes('sample') || f.includes('specimen') || f.includes('training') || f.includes('do not use')))
-            visionIssues.push({ icon: '🔏', text: 'Watermark or "VOID/SAMPLE" stamp detected — prescription is marked as a training or specimen document, not a real issued one.' });
+            visionIssues.push({ IconComponent: Lock, text: 'Watermark or "VOID/SAMPLE" stamp detected — prescription is marked as a training or specimen document, not a real issued one.' });
 
         // Flat vector / digital template
         if (flagsLower.some(f => f.includes('vector') || f.includes('flat_vector') || f.includes('computer template') || f.includes('graphic')))
-            visionIssues.push({ icon: '🖥️', text: 'Prescription appears to be a computer-generated vector graphic template, not a photographed real paper document.' });
+            visionIssues.push({ IconComponent: AlertOctagon, text: 'Prescription appears to be a computer-generated vector graphic template, not a photographed real paper document.' });
 
         // Screenshot / UI chrome
         if (flagsLower.some(f => f.includes('screenshot') || f.includes('ui chrome') || f.includes('browser') || f.includes('taskbar') || f.includes('window')))
-            visionIssues.push({ icon: '📸', text: 'Image appears to be a screenshot of software or a website, not a photo of a physical prescription paper.' });
+            visionIssues.push({ IconComponent: Camera, text: 'Image appears to be a screenshot of software or a website, not a photo of a physical prescription paper.' });
 
         // Non-medical image
         if (flagsLower.some(f => f.includes('non-medical') || f.includes('non_medical') || f.includes('non-prescription') || f.includes('not a valid doctor')))
-            visionIssues.push({ icon: '🚫', text: 'Uploaded image is not a medical prescription — it appears to be an unrelated photo, document, or digital graphic.' });
+            visionIssues.push({ IconComponent: AlertOctagon, text: 'Uploaded image is not a medical prescription — it appears to be an unrelated photo, document, or digital graphic.' });
 
         // Forgery / tampered
         if (flagsLower.some(f => f.includes('forgery') || f.includes('forged') || f.includes('tampered') || f.includes('annotation') || f.includes('mismatch')))
-            visionIssues.push({ icon: '⚠️', text: 'AI detected signs of document tampering or annotation error labels (e.g. FORGERY / MISMATCH overlaid on fields).' });
+            visionIssues.push({ IconComponent: AlertTriangle, text: 'AI detected signs of document tampering or annotation error labels (e.g. FORGERY / MISMATCH overlaid on fields).' });
 
         // ── CATEGORY 2: Missing / Suspicious Document Fields ───────────────
         const fieldIssues = [];
 
         // Fake phone number
         if (flagsLower.some(f => f.includes('phone') && (f.includes('placeholder') || f.includes('555') || f.includes('000-0000') || f.includes('fake'))))
-            fieldIssues.push({ icon: '📞', text: 'Doctor\'s clinic phone number is a placeholder (e.g. 555-XXXX or 000-0000) — not a real registered clinic number.' });
+            fieldIssues.push({ IconComponent: Phone, text: 'Doctor\'s clinic phone number is a placeholder (e.g. 555-XXXX or 000-0000) — not a real registered clinic number.' });
 
         // Invalid email
         if (flagsLower.some(f => f.includes('email') && (f.includes('invalid') || f.includes('garbled') || f.includes('domain'))))
-            fieldIssues.push({ icon: '📧', text: 'Clinic email address has an invalid or nonsensical domain — suggests the document was generated using dummy data.' });
+            fieldIssues.push({ IconComponent: Mail, text: 'Clinic email address has an invalid or nonsensical domain — suggests the document was generated using dummy data.' });
 
         // No signature or stamp
         if (flagsLower.some(f => f.includes('signature') || f.includes('stamp') || f.includes('seal') || f.includes('no doctor')))
-            fieldIssues.push({ icon: '✍️', text: 'No valid doctor\'s signature, stamp, or clinic seal detected — all real prescriptions must have at least one of these to be legally valid.' });
+            fieldIssues.push({ IconComponent: FileCheck, text: 'No valid doctor\'s signature, stamp, or clinic seal detected — all real prescriptions must have at least one of these to be legally valid.' });
 
         // Old prescription
         if (flagsLower.some(f => f.includes('months old') || f.includes('old') || (f.includes('months') && f.includes('threshold'))))
-            fieldIssues.push({ icon: '📅', text: 'Prescription date is older than 6 months — prescriptions expire and cannot be used for refills after the threshold period.' });
+            fieldIssues.push({ IconComponent: Calendar, text: 'Prescription date is older than 6 months — prescriptions expire and cannot be used for refills after the threshold period.' });
 
         // No doctor / clinic name
         if (flagsLower.some(f => f.includes('no doctor') || (f.includes('doctor') && f.includes('name')) || (f.includes('clinic') && f.includes('name'))))
-            fieldIssues.push({ icon: '👨‍⚕️', text: 'Doctor name or clinic name is missing — a valid prescription must clearly identify the issuing physician and their registered clinic.' });
+            fieldIssues.push({ IconComponent: User, text: 'Doctor name or clinic name is missing — a valid prescription must clearly identify the issuing physician and their registered clinic.' });
 
         // ── CATEGORY 3: Anti-Abuse / Pattern Issues ────────────────────────
         const patternIssues = [];
 
         // Duplicate prescription image
         if (flagsLower.some(f => f.includes('duplicate prescription') || f.includes('reuse attempt')))
-            patternIssues.push({ icon: '🔁', text: 'The same prescription image has been uploaded on multiple orders — prescription reuse is a safety violation.' });
+            patternIssues.push({ IconComponent: RotateCcw, text: 'The same prescription image has been uploaded on multiple orders — prescription reuse is a safety violation.' });
 
         // High velocity orders
         if (flagsLower.some(f => f.includes('high velocity') || f.includes('orders within 7 days')))
-            patternIssues.push({ icon: '⏱️', text: 'Patient has placed an unusually high number of orders within a 7-day window — pattern consistent with medication stockpiling abuse.' });
+            patternIssues.push({ IconComponent: Clock, text: 'Patient has placed an unusually high number of orders within a 7-day window — pattern consistent with medication stockpiling abuse.' });
 
         // Repeat medication
         if (flagsLower.some(f => f.includes('repeat medication') || f.includes('times within 7 days')))
-            patternIssues.push({ icon: '💊', text: 'Same medication ordered multiple times within 7 days — potential early refill attempt or duplicate ordering abuse.' });
+            patternIssues.push({ IconComponent: Pill, text: 'Same medication ordered multiple times within 7 days — potential early refill attempt or duplicate ordering abuse.' });
 
         // Early refill
         if (flagsLower.some(f => f.includes('early refill')))
-            patternIssues.push({ icon: '🔄', text: 'Refill is being requested before the minimum required interval since last fulfillment — possible early refill abuse.' });
+            patternIssues.push({ IconComponent: RefreshCw, text: 'Refill is being requested before the minimum required interval since last fulfillment — possible early refill abuse.' });
 
         // Suspicious history
         if (flagsLower.some(f => f.includes('suspicious') || f.includes('previous suspicious')))
-            patternIssues.push({ icon: '🚨', text: 'This patient has multiple previously flagged high-risk orders in their history — elevated risk profile.' });
+            patternIssues.push({ IconComponent: ShieldAlert, text: 'This patient has multiple previously flagged high-risk orders in their history — elevated risk profile.' });
 
         // Handwritten prescription policy
         if (flagsLower.some(f => f.includes('handwritten') || f.includes('handwriting')))
-            visionIssues.push({ icon: '✍️', text: 'Handwritten prescription detected — system policy requires printed doctor prescriptions only.' });
+            visionIssues.push({ IconComponent: FileCheck, text: 'Handwritten prescription detected — system policy requires printed doctor prescriptions only.' });
 
-        if (visionIssues.length > 0) reasons.push({ category: '🤖 Document Authenticity (AI Vision Analysis)', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', items: visionIssues });
-        if (fieldIssues.length > 0) reasons.push({ category: '📋 Missing / Suspicious Prescription Fields', color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', items: fieldIssues });
-        if (patternIssues.length > 0) reasons.push({ category: '📊 Behavioral Pattern Flags (Anti-Abuse)', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', items: patternIssues });
+        if (visionIssues.length > 0) reasons.push({ category: 'Document Authenticity (AI Vision Analysis)', color: '#DC2626', bg: '#FEF2F2', border: '#FECACA', items: visionIssues });
+        if (fieldIssues.length > 0) reasons.push({ category: 'Missing / Suspicious Prescription Fields', color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', items: fieldIssues });
+        if (patternIssues.length > 0) reasons.push({ category: 'Behavioral Pattern Flags (Anti-Abuse)', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE', items: patternIssues });
 
         return reasons;
     };
@@ -794,7 +803,7 @@ const Orders = () => {
                                     fontWeight: (st === 'ViolatedPrescriptions' || st === 'ViolatedPatients') ? 800 : 600,
                                 }}
                             >
-                                {st === 'ALL' ? 'All Orders' : st === 'ViolatedPrescriptions' ? '⚠️ Violated Prescriptions Audit' : st === 'ViolatedPatients' ? '🚨 Violated Patients & Abuse Desk' : st}
+                                {st === 'ALL' ? 'All Orders' : st === 'ViolatedPrescriptions' ? 'Violated Prescriptions Audit' : st === 'ViolatedPatients' ? 'Violated Patients & Abuse Desk' : st}
                             </button>
                         ))}
                     </div>
@@ -1101,7 +1110,7 @@ const Orders = () => {
                                     Review Order #{selectedOrder.orderNumber}
                                 </h3>
                                 <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                                    🤖 Powered by Gemini 3.8 Flash (Agentic AI)
+                                    <Bot size={14} color="#059669" /> Powered by Gemini 3.8 Flash (Agentic AI)
                                 </div>
                             </div>
                             <button
@@ -1120,7 +1129,7 @@ const Orders = () => {
                             </p>
 
                             <div style={{ background: '#F1F5F9', padding: '10px 12px', borderRadius: '8px', fontSize: '12.5px', color: '#334155' }}>
-                                <div>Fulfillment: <strong>{selectedOrder.deliveryMethod === 'Pickup' ? '🏥 Counter Pickup (FREE)' : '🚚 Home Delivery (Delivery Charges < 500 - Pay on Delivery)'}</strong></div>
+                                <div>Fulfillment: <strong>{selectedOrder.deliveryMethod === 'Pickup' ? 'Counter Pickup (FREE)' : 'Home Delivery (Delivery Charges < 500 - Pay on Delivery)'}</strong></div>
                                 {selectedOrder.deliveryAddress && <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>Address: {selectedOrder.deliveryAddress}</div>}
                             </div>
 
@@ -1136,7 +1145,7 @@ const Orders = () => {
                                         onClick={() => setViewRxModal(selectedOrder.prescriptionImageUrl)}
                                     />
                                     <p style={{ fontSize: '11px', color: '#92400E', marginTop: '4px', textAlign: 'center', margin: '4px 0 0' }}>
-                                        🔍 Click image to view full screen
+                                        Click image to view full screen
                                     </p>
                                 </div>
                             )}
@@ -1155,7 +1164,8 @@ const Orders = () => {
                                     }}>
                                         <div style={{ fontWeight: 800, fontSize: '14px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span>⚠️ Agentic AI Safety &amp; Printed Rx Assessment</span>
+                                                <ShieldAlert size={16} color={isHighRisk ? "#DC2626" : "#D97706"} />
+                                                <span>Agentic AI Safety &amp; Printed Rx Assessment</span>
                                             </span>
                                             <span style={{
                                                 fontSize: '11px',
@@ -1172,7 +1182,7 @@ const Orders = () => {
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px', fontSize: '12px', background: 'rgba(255,255,255,0.7)', padding: '8px 10px', borderRadius: '6px' }}>
                                             <div>
                                                 <strong>Printed Rx Verification:</strong>
-                                                <div style={{ color: safety.handwritingStatus.includes('⚠️') || safety.handwritingStatus.includes('Non-Medical') ? '#DC2626' : '#059669', fontWeight: 700 }}>{safety.handwritingStatus}</div>
+                                                <div style={{ color: safety.handwritingStatus.includes('Non-Medical') ? '#DC2626' : '#059669', fontWeight: 700 }}>{safety.handwritingStatus}</div>
                                             </div>
                                             <div>
                                                 <strong>Duplication Check:</strong>
@@ -1236,7 +1246,7 @@ const Orders = () => {
                                                     color: '#FFFFFF',
                                                     fontWeight: 800
                                                 }}>
-                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? '🚫 ACCOUNT BLOCKED' : '✓ ACCOUNT ACTIVE'}
+                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
                                                 </span>
                                             </div>
 
@@ -1246,8 +1256,8 @@ const Orders = () => {
                                                 <div><strong>Violation Date:</strong> {new Date(selectedOrder.createdAt).toLocaleString()}</div>
                                                 <div><strong>Offending Order #:</strong> {selectedOrder.orderNumber}</div>
                                                 {safety.flags && safety.flags.length > 0 && (
-                                                    <div style={{ marginTop: '4px', color: '#B91C1C', fontWeight: 600, fontSize: '11px' }}>
-                                                        🤖 AI Flags: {safety.flags.filter(f => f.includes('⚠️')).length} violation signal(s) detected by Gemini 3.8 Flash vision analysis.
+                                                    <div style={{ marginTop: '4px', color: '#B91C1C', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <Bot size={14} color="#DC2626" /> AI Flags: {safety.flags.length} violation signal(s) detected by Gemini 3.8 Flash vision analysis.
                                                     </div>
                                                 )}
                                             </div>
@@ -1267,7 +1277,7 @@ const Orders = () => {
                                                 return (
                                                     <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '12px 14px' }}>
                                                         <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#0F172A', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                            🔍 Why AI Flagged This Prescription — Detailed Analysis
+                                                            <Search size={15} color="#0F172A" /> Why AI Flagged This Prescription — Detailed Analysis
                                                         </div>
                                                         {detailReasons.map((section, si) => (
                                                             <div key={si} style={{ marginBottom: si < detailReasons.length - 1 ? '10px' : 0 }}>
@@ -1280,17 +1290,20 @@ const Orders = () => {
                                                                     {section.category}
                                                                 </div>
                                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                                    {section.items.map((item, ii) => (
-                                                                        <div key={ii} style={{
-                                                                            display: 'flex', alignItems: 'flex-start', gap: '8px',
-                                                                            background: section.bg, border: `1px solid ${section.border}`,
-                                                                            borderRadius: '6px', padding: '6px 10px', fontSize: '11.5px',
-                                                                            color: '#1E293B', lineHeight: 1.5
-                                                                        }}>
-                                                                            <span style={{ fontSize: '14px', flexShrink: 0 }}>{item.icon}</span>
-                                                                            <span>{item.text}</span>
-                                                                        </div>
-                                                                    ))}
+                                                                    {section.items.map((item, ii) => {
+                                                                        const IconComp = item.IconComponent;
+                                                                        return (
+                                                                            <div key={ii} style={{
+                                                                                display: 'flex', alignItems: 'flex-start', gap: '8px',
+                                                                                background: section.bg, border: `1px solid ${section.border}`,
+                                                                                borderRadius: '6px', padding: '6px 10px', fontSize: '11.5px',
+                                                                                color: '#1E293B', lineHeight: 1.5
+                                                                            }}>
+                                                                                {IconComp && <IconComp size={15} style={{ flexShrink: 0, marginTop: '2px', color: section.color }} />}
+                                                                                <span>{item.text}</span>
+                                                                            </div>
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -1318,7 +1331,7 @@ const Orders = () => {
                                                                     rel="noreferrer"
                                                                     style={{ fontSize: '12px', fontWeight: 700, color: '#0284C7', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                                                 >
-                                                                    📎 View Attached Doctor Letter / Medical Note
+                                                                    <FileText size={14} /> View Attached Doctor Letter / Medical Note
                                                                 </a>
                                                             </div>
                                                         )}
@@ -1360,7 +1373,7 @@ const Orders = () => {
                                                         gap: '6px'
                                                     }}
                                                 >
-                                                    🔔 Send Warning Notification to User
+                                                    <Bell size={14} /> Send Warning Notification to User
                                                 </button>
                                                 <button
                                                     type="button"
@@ -1380,7 +1393,7 @@ const Orders = () => {
                                                     }}
                                                 >
                                                     <UserX size={14} />
-                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'Unblock User' : 'Block User 🚫'}
+                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'Unblock User' : 'Block User'}
                                                 </button>
                                             </div>
                                         </div>
@@ -1409,7 +1422,7 @@ const Orders = () => {
                                     }}
                                 />
                                 <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '4px' }}>
-                                    💡 Tip: Doctor dosage calculation. Delivery charges (&lt; Rs. 500) are paid directly to the courier upon delivery.
+                                    Tip: Doctor dosage calculation. Delivery charges (&lt; Rs. 500) are paid directly to the courier upon delivery.
                                 </div>
                             </div>
 
@@ -1454,9 +1467,9 @@ const Orders = () => {
                                         setSelectedOrder(null);
                                         navigate(`/pharmacy/staff/patient-analytics?email=${encodeURIComponent(email)}`);
                                     }}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#7C3AED' }}
+                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                                 >
-                                    📊 View Patient Analytics
+                                    <FileText size={16} /> View Patient Analytics
                                 </button>
                             </div>
                         </div>
