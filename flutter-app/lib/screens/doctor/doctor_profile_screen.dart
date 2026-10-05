@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../services/doctor_api_service.dart';
 import '../../utils/theme.dart';
 import 'patient_details_screen.dart';
@@ -24,17 +25,51 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
     _fetchSessions();
   }
 
+  bool _isSessionExpired(DoctorSession s) {
+    if (s.isExpired) return true;
+    if (s.sessionStatus.toLowerCase() == 'expired') return true;
+    try {
+      final dateParts = s.sessionDate.split('-');
+      if (dateParts.length == 3) {
+        final year = int.parse(dateParts[0]);
+        final month = int.parse(dateParts[1]);
+        final day = int.parse(dateParts[2]);
+        int hour = 23;
+        int minute = 59;
+        if (s.sessionTime.contains(':')) {
+          final timeParts = s.sessionTime.split(':');
+          hour = int.tryParse(timeParts[0]) ?? 23;
+          minute = int.tryParse(timeParts[1]) ?? 59;
+        }
+        final sessionTime = DateTime(year, month, day, hour, minute);
+        if (sessionTime.isBefore(DateTime.now())) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }
+
   Future<void> _fetchSessions() async {
     try {
       final list = await DoctorApiService.getDoctorSessions(widget.doctor.id);
       if (mounted) {
+        // Exclude all previously expired or past sessions from the booking interface
+        final upcomingSessions = list.where((s) => !_isSessionExpired(s)).toList();
         setState(() {
-          _sessions = list;
+          _sessions = upcomingSessions;
           _loadingSessions = false;
-          if (list.isNotEmpty) {
-            final dates = list.map((s) => s.sessionDate).toSet().toList();
+          if (upcomingSessions.isNotEmpty) {
+            final dates = upcomingSessions.map((s) => s.sessionDate).toSet().toList();
             if (dates.isNotEmpty) {
               _selectedDate = dates.first;
+              final firstDateSessions = _getFilteredSessionsForDate(_selectedDate);
+              if (firstDateSessions.isNotEmpty) {
+                _selectedSession = firstDateSessions.firstWhere(
+                  (s) => s.isAvailable && !_isSessionExpired(s) && s.slotsLeft > 0,
+                  orElse: () => firstDateSessions.first,
+                );
+              }
             }
           }
         });
@@ -44,216 +79,439 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
     }
   }
 
-  List<String> get _uniqueDates => _sessions.map((s) => s.sessionDate).toSet().toList();
+  List<String> get _uniqueDates => _sessions.where((s) => !_isSessionExpired(s)).map((s) => s.sessionDate).toSet().toList();
 
-  List<DoctorSession> get _sessionsForDate => _sessions.where((s) => s.sessionDate == _selectedDate).toList();
+  /// Specialty-correct visibility: Night option (19:30–21:30) is restricted to General Medicine
+  List<DoctorSession> _getFilteredSessionsForDate(String date) {
+    final isGeneralMedicine = widget.doctor.specialization.trim().toLowerCase() == 'general medicine';
+    return _sessions.where((s) {
+      if (s.sessionDate != date) return false;
+      if (_isSessionExpired(s)) return false;
+      if (s.sessionType.toLowerCase() == 'night' && !isGeneralMedicine) {
+        return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  void _onSelectSession(DoctorSession session) {
+    HapticFeedback.lightImpact();
+    setState(() => _selectedSession = session);
+  }
+
+  void _onSelectDate(String date) {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _selectedDate = date;
+      final dateSessions = _getFilteredSessionsForDate(date);
+      if (dateSessions.isNotEmpty) {
+        _selectedSession = dateSessions.firstWhere(
+          (s) => s.isAvailable && !_isSessionExpired(s) && s.slotsLeft > 0,
+          orElse: () => dateSessions.first,
+        );
+      } else {
+        _selectedSession = null;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final filteredSessions = _getFilteredSessionsForDate(_selectedDate);
+    final canProceed = _selectedSession != null &&
+        _selectedSession!.isAvailable &&
+        !_isSessionExpired(_selectedSession!) &&
+        _selectedSession!.slotsLeft > 0;
+
     return Scaffold(
       backgroundColor: kBg,
       appBar: AppBar(
         backgroundColor: kPrimaryDark,
         foregroundColor: Colors.white,
-        title: const Text('Doctor Profile & Sessions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        elevation: 0,
+        centerTitle: true,
+        title: const Text(
+          'Select Consultation Slot',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+        ),
       ),
-      bottomNavigationBar: _selectedSession != null
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, -2)),
-                ],
-              ),
-              child: SafeArea(
-                child: Row(
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: const Border(top: BorderSide(color: kBorder)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, -3),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '$_selectedDate • ${_selectedSession!.sessionType} Session (${_selectedSession!.timeRange})',
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kPrimaryDark),
-                          ),
-                          Text(
-                            'Fee: LKR ${widget.doctor.consultationFee.toStringAsFixed(0)} (+300 fee)',
-                            style: const TextStyle(fontSize: 11, color: kTextMuted),
-                          ),
-                        ],
+                    if (_selectedSession != null) ...[
+                      Text(
+                        '${_selectedSession!.sessionType} Session • $_selectedDate',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kPrimaryDark),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PatientDetailsScreen(
-                              doctor: widget.doctor,
-                              session: _selectedSession!,
-                              sessionDate: _selectedDate,
-                            ),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kPrimary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Fee: LKR ${(widget.doctor.consultationFee + 300).toStringAsFixed(0)} (incl. 300 fee)',
+                        style: const TextStyle(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w600),
                       ),
-                      child: const Row(
-                        children: [
-                          Text('Book Appointment', style: TextStyle(fontWeight: FontWeight.bold)),
-                          SizedBox(width: 6),
-                          Icon(Icons.arrow_forward, size: 16),
-                        ],
+                    ] else ...[
+                      const Text(
+                        'No Slot Selected',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.grey),
                       ),
-                    ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Select a date & session below',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
                   ],
                 ),
               ),
-            )
-          : null,
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: canProceed
+                      ? () {
+                          HapticFeedback.lightImpact();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PatientDetailsScreen(
+                                doctor: widget.doctor,
+                                session: _selectedSession!,
+                                sessionDate: _selectedDate,
+                              ),
+                            ),
+                          );
+                        }
+                      : null,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text('Continue', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimary,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    disabledForegroundColor: Colors.grey.shade600,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Doctor Profile Card
+            // ─── Doctor Profile Hero Card ────────────────────────────────────
             Container(
-              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: kBorder),
                 boxShadow: const [
-                  BoxShadow(color: Color(0x06000000), blurRadius: 6, offset: Offset(0, 2)),
+                  BoxShadow(color: Color(0x06004D40), blurRadius: 10, offset: Offset(0, 3)),
                 ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 32,
-                        backgroundColor: kPrimaryDark,
-                        child: Text(
-                          widget.doctor.fullName.replaceFirst('Dr. ', '').split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join(),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Doctor Initials Avatar
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: kPrimaryDark,
+                          child: Text(
+                            widget.doctor.fullName.replaceFirst('Dr. ', '').split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join(),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                          ),
                         ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Specialty Pill
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE0F2F1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  widget.doctor.specialization.toUpperCase(),
+                                  style: const TextStyle(
+                                    color: kPrimaryDark,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                widget.doctor.fullName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                  color: kPrimaryDark,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                widget.doctor.qualifications,
+                                style: const TextStyle(fontSize: 12, color: kTextMuted),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  const Icon(Icons.location_on_outlined, size: 13, color: kPrimary),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      widget.doctor.hospitalBranch,
+                                      style: const TextStyle(fontSize: 11, color: kPrimary, fontWeight: FontWeight.w600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Highlights Bar (Rating, Experience, Room)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF8FAFC),
+                      border: Border(
+                        top: BorderSide(color: Color(0xFFF1F5F9)),
+                        bottom: BorderSide(color: Color(0xFFF1F5F9)),
                       ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildHighlightItem(
+                          icon: Icons.star_rounded,
+                          iconColor: Colors.amber,
+                          title: '${widget.doctor.rating.toStringAsFixed(1)} Rating',
+                          subtitle: '${widget.doctor.reviewCount} reviews',
+                        ),
+                        Container(width: 1, height: 26, color: Colors.grey.shade300),
+                        _buildHighlightItem(
+                          icon: Icons.workspace_premium_rounded,
+                          iconColor: kPrimary,
+                          title: '${widget.doctor.experienceYears}+ Yrs',
+                          subtitle: 'Experience',
+                        ),
+                        Container(width: 1, height: 26, color: Colors.grey.shade300),
+                        _buildHighlightItem(
+                          icon: Icons.meeting_room_outlined,
+                          iconColor: const Color(0xFF0284C7),
+                          title: widget.doctor.roomNumber.isNotEmpty ? widget.doctor.roomNumber.split(',').first : 'OPD Room',
+                          subtitle: 'Consulting',
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Fee Banner
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          children: const [
                             Text(
-                              widget.doctor.fullName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: kText),
+                              'Specialist Fee',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kTextMuted),
                             ),
                             Text(
-                              '${widget.doctor.qualifications} • ${widget.doctor.experienceYears}+ Yrs',
-                              style: const TextStyle(fontSize: 12, color: kTextMuted),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              widget.doctor.hospitalBranch,
-                              style: const TextStyle(fontSize: 12, color: kPrimary, fontWeight: FontWeight.w600),
+                              'Standard OPD consultation',
+                              style: TextStyle(fontSize: 10, color: Colors.grey),
                             ),
                           ],
                         ),
-                      ),
-                    ],
+                        Text(
+                          'LKR ${widget.doctor.consultationFee.toStringAsFixed(0)}',
+                          style: const TextStyle(fontWeight: FontWeight.w900, color: kPrimaryDark, fontSize: 18),
+                        ),
+                      ],
+                    ),
                   ),
-                  if (widget.doctor.bio.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '"${widget.doctor.bio}"',
-                        style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Color(0xFF475569)),
+
+                  // Bio (if available)
+                  if (widget.doctor.bio.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 14),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Text(
+                          widget.doctor.bio,
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF475569), height: 1.4),
+                        ),
                       ),
                     ),
-                  ],
                 ],
               ),
             ),
-            const SizedBox(height: 20),
 
-            // Weekday Session Date Picker (Horizontal)
-            const Text(
-              'Available Sessions — Choose Date & Slot',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: kPrimaryDark),
+            const SizedBox(height: 22),
+
+            // ─── Date Selection Header ──────────────────────────────────────
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0F2F1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.calendar_month_rounded, size: 18, color: kPrimaryDark),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'Select Consultation Date',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: kPrimaryDark),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
 
+            // ─── Horizontal Date Carousel (Sized to prevent ANY overflow) ────
             if (_loadingSessions)
-              const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator()))
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(child: CircularProgressIndicator(color: kPrimary)),
+              )
             else if (_uniqueDates.isEmpty)
               Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
-                child: const Text('No active channeling slots scheduled this week for this consultant.'),
+                padding: const EdgeInsets.all(16),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: kBorder),
+                ),
+                child: const Center(
+                  child: Text('No upcoming scheduled sessions for this specialist.', style: TextStyle(color: kTextMuted, fontSize: 13)),
+                ),
               )
-            else ...[
-              // Date Chips
+            else
               SizedBox(
-                height: 72,
-                child: ListView.builder(
+                height: 88,
+                child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _uniqueDates.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
                   itemBuilder: (context, index) {
-                    final dateStr = _uniqueDates[index];
-                    final parsed = DateTime.tryParse(dateStr);
-                    final isSelected = _selectedDate == dateStr;
+                    final d = _uniqueDates[index];
+                    final isSelected = d == _selectedDate;
+                    final parsed = DateTime.tryParse(d) ?? DateTime.now();
+                    final weekday = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][parsed.weekday - 1];
+                    final dayNum = parsed.day;
+                    final month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][parsed.month - 1];
 
-                    final weekday = parsed != null ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][parsed.weekday - 1] : '';
-                    final dayNum = parsed?.day ?? 0;
-
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _selectedDate = dateStr;
-                          _selectedSession = null;
-                        });
-                      },
-                      child: Container(
-                        width: 70,
-                        margin: const EdgeInsets.only(right: 10),
+                    return InkWell(
+                      onTap: () => _onSelectDate(d),
+                      borderRadius: BorderRadius.circular(14),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 68,
+                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                         decoration: BoxDecoration(
-                          color: isSelected ? kPrimary : Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: isSelected ? kPrimary : kBorder),
+                          color: isSelected ? kPrimaryDark : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isSelected ? kPrimaryDark : kBorder,
+                            width: isSelected ? 2 : 1,
+                          ),
                           boxShadow: isSelected
-                              ? [BoxShadow(color: kPrimary.withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2))]
-                              : null,
+                              ? [
+                                  BoxShadow(
+                                    color: kPrimary.withValues(alpha: 0.28),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ]
+                              : const [
+                                  BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 1)),
+                                ],
                         ),
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
-                            Text(
-                              weekday.toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: isSelected ? Colors.white70 : Colors.grey,
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                weekday.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSelected ? Colors.white70 : Colors.grey.shade600,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$dayNum',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                                color: isSelected ? Colors.white : kText,
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '$dayNum',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w900,
+                                  color: isSelected ? Colors.white : kText,
+                                ),
+                              ),
+                            ),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                month.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected ? Colors.white70 : Colors.grey.shade500,
+                                ),
                               ),
                             ),
                           ],
@@ -263,172 +521,227 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                   },
                 ),
               ),
-              const SizedBox(height: 18),
 
-              // OPD Session Blocks
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Select OPD Session Block ($_selectedDate)',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kText),
-                  ),
-                  Text(
-                    '${_sessionsForDate.length} Session${_sessionsForDate.length > 1 ? 's' : ''}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kPrimary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
+            const SizedBox(height: 24),
 
-              if (_sessionsForDate.isEmpty)
+            // ─── Available Sessions Header ──────────────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE0F2F1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.access_time_filled_rounded, size: 18, color: kPrimaryDark),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Available OPD Sessions',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: kPrimaryDark),
+                    ),
+                  ],
+                ),
                 Container(
-                  padding: const EdgeInsets.all(20),
-                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: kBorder),
+                    color: const Color(0xFFDCFCE7),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Center(
-                    child: Text('No sessions available for the selected date.', style: TextStyle(color: kTextMuted, fontSize: 13)),
+                  child: Text(
+                    '${filteredSessions.length} Available',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF15803D)),
                   ),
-                )
-              else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _sessionsForDate.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final session = _sessionsForDate[index];
-                    final isSelected = _selectedSession?.id == session.id;
-                    final isExpired = session.isExpired;
-                    final available = session.isAvailable && !isExpired && session.slotsLeft > 0;
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
 
-                    final isMorning = session.sessionType.toLowerCase() == 'morning';
-                    final isEvening = session.sessionType.toLowerCase() == 'evening';
-                    final isNight = session.sessionType.toLowerCase() == 'night';
+            // ─── Sessions List ──────────────────────────────────────────────
+            if (filteredSessions.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(20),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: kBorder),
+                ),
+                child: Center(
+                  child: Column(
+                    children: const [
+                      Icon(Icons.event_busy, size: 36, color: Colors.grey),
+                      SizedBox(height: 8),
+                      Text('No sessions scheduled for this date.', style: TextStyle(color: kTextMuted, fontSize: 13)),
+                      Text('Please select an alternative date above.', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: filteredSessions.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final session = filteredSessions[index];
+                  final isSelected = _selectedSession?.id == session.id;
+                  final available = session.isAvailable && !_isSessionExpired(session) && session.slotsLeft > 0;
 
-                    final iconEmoji = isMorning ? '🌅' : isEvening ? '🌇' : '🌙';
-                    final sessionTitle = '${session.sessionType} Session';
-                    final timeDisplay = session.timeRange.isNotEmpty ? session.timeRange : session.timeFormatted;
+                  final isMorning = session.sessionType.toLowerCase() == 'morning';
+                  final isEvening = session.sessionType.toLowerCase() == 'evening';
+                  final iconEmoji = isMorning ? '🌅' : isEvening ? '🌇' : '🌙';
+                  final sessionTitle = '${session.sessionType} OPD Session';
+                  final timeDisplay = session.timeRange.isNotEmpty ? session.timeRange : session.timeFormatted;
 
-                    return Container(
+                  return InkWell(
+                    onTap: available ? () => _onSelectSession(session) : null,
+                    borderRadius: BorderRadius.circular(14),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? const Color(0xFFF0FDF4)
-                            : isExpired || !available
+                            : !available
                                 ? const Color(0xFFF8FAFC)
                                 : Colors.white,
                         border: Border.all(
                           color: isSelected
                               ? kPrimary
-                              : isExpired
-                                  ? const Color(0xFFFECDD3)
-                                  : kBorder,
+                              : kBorder,
                           width: isSelected ? 2 : 1,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         boxShadow: isSelected
-                            ? [BoxShadow(color: kPrimary.withValues(alpha: 0.15), blurRadius: 8, offset: const Offset(0, 2))]
-                            : [const BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 1))],
+                            ? [BoxShadow(color: kPrimary.withValues(alpha: 0.16), blurRadius: 8, offset: const Offset(0, 2))]
+                            : const [BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 1))],
                       ),
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          Row(
-                            children: [
-                              Text(iconEmoji, style: const TextStyle(fontSize: 22)),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      sessionTitle,
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                        color: isExpired || !available ? Colors.grey : kPrimaryDark,
-                                      ),
-                                    ),
-                                    Text(
-                                      timeDisplay,
-                                      style: const TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w600),
-                                    ),
-                                  ],
+                          // Emoji / Time of Day Indicator
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: isMorning
+                                  ? const Color(0xFFFEF3C7)
+                                  : isEvening
+                                      ? const Color(0xFFF3E8FF)
+                                      : const Color(0xFFE0E7FF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(iconEmoji, style: const TextStyle(fontSize: 22)),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // Session Details
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  sessionTitle,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: !available ? Colors.grey : kPrimaryDark,
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  timeDisplay,
+                                  style: const TextStyle(fontSize: 12, color: Color(0xFF475569), fontWeight: FontWeight.w600),
+                                ),
+                                if (widget.doctor.roomNumber.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.doctor.roomNumber,
+                                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+
+                          // Capacity & Status Pill
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: isExpired
-                                      ? const Color(0xFFFEE2E2)
-                                      : !available
-                                          ? const Color(0xFFF1F5F9)
-                                          : const Color(0xFFDCFCE7),
-                                  borderRadius: BorderRadius.circular(20),
+                                  color: !available
+                                      ? const Color(0xFFF1F5F9)
+                                      : const Color(0xFFDCFCE7),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
-                                  isExpired
-                                      ? 'Expired'
-                                      : !available
-                                          ? 'Full'
-                                          : '${session.slotsLeft} of ${session.maxCapacity} slots left',
+                                  !available
+                                      ? 'Full'
+                                      : '${session.slotsLeft} slots left',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
-                                    color: isExpired
-                                        ? const Color(0xFFB91C1C)
-                                        : !available
-                                            ? Colors.grey
-                                            : const Color(0xFF15803D),
+                                    color: !available
+                                        ? Colors.grey.shade600
+                                        : const Color(0xFF15803D),
                                   ),
                                 ),
                               ),
+                              const SizedBox(height: 6),
+                              // Radio selection mark
+                              Icon(
+                                isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+                                size: 20,
+                                color: isSelected ? kPrimary : Colors.grey.shade400,
+                              ),
                             ],
-                          ),
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: available
-                                  ? () {
-                                      setState(() => _selectedSession = session);
-                                    }
-                                  : null,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: isSelected ? kPrimaryDark : kPrimary,
-                                foregroundColor: Colors.white,
-                                disabledBackgroundColor: const Color(0xFFE2E8F0),
-                                disabledForegroundColor: const Color(0xFF94A3B8),
-                                padding: const EdgeInsets.symmetric(vertical: 10),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                elevation: isSelected ? 2 : 0,
-                              ),
-                              child: Text(
-                                isSelected
-                                    ? '✓ Selected ($sessionTitle)'
-                                    : available
-                                        ? 'Select $sessionTitle'
-                                        : isExpired
-                                            ? 'Session Expired'
-                                            : 'No Slots Left',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                              ),
-                            ),
                           ),
                         ],
                       ),
-                    );
-                  },
-                ),
-            ],
+                    ),
+                  );
+                },
+              ),
+
+            const SizedBox(height: 30),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHighlightItem({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: iconColor),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: kPrimaryDark),
+            ),
+            Text(
+              subtitle,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

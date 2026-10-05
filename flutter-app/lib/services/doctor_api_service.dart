@@ -317,9 +317,76 @@ class SpecialtyRecommendation {
   );
 }
 
+class DoctorRecommendationResult {
+  final String status;
+  final String? specialty;
+  final double? confidence;
+  final String? reason;
+  final List<String> followUpQuestions;
+  final String? safetyMessage;
+
+  DoctorRecommendationResult({
+    required this.status,
+    this.specialty,
+    this.confidence,
+    this.reason,
+    this.followUpQuestions = const [],
+    this.safetyMessage,
+  });
+
+  factory DoctorRecommendationResult.fromJson(Map<String, dynamic> json) => DoctorRecommendationResult(
+    status: json['status']?.toString() ?? 'SAFE_FAILURE',
+    specialty: json['specialty']?.toString(),
+    confidence: (json['confidence'] as num?)?.toDouble(),
+    reason: json['reason']?.toString(),
+    followUpQuestions: (json['followUpQuestions'] as List?)?.map((e) => e.toString()).toList() ?? [],
+    safetyMessage: json['safetyMessage']?.toString(),
+  );
+}
+
 // ─── API Service ─────────────────────────────────────────────────────────────
 
 class DoctorApiService {
+  static String? _resolvedHost;
+
+  static List<String> get _candidateHosts => [
+    ?_resolvedHost,
+    'http://10.183.84.217:5126',
+    ...ApiConfig.candidateHosts,
+    'http://10.0.2.2:5126',
+    'http://localhost:5126',
+  ];
+
+  static Future<http.Response> _getWithFallback(String pathAndQuery, {Map<String, String>? headers}) async {
+    for (final host in _candidateHosts) {
+      try {
+        final uri = Uri.parse('$host$pathAndQuery');
+        final res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 4));
+        if (res.statusCode >= 200 && res.statusCode < 500) {
+          _resolvedHost = host;
+          return res;
+        }
+      } catch (_) {}
+    }
+    final fallbackUri = Uri.parse('${ApiConfig.baseUrl}$pathAndQuery'.replaceAll('/api/api', '/api'));
+    return await http.get(fallbackUri, headers: headers);
+  }
+
+  static Future<http.Response> _postWithFallback(String pathAndQuery, {Map<String, String>? headers, Object? body}) async {
+    for (final host in _candidateHosts) {
+      try {
+        final uri = Uri.parse('$host$pathAndQuery');
+        final res = await http.post(uri, headers: headers, body: body).timeout(const Duration(seconds: 6));
+        if (res.statusCode >= 200 && res.statusCode < 500) {
+          _resolvedHost = host;
+          return res;
+        }
+      } catch (_) {}
+    }
+    final fallbackUri = Uri.parse('${ApiConfig.baseUrl}$pathAndQuery'.replaceAll('/api/api', '/api'));
+    return await http.post(fallbackUri, headers: headers, body: body);
+  }
+
   static Future<Map<String, String>> _getHeaders() async {
     final token = await AuthService.getToken();
     final headers = {'Content-Type': 'application/json'};
@@ -343,9 +410,9 @@ class DoctorApiService {
     if (date != null && date.isNotEmpty) query['date'] = date;
     if (sortBy != null) query['sortBy'] = sortBy;
 
-    final uri = Uri.parse(ApiConfig.doctorsUrl).replace(queryParameters: query);
+    final queryString = query.isNotEmpty ? '?${Uri(queryParameters: query).query}' : '';
     final headers = await _getHeaders();
-    final res = await http.get(uri, headers: headers);
+    final res = await _getWithFallback('/api/doctors$queryString', headers: headers);
 
     if (res.statusCode == 200) {
       final List data = jsonDecode(res.body);
@@ -355,9 +422,8 @@ class DoctorApiService {
   }
 
   static Future<List<SpecialtyCount>> getSpecialties() async {
-    final uri = Uri.parse('${ApiConfig.doctorsUrl}/specialties');
     final headers = await _getHeaders();
-    final res = await http.get(uri, headers: headers);
+    final res = await _getWithFallback('/api/doctors/specialties', headers: headers);
 
     if (res.statusCode == 200) {
       final List data = jsonDecode(res.body);
@@ -367,9 +433,8 @@ class DoctorApiService {
   }
 
   static Future<Doctor> getDoctorById(int id) async {
-    final uri = Uri.parse('${ApiConfig.doctorsUrl}/$id');
     final headers = await _getHeaders();
-    final res = await http.get(uri, headers: headers);
+    final res = await _getWithFallback('/api/doctors/$id', headers: headers);
 
     if (res.statusCode == 200) {
       return Doctor.fromJson(jsonDecode(res.body));
@@ -378,10 +443,9 @@ class DoctorApiService {
   }
 
   static Future<List<DoctorSession>> getDoctorSessions(int doctorId, {String? date}) async {
-    final query = date != null && date.isNotEmpty ? {'date': date} : null;
-    final uri = Uri.parse('${ApiConfig.doctorsUrl}/$doctorId/sessions').replace(queryParameters: query);
+    final queryString = date != null && date.isNotEmpty ? '?date=$date' : '';
     final headers = await _getHeaders();
-    final res = await http.get(uri, headers: headers);
+    final res = await _getWithFallback('/api/doctors/$doctorId/sessions$queryString', headers: headers);
 
     if (res.statusCode == 200) {
       final List data = jsonDecode(res.body);
@@ -390,28 +454,53 @@ class DoctorApiService {
     throw Exception('Failed to load doctor sessions');
   }
 
-  static Future<List<SpecialtyRecommendation>> recommendSpecialty(String symptoms) async {
-    final uri = Uri.parse('${ApiConfig.doctorsUrl}/recommend-specialty');
+  /// AI-powered doctor / specialty recommendation endpoint (POST /api/appointments/recommend-doctor)
+  static Future<DoctorRecommendationResult> recommendDoctor(String symptoms) async {
     final headers = await _getHeaders();
-    final res = await http.post(
-      uri,
-      headers: headers,
-      body: jsonEncode({'symptoms': symptoms}),
-    );
+    try {
+      final res = await _postWithFallback(
+        '/api/appointments/recommend-doctor',
+        headers: headers,
+        body: jsonEncode({'symptoms': symptoms}),
+      );
 
-    if (res.statusCode == 200) {
-      final Map<String, dynamic> data = jsonDecode(res.body);
-      final List recs = data['recommendations'] ?? [];
-      return recs.map((j) => SpecialtyRecommendation.fromJson(j as Map<String, dynamic>)).toList();
+      if (res.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(res.body);
+        return DoctorRecommendationResult.fromJson(data);
+      }
+      final error = jsonDecode(res.body);
+      return DoctorRecommendationResult(
+        status: 'SAFE_FAILURE',
+        reason: error['message'] ?? 'Unable to analyze symptoms at this moment.',
+      );
+    } catch (e) {
+      return DoctorRecommendationResult(
+        status: 'SAFE_FAILURE',
+        reason: 'Network error connecting to Clinical AI Assistant.',
+      );
+    }
+  }
+
+  /// Backward-compatible wrapper
+  static Future<List<SpecialtyRecommendation>> recommendSpecialty(String symptoms) async {
+    final result = await recommendDoctor(symptoms);
+    if (result.status == 'RECOMMENDATION_READY' && result.specialty != null) {
+      return [
+        SpecialtyRecommendation(
+          specialty: result.specialty!,
+          matchScore: result.confidence ?? 0.85,
+          reasoning: result.reason ?? '',
+          availableConsultants: 3,
+        ),
+      ];
     }
     return [];
   }
 
   static Future<DoctorAppointment> bookAppointment(Map<String, dynamic> bookingData) async {
-    final uri = Uri.parse('${ApiConfig.appointmentsUrl}/book');
     final headers = await _getHeaders();
-    final res = await http.post(
-      uri,
+    final res = await _postWithFallback(
+      '/api/doctorappointments/book',
       headers: headers,
       body: jsonEncode(bookingData),
     );
@@ -424,10 +513,9 @@ class DoctorApiService {
   }
 
   static Future<DoctorAppointment> payAppointment(int appointmentId, Map<String, dynamic> paymentData) async {
-    final uri = Uri.parse('${ApiConfig.appointmentsUrl}/$appointmentId/pay');
     final headers = await _getHeaders();
-    final res = await http.post(
-      uri,
+    final res = await _postWithFallback(
+      '/api/doctorappointments/$appointmentId/pay',
       headers: headers,
       body: jsonEncode(paymentData),
     );
@@ -444,10 +532,10 @@ class DoctorApiService {
     if (patientId != null && patientId > 0) query['patientId'] = patientId.toString();
     if (email != null && email.isNotEmpty) query['email'] = email;
     if (status != null && status != 'ALL') query['status'] = status;
+    final queryString = query.isNotEmpty ? '?${Uri(queryParameters: query).query}' : '';
 
-    final uri = Uri.parse('${ApiConfig.appointmentsUrl}/mine').replace(queryParameters: query);
     final headers = await _getHeaders();
-    final res = await http.get(uri, headers: headers);
+    final res = await _getWithFallback('/api/doctorappointments/mine$queryString', headers: headers);
 
     if (res.statusCode == 200) {
       final List data = jsonDecode(res.body);
@@ -457,17 +545,15 @@ class DoctorApiService {
   }
 
   static Future<bool> cancelAppointment(int appointmentId) async {
-    final uri = Uri.parse('${ApiConfig.appointmentsUrl}/$appointmentId/cancel');
     final headers = await _getHeaders();
-    final res = await http.post(uri, headers: headers);
+    final res = await _postWithFallback('/api/doctorappointments/$appointmentId/cancel', headers: headers);
     return res.statusCode == 200;
   }
 
   static Future<DoctorAppointment> rescheduleAppointment(int appointmentId, int newSessionId) async {
-    final uri = Uri.parse('${ApiConfig.appointmentsUrl}/$appointmentId/reschedule');
     final headers = await _getHeaders();
-    final res = await http.post(
-      uri,
+    final res = await _postWithFallback(
+      '/api/doctorappointments/$appointmentId/reschedule',
       headers: headers,
       body: jsonEncode({'newSessionId': newSessionId}),
     );

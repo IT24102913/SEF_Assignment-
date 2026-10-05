@@ -58,6 +58,7 @@ class ApiConfig {
       ];
     }
     return [
+      'http://10.183.84.217:5126',
       'http://localhost:5126',
       'http://10.0.2.2:5126',
       'http://127.0.0.1:5126',
@@ -77,7 +78,7 @@ class ApiConfig {
   static Future<String> getWorkingBaseUrl() async {
     for (final host in candidateHosts) {
       try {
-        final res = await http.get(Uri.parse('$host/api/Medicines')).timeout(const Duration(seconds: 4));
+        final res = await http.get(Uri.parse('$host/api/doctors')).timeout(const Duration(seconds: 3));
         if (res.statusCode == 200) {
           _activeHost = host;
           return '$host/api';

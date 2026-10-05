@@ -208,17 +208,32 @@ public static class DbInitializer
             });
         }
 
-        if (!await context.Users.AnyAsync(u => u.Email == "doctor@gmail.com"))
+        var doctorSeedList = new (string Name, string Email)[]
         {
-            context.Users.Add(new User
+            ("Dr. Anjali Perera", "doctor@gmail.com"),
+            ("Dr. M.T.D Lakshan", "lakshan.ent@healthbridge.com"),
+            ("Dr. Malya Gunasekara", "malya.physician@healthbridge.com"),
+            ("Dr. Pumsith Gunawardena", "pumsith.neuro@healthbridge.com"),
+            ("Dr. Rohan Wickramasinghe", "rohan.ortho@healthbridge.com"),
+            ("Dr. Malith Silva", "malith.paed@healthbridge.com"),
+            ("Dr. Nilmini Senanayake", "nilmini.gynae@healthbridge.com"),
+            ("Dr. Rashmi Fernando", "rashmi.derma@healthbridge.com")
+        };
+
+        foreach (var (docName, docEmail) in doctorSeedList)
+        {
+            if (!await context.Users.AnyAsync(u => u.Email == docEmail))
             {
-                FullName = "Demo Doctor",
-                Email = "doctor@gmail.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("doctor123"),
-                Role = UserRole.Doctor,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            });
+                context.Users.Add(new User
+                {
+                    FullName = docName,
+                    Email = docEmail,
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("doctor123"),
+                    Role = UserRole.Doctor,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
         }
 
         // 2. Seed Initial Pharmacist Account if none exists
@@ -647,6 +662,24 @@ public static class DbInitializer
             };
 
             context.Doctors.AddRange(doctors);
+            await context.SaveChangesAsync();
+        }
+
+        // Link doctor user accounts if not linked
+        var unlinkedDoctors = await context.Doctors.Where(d => d.UserId == null).ToListAsync();
+        if (unlinkedDoctors.Any())
+        {
+            var doctorUsers = await context.Users.Where(u => u.Role == UserRole.Doctor).ToListAsync();
+            foreach (var doc in unlinkedDoctors)
+            {
+                var matchedUser = doctorUsers.FirstOrDefault(u =>
+                    (!string.IsNullOrEmpty(doc.Email) && u.Email.ToLower() == doc.Email.ToLower()) ||
+                    u.FullName.ToLower() == doc.FullName.ToLower());
+                if (matchedUser != null)
+                {
+                    doc.UserId = matchedUser.Id;
+                }
+            }
             await context.SaveChangesAsync();
         }
 

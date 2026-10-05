@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { getDashboardPath } from '../../../utils/navigation';
+import { API_BASE_URL } from '../../../api/config';
 import {
   getDoctors, getDoctorQueue, updateAppointmentStatus,
   getDoctorSessions, getSessionQueue, callNextPatient
@@ -18,7 +20,6 @@ const DoctorDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const [allDoctors, setAllDoctors] = useState([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState(null);
   const [currentDoctor, setCurrentDoctor] = useState(null);
 
@@ -95,22 +96,41 @@ const DoctorDashboard = () => {
   const initDoctors = async () => {
     setLoading(true);
     try {
-      const res = await getDoctors();
-      if (Array.isArray(res.data) && res.data.length > 0) {
-        setAllDoctors(res.data);
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
 
-        // Match logged-in doctor by email or name, else default to first
-        const matched = res.data.find(d =>
-          (d.email && user?.email && d.email.toLowerCase() === user.email.toLowerCase()) ||
-          (user?.fullName && d.fullName.toLowerCase().includes(user.fullName.toLowerCase()))
-        ) || res.data[0];
+      // 1. Primary: fetch authenticated doctor record linked to the caller's JWT
+      const meRes = await axios.get(`${API_BASE_URL}/doctors/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
 
-        setSelectedDoctorId(matched.id);
-        setCurrentDoctor(matched);
+      if (meRes.data && meRes.data.id) {
+        setSelectedDoctorId(meRes.data.id);
+        setCurrentDoctor(meRes.data);
+        return;
       }
     } catch (err) {
-      console.error('Failed to load doctors list', err);
-      showToast('Error loading doctor profile', 'error');
+      console.warn('GET /api/doctors/me returned error or unlinked doctor, attempting fallback resolution:', err);
+      // Resilient fallback: match logged-in user against doctor records
+      try {
+        const res = await getDoctors();
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          const matched = res.data.find(d =>
+            (d.email && user?.email && d.email.toLowerCase() === user.email.toLowerCase()) ||
+            (user?.fullName && d.fullName.toLowerCase().includes(user.fullName.toLowerCase()))
+          );
+
+          if (matched) {
+            setSelectedDoctorId(matched.id);
+            setCurrentDoctor(matched);
+            return;
+          }
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback doctor resolution failed', fallbackErr);
+      }
+      showToast('Error loading your doctor profile', 'error');
     } finally {
       setLoading(false);
     }
@@ -166,12 +186,6 @@ const DoctorDashboard = () => {
     }
   };
 
-  const handleSelectDoctorChange = (e) => {
-    const docId = parseInt(e.target.value, 10);
-    setSelectedDoctorId(docId);
-    const doc = allDoctors.find(d => d.id === docId);
-    setCurrentDoctor(doc || null);
-  };
 
   const handleSelectSession = (sess) => {
     setActiveSessionId(sess.id);
@@ -395,30 +409,37 @@ const DoctorDashboard = () => {
         </Link>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          {/* Doctor Switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748B' }}>DOCTOR:</span>
-            <select
-              value={selectedDoctorId || ''}
-              onChange={handleSelectDoctorChange}
+          {/* Authenticated Doctor Badge (Read-only, no switcher) */}
+          {currentDoctor && (
+            <div
               style={{
-                padding: '6px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 14px',
                 borderRadius: '6px',
-                border: '1px solid #CBD5E1',
-                fontSize: '12px',
-                fontWeight: '700',
-                color: '#004D40',
                 backgroundColor: '#F0FDF4',
-                outline: 'none'
+                border: '1px solid #A7F3D0',
+                color: '#004D40',
+                fontSize: '12px',
+                fontWeight: '700'
               }}
+              title={`Logged in as ${currentDoctor.fullName}`}
             >
-              {allDoctors.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.fullName} ({d.specialization})
-                </option>
-              ))}
-            </select>
-          </div>
+              <UserCheck size={15} color="#059669" />
+              <span>{currentDoctor.fullName}</span>
+              <span style={{
+                fontSize: '10px',
+                backgroundColor: '#00796B',
+                color: '#FFFFFF',
+                padding: '1px 6px',
+                borderRadius: '4px',
+                fontWeight: '800'
+              }}>
+                {currentDoctor.specialization}
+              </span>
+            </div>
+          )}
 
           <button
             onClick={() => {
@@ -445,7 +466,7 @@ const DoctorDashboard = () => {
 
           {/* EMR Portal Button */}
           <button
-            onClick={() => navigate('/emr/staff')}
+            onClick={() => navigate('/emr/staff?role=Consultant')}
             title="Open EMR Consultant Workspace"
             style={{
               padding: '6px 14px',
