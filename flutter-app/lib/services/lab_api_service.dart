@@ -144,6 +144,18 @@ class LabApiService {
   // Bookings
   static Future<List<LabBooking>> getMyBookings(String patientId, {String? email}) async {
     final parsedId = int.tryParse(patientId) ?? 1;
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        var url = '$host/api/lab/bookings/my?patientId=$parsedId';
+        if (email != null && email.trim().isNotEmpty) {
+          url += '&email=${Uri.encodeComponent(email.trim())}';
+        }
+        final res = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          return (jsonDecode(res.body) as List).map((j) => LabBooking.fromJson(j)).toList();
+        }
+      } catch (_) {}
+    }
     var url = '$baseUrl/bookings/my?patientId=$parsedId';
     if (email != null && email.trim().isNotEmpty) {
       url += '&email=${Uri.encodeComponent(email.trim())}';
@@ -156,7 +168,15 @@ class LabApiService {
   }
 
   static Future<List<Map<String, dynamic>>> getSlots(String date) async {
-    final res = await _client.get(Uri.parse('$baseUrl/slots?date=$date'));
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.get(Uri.parse('$host/api/lab/slots?date=$date')).timeout(const Duration(seconds: 6));
+        if (res.statusCode == 200) {
+          return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+        }
+      } catch (_) {}
+    }
+    final res = await _client.get(Uri.parse('$baseUrl/slots?date=$date')).timeout(const Duration(seconds: 8));
     if (res.statusCode == 200) {
       return List<Map<String, dynamic>>.from(jsonDecode(res.body));
     }
@@ -171,18 +191,33 @@ class LabApiService {
     final formattedTime = timeSlot.length == 5 ? '$timeSlot:00' : timeSlot;
     final parsedPatientId = int.tryParse(patientId) ?? 1;
 
+    final payload = jsonEncode({
+      'labTestId': labTestId,
+      'patientId': parsedPatientId,
+      'patientName': patientName,
+      'patientEmail': patientEmail,
+      'bookingDate': bookingDate,
+      'timeSlot': formattedTime,
+    });
+
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.post(
+          Uri.parse('$host/api/lab/bookings'),
+          headers: _headers,
+          body: payload,
+        ).timeout(const Duration(seconds: 12));
+        if (res.statusCode == 200 || res.statusCode == 201) {
+          return LabBooking.fromJson(jsonDecode(res.body));
+        }
+      } catch (_) {}
+    }
+
     final res = await _client.post(
       Uri.parse('$baseUrl/bookings'),
       headers: _headers,
-      body: jsonEncode({
-        'labTestId': labTestId,
-        'patientId': parsedPatientId,
-        'patientName': patientName,
-        'patientEmail': patientEmail,
-        'bookingDate': bookingDate,
-        'timeSlot': formattedTime,
-      }),
-    );
+      body: payload,
+    ).timeout(const Duration(seconds: 15));
     if (res.statusCode == 200 || res.statusCode == 201) {
       return LabBooking.fromJson(jsonDecode(res.body));
     }
@@ -293,21 +328,36 @@ class LabApiService {
     required String cvv,
     String? patientEmail,
   }) async {
+    final payload = jsonEncode({
+      'module': 'Laboratory',
+      'referenceId': bookingId,
+      'amount': amount,
+      'currency': 'LKR',
+      'cardHolderName': cardHolderName,
+      'cardNumber': cardNumber,
+      'expiryDate': expiryDate,
+      'cvv': cvv,
+      'patientEmail': patientEmail,
+    });
+
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.post(
+          Uri.parse('$host/api/payments/checkout'),
+          headers: _headers,
+          body: payload,
+        ).timeout(const Duration(seconds: 15));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>;
+        }
+      } catch (_) {}
+    }
+
     final paymentsUrl = ApiConfig.paymentsUrl;
     final res = await _client.post(
       Uri.parse('$paymentsUrl/checkout'),
       headers: _headers,
-      body: jsonEncode({
-        'module': 'Laboratory',
-        'referenceId': bookingId,
-        'amount': amount,
-        'currency': 'LKR',
-        'cardHolderName': cardHolderName,
-        'cardNumber': cardNumber,
-        'expiryDate': expiryDate,
-        'cvv': cvv,
-        'patientEmail': patientEmail,
-      }),
+      body: payload,
     );
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
@@ -321,14 +371,29 @@ class LabApiService {
   }
 
   static Future<Map<String, dynamic>> selectPayAtCounter(String bookingId) async {
+    final payload = jsonEncode({
+      'module': 'Laboratory',
+      'referenceId': bookingId,
+    });
+
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.post(
+          Uri.parse('$host/api/payments/intent/counter'),
+          headers: _headers,
+          body: payload,
+        ).timeout(const Duration(seconds: 10));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>;
+        }
+      } catch (_) {}
+    }
+
     final paymentsUrl = ApiConfig.paymentsUrl;
     final res = await _client.post(
       Uri.parse('$paymentsUrl/intent/counter'),
       headers: _headers,
-      body: jsonEncode({
-        'module': 'Laboratory',
-        'referenceId': bookingId,
-      }),
+      body: payload,
     );
     if (res.statusCode == 200) {
       return jsonDecode(res.body) as Map<String, dynamic>;
@@ -337,6 +402,15 @@ class LabApiService {
   }
 
   static Future<Map<String, dynamic>> getPaymentReceipt(String bookingId) async {
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final res = await _client.get(Uri.parse('$host/api/payments/receipt/$bookingId')).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          return jsonDecode(res.body) as Map<String, dynamic>;
+        }
+      } catch (_) {}
+    }
+
     final paymentsUrl = ApiConfig.paymentsUrl;
     final res = await _client.get(Uri.parse('$paymentsUrl/receipt/$bookingId'));
     if (res.statusCode == 200) {
