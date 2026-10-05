@@ -453,7 +453,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         if (watermarks.Count > 0)
         {
             foreach (var wm in watermarks)
-                result.Flags.Add($"⚠️ Watermark detected: \"{wm}\"");
+                result.Flags.Add($"⚠️ Watermark/Stamp detected: \"{wm}\" — this prescription is marked as a SAMPLE, VOID, or training document and is NOT valid for dispensing.");
             result.Verdict = "has_concerns";
             result.Reasoning = "Watermark/overlay text detected on the prescription.";
         }
@@ -464,7 +464,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         if (annotationLabels.Count > 0)
         {
             foreach (var lbl in annotationLabels)
-                result.Flags.Add($"⚠️ Annotation label: \"{lbl}\"");
+                result.Flags.Add($"⚠️ Annotation error label found: \"{lbl}\" — label suggests this document was tampered with or annotated as an example/training file.");
             result.Verdict = "has_concerns";
             result.Reasoning = "Annotation error labels detected — likely a training/tampered document.";
         }
@@ -474,7 +474,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         // ─────────────────────────────────────────────────────────────
         if (showsUiChrome)
         {
-            result.Flags.Add("⚠️ UI chrome detected — looks like a screenshot, not a physical document.");
+            result.Flags.Add("⚠️ Screenshot detected — image shows browser/app window chrome (taskbar, tabs, UI buttons). This is a screenshot of software, not a photo of a real physical prescription paper.");
             result.Verdict = "not_a_prescription";
             result.Reasoning = "Image appears to be a screenshot of software, not a real prescription.";
         }
@@ -494,7 +494,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         // ─────────────────────────────────────────────────────────────
         if (renderingStyle == "flat_vector_graphic")
         {
-            result.Flags.Add("⚠️ Flat vector graphic — looks like a computer template, not a photographed document.");
+            result.Flags.Add("⚠️ Flat vector graphic rendering detected — prescription appears to be a computer-generated digital template with clean, uniform edges and no paper texture, shadows, or camera angle. Real prescriptions are photographed paper documents.");
             result.Verdict = "has_concerns";
             result.Reasoning = "Rendering style suggests a computer graphic, not a physical prescription.";
         }
@@ -504,7 +504,9 @@ REQUESTED ITEM: ""{requestedTestName}""";
         // ─────────────────────────────────────────────────────────────
         if (phoneFake)
         {
-            result.Flags.Add("⚠️ Phone number looks like a placeholder (e.g. 555-XXXX).");
+            var phoneVal = GetStringOrNull(extraction, "clinic_phone") ?? "unknown";
+            var phoneReason = GetString(extraction, "phone_reasoning");
+            result.Flags.Add($"⚠️ Fake/placeholder phone number detected: \"{phoneVal}\" — {(string.IsNullOrWhiteSpace(phoneReason) ? "number matches known placeholder patterns (e.g. 555-XXXX, 000-0000, 123-4567)" : phoneReason)}.");
             if (result.Verdict == "looks_valid")
                 result.Verdict = "has_concerns";
         }
@@ -514,7 +516,9 @@ REQUESTED ITEM: ""{requestedTestName}""";
         // ─────────────────────────────────────────────────────────────
         if (emailInvalid && !string.IsNullOrWhiteSpace(GetStringOrNull(extraction, "clinic_email")))
         {
-            result.Flags.Add("⚠️ Email domain looks invalid or garbled.");
+            var emailVal = GetStringOrNull(extraction, "clinic_email") ?? "unknown";
+            var emailReason = GetString(extraction, "email_reasoning");
+            result.Flags.Add($"⚠️ Invalid clinic email domain: \"{emailVal}\" — {(string.IsNullOrWhiteSpace(emailReason) ? "email domain appears garbled or nonsensical, suggesting dummy/generated data" : emailReason)}.");
             if (result.Verdict == "looks_valid")
                 result.Verdict = "has_concerns";
         }
@@ -528,14 +532,14 @@ REQUESTED ITEM: ""{requestedTestName}""";
 
         if (noDoctor && noClinic && !hasSignature && !hasStamp)
         {
-            result.Flags.Add("⚠️ No doctor name, clinic name, signature, or stamp — handwritten on plain paper.");
+            result.Flags.Add("⚠️ Missing all authentication markers: no doctor name, no clinic name, no signature, and no stamp/seal found. A legally valid prescription must have at least a doctor name and signature.");
             result.Verdict = "has_concerns";
             result.Reasoning = "Prescription lacks any identifying physician information or authentication marks.";
         }
         // Missing doctor name alone (but has signature/stamp) → needs review
         else if (noDoctor && noClinic && (hasSignature || hasStamp))
         {
-            result.Flags.Add("ℹ️ No doctor/clinic name visible, but signature/stamp present — manual review recommended.");
+            result.Flags.Add("ℹ️ Doctor name and clinic name are not clearly visible, though a signature or stamp is present. Manual review by pharmacist is recommended.");
             if (result.Verdict == "looks_valid")
                 result.Verdict = "unclear";
         }
@@ -550,7 +554,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
             if (monthsOld > OldPrescriptionThresholdMonths)
             {
                 result.Flags.Add(
-                    $"ℹ️ Prescription is {(int)monthsOld} months old (threshold: {OldPrescriptionThresholdMonths} months).");
+                    $"ℹ️ Prescription date is {(int)monthsOld} months old (written: {dateWritten}, threshold: {OldPrescriptionThresholdMonths} months). Prescriptions expire after {OldPrescriptionThresholdMonths} months and cannot be used for dispensing.");
                 if (result.Verdict == "looks_valid")
                     result.Verdict = "unclear";
             }

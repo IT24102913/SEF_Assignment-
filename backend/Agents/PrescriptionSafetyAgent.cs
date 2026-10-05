@@ -240,7 +240,7 @@ public class PrescriptionSafetyAgent
                 (nowUtc - o.CreatedAt).TotalDays <= 7 && o.Status != "Cancelled"
             ).ToList();
 
-            if (past7DaysOrders.Count >= 2)
+            if (past7DaysOrders.Count >= 3)
             {
                 safetyFlags.Add($"⚠️ High Velocity Order History: Patient placed {past7DaysOrders.Count + 1} orders within 7 days");
                 riskScore += 35;
@@ -257,7 +257,7 @@ public class PrescriptionSafetyAgent
                         o.Items != null && o.Items.Any(pi => pi.MedicineName?.Trim().ToLowerInvariant() == medName)
                     ).ToList();
 
-                    if (repeatOrdersThisWeek.Count >= 1)
+                    if (repeatOrdersThisWeek.Count >= 2)
                     {
                         safetyFlags.Add($"⚠️ Repeat Medication Purchase: Patient ordered \"{item.MedicineName}\" {repeatOrdersThisWeek.Count + 1} times within 7 days");
                         riskScore += 30;
@@ -305,8 +305,10 @@ public class PrescriptionSafetyAgent
                 }
             }
 
+            // Only count orders with explicit AI safety flags (>= 70 risk score).
+            // Cancelled orders are NOT suspicious — patients cancel for legitimate reasons.
             int previousFlaggedCount = patientHistory.Count(o => o.SafetyRiskScore.HasValue && o.SafetyRiskScore.Value >= 70);
-            if (previousFlaggedCount > 0)
+            if (previousFlaggedCount > 1)
             {
                 safetyFlags.Add($"⚠️ {previousFlaggedCount} previous suspicious attempt(s) detected in patient history");
                 riskScore += 25;
