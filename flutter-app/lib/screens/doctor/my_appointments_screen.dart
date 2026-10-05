@@ -84,7 +84,7 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
       context: context,
       builder: (ctx) => AlertDialog(
         title: Center(
-          child: Text('Check-in QR (Queue #${apt.queueNumber.toString().padLeft(2, '0')})',
+          child: Text('Check-in QR (Token: ${apt.queueLabel ?? '#${apt.queueNumber.toString().padLeft(2, '0')}'})',
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         ),
         content: Column(
@@ -120,6 +120,20 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
 
   List<DoctorAppointment> get _cancelledAppointments =>
       _appointments.where((a) => a.status == 'Cancelled' || a.status == 'NoShow').toList();
+
+
+  String _formatExpectedTime(String? timeStr) {
+    if (timeStr == null || timeStr.isEmpty) return 'shortly';
+    try {
+      final dt = DateTime.parse(timeStr).toLocal();
+      final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+      final period = dt.hour >= 12 ? 'PM' : 'AM';
+      final minute = dt.minute.toString().padLeft(2, '0');
+      return '$hour:$minute $period';
+    } catch (_) {
+      return timeStr;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +278,7 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
                         ),
                     ],
                   ),
-                  Text('Queue #${apt.queueNumber.toString().padLeft(2, '0')}',
+                  Text(apt.queueLabel ?? 'Token #${apt.queueNumber.toString().padLeft(2, '0')}',
                       style: const TextStyle(fontWeight: FontWeight.w900, color: kPrimaryDark, fontSize: 13)),
                 ],
               ),
@@ -281,6 +295,98 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
                 apt.hospitalBranch,
                 style: const TextStyle(fontSize: 11, color: Colors.grey),
               ),
+
+              if (apt.isToday) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF86EFAC), width: 1.5),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Dr. ${apt.doctorName} · Room ${apt.roomNumber ?? "Consultation Suite"}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF065F46),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: apt.sessionStatus == 'Active'
+                                  ? Colors.green.shade100
+                                  : apt.sessionStatus == 'Delayed'
+                                      ? Colors.amber.shade100
+                                      : Colors.blue.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              apt.sessionStatus ?? 'Scheduled',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: apt.sessionStatus == 'Active'
+                                    ? Colors.green.shade900
+                                    : apt.sessionStatus == 'Delayed'
+                                        ? Colors.amber.shade900
+                                        : Colors.blue.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Your token: ${apt.queueLabel ?? "Token #${apt.queueNumber.toString().padLeft(2, '0')}"}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF047857)),
+                          ),
+                          Text(
+                            'Currently serving: ${apt.currentlyServingLabel ?? "Not started"}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF00796B)),
+                          ),
+                        ],
+                      ),
+                      if (apt.sessionStatus == 'Delayed') ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFFCD34D)),
+                          ),
+                          child: Text(
+                            'Delayed — new estimated start ${_formatExpectedTime(apt.expectedStartTime)}${apt.delayReason != null ? " (${apt.delayReason})" : ""}',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                          ),
+                        ),
+                      ],
+                      if (apt.estimatedConsultationTime != null && apt.estimatedConsultationTime!.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Estimated consultation time: ${apt.estimatedConsultationTime} (approximate)',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF065F46)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               const Divider(height: 1),
               const SizedBox(height: 8),

@@ -15,6 +15,7 @@ public interface IAppointmentService
     Task<List<AppointmentDto>> GetMyAppointmentsAsync(int? patientId, string? patientEmail, string? status);
     Task<List<AppointmentDto>> GetAllAppointmentsAsync(string? search, string? status, int? doctorId);
     Task<AppointmentDto> UpdateStatusAsync(int appointmentId, string status, string? notes);
+    Task<AppointmentDto> ForceStatusAsync(int appointmentId, string status, string reason);
     Task<DoctorStatsDto> GetStatsAsync();
     Task<bool> DeleteAppointmentAsync(int appointmentId);
     // Phase 2 Workflow Operations

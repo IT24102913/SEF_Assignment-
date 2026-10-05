@@ -1,4 +1,5 @@
 using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
 using Microsoft.EntityFrameworkCore;
 
 namespace HealthBridge.Api.Data;
@@ -33,6 +34,7 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationToken\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationTokenExpiresAt\" timestamp with time zone;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"NicNumber\" text;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"DoctorAppointments\" ADD COLUMN IF NOT EXISTS \"ReadyAlertSentAt\" timestamp with time zone;");
             await context.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"IsEmailVerified\" = true;");
             await context.Database.ExecuteSqlRawAsync(@"
                 CREATE TABLE IF NOT EXISTS ""RecommendationWorkflows"" (
@@ -460,19 +462,17 @@ public static class DbInitializer
             }
         }
 
-        // 7. Seed Doctors and Sessions if none exist
+        // 7. Seed Doctors if none exist
         var demoDoctorUser = await context.Users.FirstOrDefaultAsync(u => u.Email == "doctor@gmail.com");
 
-        if (!await context.DoctorSessions.AnyAsync())
+        if (await context.Doctors.CountAsync() <= 4 && !await context.DoctorAppointments.AnyAsync())
         {
-            if (await context.Doctors.CountAsync() <= 4 && !await context.DoctorAppointments.AnyAsync())
-            {
-                context.Doctors.RemoveRange(await context.Doctors.ToListAsync());
-                await context.SaveChangesAsync();
-            }
+            context.Doctors.RemoveRange(await context.Doctors.ToListAsync());
+            await context.SaveChangesAsync();
+        }
 
-            if (!await context.Doctors.AnyAsync())
-            {
+        if (!await context.Doctors.AnyAsync())
+        {
                 var doctors = new List<Doctor>
                 {
                 new Doctor
@@ -649,9 +649,61 @@ public static class DbInitializer
             context.Doctors.AddRange(doctors);
             await context.SaveChangesAsync();
         }
-    }
 
-        // 8. Seed Doctor Schedules (Weekly Recurring Templates) for all active doctors
+        // 8. Seed Doctor Sessions (Real OPD Clinic Blocks: Morning, Evening, Night)
+        // Date range: from today for the next 14 days
+        if (!await context.DoctorSessions.AnyAsync())
+        {
+            var allDoctors = await context.Doctors.ToListAsync();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var sessionsToSeed = new List<DoctorSession>();
+
+            foreach (var doc in allDoctors)
+            {
+                var spec = (doc.Specialization ?? string.Empty).ToLower();
+                bool isGenMed = spec.Contains("general") || spec.Contains("physician");
+
+                // General Medicine gets Morning, Evening, Night. All others get Morning, Evening.
+                var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>
+                {
+                    (SessionType.Morning, new TimeOnly(8, 30), 25),
+                    (SessionType.Evening, new TimeOnly(16, 30), 25)
+                };
+
+                if (isGenMed)
+                {
+                    sessionConfigs.Add((SessionType.Night, new TimeOnly(20, 0), 15));
+                }
+
+                for (int i = 0; i < 14; i++)
+                {
+                    var sessionDate = today.AddDays(i);
+
+                    foreach (var cfg in sessionConfigs)
+                    {
+                        sessionsToSeed.Add(new DoctorSession
+                        {
+                            DoctorId = doc.Id,
+                            SessionDate = sessionDate,
+                            SessionTime = cfg.Time,
+                            SessionType = cfg.Type,
+                            MaxCapacity = cfg.Capacity,
+                            CurrentBookings = 0,
+                            IsActive = true,
+                            SessionStatus = SessionStatus.Scheduled
+                        });
+                    }
+                }
+            }
+
+            if (sessionsToSeed.Any())
+            {
+                context.DoctorSessions.AddRange(sessionsToSeed);
+                await context.SaveChangesAsync();
+            }
+        }
+
+        // 9. Seed Doctor Schedules (Weekly Recurring Templates) for all active doctors
         if (!await context.DoctorSchedules.AnyAsync())
         {
             var allDoctors = await context.Doctors.ToListAsync();
