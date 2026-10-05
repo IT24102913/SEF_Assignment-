@@ -143,24 +143,25 @@ class LabApiService {
 
   // Bookings
   static Future<List<LabBooking>> getMyBookings(String patientId, {String? email}) async {
-    final parsedId = int.tryParse(patientId) ?? 1;
+    final parsedId = int.tryParse(patientId);
+    final hasValidId = parsedId != null && parsedId > 0;
+    final trimmedEmail = email?.trim() ?? '';
+    final hasEmail = trimmedEmail.isNotEmpty;
+
+    final params = <String>[];
+    if (hasValidId) params.add('patientId=$parsedId');
+    if (hasEmail) params.add('email=${Uri.encodeComponent(trimmedEmail)}');
+    final queryStr = params.isNotEmpty ? '?${params.join('&')}' : '';
+
     for (final host in ApiConfig.candidateHosts) {
       try {
-        var url = '$host/api/lab/bookings/my?patientId=$parsedId';
-        if (email != null && email.trim().isNotEmpty) {
-          url += '&email=${Uri.encodeComponent(email.trim())}';
-        }
-        final res = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
+        final res = await _client.get(Uri.parse('$host/api/lab/bookings/my$queryStr')).timeout(const Duration(seconds: 10));
         if (res.statusCode == 200) {
           return (jsonDecode(res.body) as List).map((j) => LabBooking.fromJson(j)).toList();
         }
       } catch (_) {}
     }
-    var url = '$baseUrl/bookings/my?patientId=$parsedId';
-    if (email != null && email.trim().isNotEmpty) {
-      url += '&email=${Uri.encodeComponent(email.trim())}';
-    }
-    final res = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+    final res = await _client.get(Uri.parse('$baseUrl/bookings/my$queryStr')).timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) {
       return (jsonDecode(res.body) as List).map((j) => LabBooking.fromJson(j)).toList();
     }
