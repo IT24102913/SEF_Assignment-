@@ -312,15 +312,24 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
 
           // Queue Badge
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFFE0F2F1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF80CBC4)),
             ),
             child: Column(
               children: [
-                const Text('ASSIGNED QUEUE NUMBER', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kPrimaryDark)),
-                Text('Queue #${apt.queueNumber.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: kPrimaryDark)),
+                const Text('SESSION CONSULTATION TOKEN', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: kPrimaryDark, letterSpacing: 0.5)),
+                const SizedBox(height: 4),
+                Text(
+                  apt.queueLabel ?? 'Token #${apt.queueNumber.toString().padLeft(2, '0')}',
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: kPrimaryDark),
+                ),
+                Text(
+                  '${apt.doctorName} — ${apt.sessionType ?? 'OPD'} Session',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: kPrimaryDark),
+                ),
               ],
             ),
           ),
@@ -332,16 +341,39 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _detailRow('Doctor', '${apt.doctorName} (${apt.specialization})'),
-                _detailRow('Date & Time', '${apt.appointmentDate} at ${apt.timeSlot}'),
+                _detailRow('Session & Time', '${apt.sessionType != null ? '${apt.sessionType} Session • ' : ''}${apt.timeSlot} on ${apt.appointmentDate}'),
+                _detailRow('Session Token', apt.queueLabel ?? '#${apt.queueNumber}'),
                 _detailRow('Hospital', apt.hospitalBranch),
                 _detailRow('Patient', '${apt.patientName} (${apt.patientNic})'),
                 _detailRow('Status', apt.bookingType == 'Reservation' || apt.status == 'Reserved' ? 'Reserved (Pay at Desk)' : 'Paid Online'),
                 _detailRow('Amount', 'LKR ${apt.totalAmount.toStringAsFixed(0)}'),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: Color(0xFF92400E)),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Please arrive at the hospital channeling reception by the session start time. Consultations are conducted sequentially by token number.',
+                          style: TextStyle(fontSize: 11, color: Color(0xFF92400E), fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),

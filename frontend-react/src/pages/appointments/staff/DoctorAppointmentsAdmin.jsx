@@ -4,7 +4,8 @@ import { useAuth } from '../../../context/AuthContext';
 import { getDashboardPath } from '../../../utils/navigation';
 import {
   getAllAppointments, updateAppointmentStatus, deleteAppointment, getAppointmentStats,
-  checkInAppointment, lookupAppointmentByQr, searchAppointmentsForDesk, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession
+  checkInAppointment, lookupAppointmentByQr, searchAppointmentsForDesk, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession,
+  forceStatusAppointment
 } from '../../../api/doctorApi';
 import logoImage from '../../../assets/mediz.png';
 import {
@@ -12,7 +13,7 @@ import {
   CheckCircle2, XCircle, AlertCircle, RefreshCw, QrCode,
   Filter, ArrowLeft, Trash2, Phone, Mail, X, Activity, DollarSign,
   Play, AlertTriangle, UserCheck, ShieldAlert, ChevronDown, ChevronUp,
-  CalendarDays
+  CalendarDays, MoreHorizontal
 } from 'lucide-react';
 
 const DoctorAppointmentsAdmin = () => {
@@ -27,6 +28,20 @@ const DoctorAppointmentsAdmin = () => {
   const [selectedQrApt, setSelectedQrApt] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  // Force Status Modal State
+  const [forceStatusModalApt, setForceStatusModalApt] = useState(null);
+  const [forceStatusTarget, setForceStatusTarget] = useState('Confirmed');
+  const [forceStatusReason, setForceStatusReason] = useState('');
+  const [forceStatusError, setForceStatusError] = useState('');
+  const [forceStatusLoading, setForceStatusLoading] = useState(false);
+
+  // Overflow Actions & Delete Modal State
+  const [openOverflowRowId, setOpenOverflowRowId] = useState(null);
+  const [deleteModalApt, setDeleteModalApt] = useState(null);
+
+  // Duplicate Bookings Highlighting / Filter State
+  const [duplicateFilterKey, setDuplicateFilterKey] = useState(null);
 
   // Desk Check-In State
   const [deskMode, setDeskMode] = useState('scan'); // 'scan' | 'manual'
@@ -284,6 +299,105 @@ const DoctorAppointmentsAdmin = () => {
     }
   };
 
+  // Duplicate active bookings computation
+  const getDuplicateKey = (a) => {
+    if (!a) return '';
+    const patientKey = (a.patientNic?.trim().toLowerCase() || a.patientPhone?.trim() || a.patientName?.trim().toLowerCase() || '');
+    return `${a.doctorId}_${a.appointmentDate}_${patientKey}`;
+  };
+
+  const duplicateMap = React.useMemo(() => {
+    const map = new Map();
+    appointments.forEach(a => {
+      if (a.status === 'Cancelled') return;
+      const key = getDuplicateKey(a);
+      if (!key) return;
+      map.set(key, (map.get(key) || 0) + 1);
+    });
+    return map;
+  }, [appointments]);
+
+  const handleFindInCheckIn = (apt) => {
+    // Switch Section 2 to manual search and pre-fill with appointment reference
+    setDeskMode('manual');
+    setDeskManualQuery(apt.appointmentNumber);
+
+    setIsSearchingManual(true);
+    searchAppointmentsForDesk(apt.appointmentNumber)
+      .then(res => {
+        if (Array.isArray(res.data)) {
+          setManualSearchResults(res.data);
+        }
+      })
+      .catch(err => {
+        console.error('Manual desk search prefill failed', err);
+      })
+      .finally(() => {
+        setIsSearchingManual(false);
+      });
+
+    // Smooth scroll to Section 2 (Check-in desk) without mutating appointment state
+    const el = document.getElementById('channeling-desk-checkin-station');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 220, behavior: 'smooth' });
+    }
+
+    showToast(`Focused in Check-In Desk for ${apt.patientName}`, 'success');
+  };
+
+  const handleStatusChange = async (id, status, notes = '') => {
+    setActionLoading(true);
+    try {
+      await updateAppointmentStatus(id, status, notes);
+      showToast(`Appointment status updated to ${status}`, 'success');
+      fetchData();
+    } catch (err) {
+      const msg = err.response?.data?.message || `Failed to update status to ${status}`;
+      showToast(msg, 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApplyForceStatus = async () => {
+    if (!forceStatusReason.trim()) {
+      setForceStatusError('A valid reason is strictly required to force appointment status.');
+      return;
+    }
+    setForceStatusLoading(true);
+    setForceStatusError('');
+    try {
+      await forceStatusAppointment(forceStatusModalApt.id, forceStatusTarget, forceStatusReason.trim());
+      showToast(`Status updated to ${forceStatusTarget} with audit reason`, 'success');
+      setForceStatusModalApt(null);
+      setForceStatusReason('');
+      fetchData();
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to force status';
+      setForceStatusError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setForceStatusLoading(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModalApt) return;
+    setActionLoading(true);
+    try {
+      await deleteAppointment(deleteModalApt.id);
+      showToast(`Appointment ${deleteModalApt.appointmentNumber} deleted`, 'success');
+      setDeleteModalApt(null);
+      fetchData();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to delete appointment', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#F4F7F6', display: 'flex', flexDirection: 'column', fontFamily: 'inherit' }}>
       {/* Toast Notification */}
@@ -438,7 +552,7 @@ const DoctorAppointmentsAdmin = () => {
         )}
 
         {/* ─── Channeling Desk Patient Verification & Check-In Station ─── */}
-        <div style={{
+        <div id="channeling-desk-checkin-station" style={{
           backgroundColor: '#FFFFFF',
           borderRadius: '12px',
           padding: '20px 24px',
@@ -640,7 +754,7 @@ const DoctorAppointmentsAdmin = () => {
                         <span style={{ fontWeight: '800', color: '#1E293B', fontSize: '12px' }}>{m.patientName}</span>
                         <span style={{ fontSize: '11px', color: '#64748B', marginLeft: '6px' }}>(NIC: {m.maskedNic || m.patientNic || 'N/A'})</span>
                         <div style={{ fontSize: '11px', color: '#475569' }}>
-                          Ref: <strong>{m.appointmentNumber}</strong> • Dr. {m.doctorName} ({m.specialization}) • {m.appointmentDate} • Queue #{String(m.queueNumber).padStart(2, '0')}
+                          Ref: <strong>{m.appointmentNumber}</strong> • Dr. {m.doctorName} ({m.specialization}) • {m.appointmentDate} • Token: <strong>{m.queueLabel || `#${String(m.queueNumber).padStart(2, '0')}`}</strong>
                         </div>
                       </div>
                       <button
@@ -843,9 +957,9 @@ const DoctorAppointmentsAdmin = () => {
                   </div>
 
                   <div>
-                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Assigned Queue</div>
+                    <div style={{ fontSize: '11px', color: '#64748B', fontWeight: '700', textTransform: 'uppercase' }}>Session Token</div>
                     <div style={{ fontSize: '18px', fontWeight: '900', color: '#00796B' }}>
-                      Queue #{String(previewApt.queueNumber).padStart(2, '0')}
+                      {previewApt.queueLabel || `Token #${String(previewApt.queueNumber).padStart(2, '0')}`}
                     </div>
                     <div style={{ fontSize: '11px', color: '#64748B' }}>
                       Status: <strong style={{ color: '#0F766E' }}>{previewApt.status}</strong>
@@ -1215,7 +1329,9 @@ const DoctorAppointmentsAdmin = () => {
                     return (
                       <div key={session.id} style={{ border: isInProgress ? '2px solid #10B981' : isDelayed ? '1.5px solid #F59E0B' : '1px solid #E2E8F0', borderRadius: '10px', padding: '14px 16px', backgroundColor: isInProgress ? '#F0FDF4' : '#F8FAFC' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>TODAY • {session.timeFormatted}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B' }}>
+                            TODAY • {session.sessionType ? `${session.sessionType === 'Morning' ? '🌅 Morning' : session.sessionType === 'Evening' ? '🌇 Evening' : '🌙 Night'} Session` : ''} ({session.timeRange || session.timeFormatted})
+                          </div>
                           <span style={{ backgroundColor: statusBadgeBg, color: statusBadgeColor, fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '10px' }}>{session.sessionStatus}</span>
                         </div>
                         <div style={{ fontSize: '11px', color: '#64748B', marginBottom: '8px' }}>
@@ -1294,7 +1410,9 @@ const DoctorAppointmentsAdmin = () => {
                                 return (
                                   <div key={session.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: isInProgress ? '#F0FDF4' : isDelayed ? '#FFFBEB' : '#F8FAFC', border: isInProgress ? '1.5px solid #10B981' : isDelayed ? '1px solid #FCD34D' : '1px solid #E2E8F0', flexWrap: 'wrap', gap: '10px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B', minWidth: '72px' }}>└─► {session.timeFormatted}</span>
+                                      <span style={{ fontSize: '13px', fontWeight: '800', color: '#1E293B', minWidth: '72px' }}>
+                                        └─► {session.sessionType ? `${session.sessionType === 'Morning' ? '🌅 Morning' : session.sessionType === 'Evening' ? '🌇 Evening' : '🌙 Night'} Session • ` : ''}{session.timeRange || session.timeFormatted}
+                                      </span>
                                       <span style={{ backgroundColor: statusBadgeBg, color: statusBadgeColor, fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '8px' }}>{session.sessionStatus}</span>
                                       <span style={{ fontSize: '11px', color: '#64748B' }}>
                                         <strong>{session.currentBookings || 0}/{session.maxPatients || session.maxCapacity || 15}</strong> Booked • Room: <strong>{session.roomNumber || selectedDoctor?.roomNumber || 'Suite 201'}</strong>
@@ -1329,22 +1447,46 @@ const DoctorAppointmentsAdmin = () => {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '800', color: '#004D40' }}>Master Channeling Appointments</h3>
-                <p style={{ margin: 0, fontSize: '11px', color: '#64748B' }}>Live view of all patient bookings for check-in and queue management</p>
+                <p style={{ margin: 0, fontSize: '11px', color: '#64748B' }}>Search and manage all patient bookings across sessions • Manual refresh</p>
               </div>
-              {/* Search */}
-              <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ position: 'relative' }}>
-                  <Search size={15} color="#90A4AE" style={{ position: 'absolute', left: '10px', top: '9px' }} />
-                  <input
-                    type="text"
-                    placeholder="Search patient, NIC, ref..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    style={{ padding: '8px 12px 8px 32px', border: '1.5px solid #CBD5E1', borderRadius: '8px', fontSize: '12px', width: '220px', outline: 'none', boxSizing: 'border-box' }}
-                  />
-                </div>
-                <button type="submit" style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Search</button>
-              </form>
+              {/* Search & Manual Refresh */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={15} color="#90A4AE" style={{ position: 'absolute', left: '10px', top: '9px' }} />
+                    <input
+                      type="text"
+                      placeholder="Search patient, NIC, ref..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      style={{ padding: '8px 12px 8px 32px', border: '1.5px solid #CBD5E1', borderRadius: '8px', fontSize: '12px', width: '220px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <button type="submit" style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}>Search</button>
+                </form>
+                <button
+                  type="button"
+                  onClick={fetchData}
+                  disabled={loading}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    border: '1.5px solid #CBD5E1',
+                    backgroundColor: '#FFFFFF',
+                    color: '#00796B',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Manually reload table data"
+                >
+                  <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+              </div>
             </div>
 
             {/* Date Range Toggle */}
@@ -1384,6 +1526,45 @@ const DoctorAppointmentsAdmin = () => {
                 );
               })}
             </div>
+
+            {/* Active Duplicate Filter Banner */}
+            {duplicateFilterKey && (
+              <div style={{
+                marginTop: '12px',
+                backgroundColor: '#FEF3C7',
+                border: '1px solid #F59E0B',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#92400E' }}>
+                  <AlertTriangle size={16} color="#D97706" />
+                  <span>
+                    <strong>Duplicate Bookings Filter Active:</strong> Showing active bookings for this patient &amp; doctor on this date.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDuplicateFilterKey(null)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: '1px solid #D97706',
+                    backgroundColor: '#FFFFFF',
+                    color: '#92400E',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Clear Filter ✕
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Scrollable Table Body */}
@@ -1427,6 +1608,36 @@ const DoctorAppointmentsAdmin = () => {
                     filtered = filtered.filter(a => a.status === 'Completed' || a.queueStatus === 'Completed');
                   }
 
+                  // Duplicate bookings filter
+                  if (duplicateFilterKey) {
+                    filtered = filtered.filter(a => a.status !== 'Cancelled' && getDuplicateKey(a) === duplicateFilterKey);
+                  }
+
+                  // Deterministic chronological sort:
+                  // Primary key: session date + time ascending
+                  // Secondary key: queue number within the same session
+                  filtered = [...filtered].sort((a, b) => {
+                    const dateComp = (a.appointmentDate || '').localeCompare(b.appointmentDate || '');
+                    if (dateComp !== 0) return dateComp;
+
+                    const parseTime = (t) => {
+                      if (!t) return 0;
+                      const match = t.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+                      if (!match) return 0;
+                      let hours = parseInt(match[1], 10);
+                      const mins = parseInt(match[2], 10);
+                      const ampm = match[3]?.toUpperCase();
+                      if (ampm === 'PM' && hours < 12) hours += 12;
+                      if (ampm === 'AM' && hours === 12) hours = 0;
+                      return hours * 60 + mins;
+                    };
+
+                    const timeComp = parseTime(a.timeSlot) - parseTime(b.timeSlot);
+                    if (timeComp !== 0) return timeComp;
+
+                    return (a.queueNumber || 0) - (b.queueNumber || 0);
+                  });
+
                   if (loading) return (
                     <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#78909C' }}><RefreshCw size={22} className="animate-spin" style={{ margin: '0 auto 8px auto' }} /><br />Loading operations queue...</td></tr>
                   );
@@ -1449,10 +1660,15 @@ const DoctorAppointmentsAdmin = () => {
                     const queueBg = apt.queueStatus === 'InConsultation' ? '#FEF08A' : apt.queueStatus === 'Waiting' ? '#E0F2FE' : apt.queueStatus === 'Completed' ? '#DCFCE7' : '#F1F5F9';
                     const queueColor = apt.queueStatus === 'InConsultation' ? '#854D0E' : apt.queueStatus === 'Waiting' ? '#0369A1' : apt.queueStatus === 'Completed' ? '#166534' : '#64748B';
 
+                    const dupCount = duplicateMap.get(getDuplicateKey(apt)) || 0;
+                    const isFilteredDup = duplicateFilterKey === getDuplicateKey(apt);
+
                     return (
                       <tr key={apt.id} style={{ borderBottom: '1px solid #F1F5F9', backgroundColor: isInProgress ? '#FEFCE8' : isCheckedIn ? '#F0FDFA' : '#FFFFFF' }}>
                         <td style={{ padding: '11px 14px' }}>
-                          <span style={{ backgroundColor: '#E0F2F1', color: '#004D40', padding: '3px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '12px' }}>#{String(apt.queueNumber).padStart(2, '0')}</span>
+                          <span style={{ backgroundColor: '#E0F2F1', color: '#004D40', padding: '3px 8px', borderRadius: '6px', fontWeight: '800', fontSize: '12px' }}>
+                            {apt.queueLabel || `#${String(apt.queueNumber).padStart(2, '0')}`}
+                          </span>
                         </td>
                         <td style={{ padding: '11px 14px' }}>
                           <div style={{ fontWeight: '700', color: '#1E293B', fontSize: '12px' }}>{apt.appointmentNumber}</div>
@@ -1465,6 +1681,36 @@ const DoctorAppointmentsAdmin = () => {
                         <td style={{ padding: '11px 14px' }}>
                           <div style={{ fontWeight: '700', color: '#1E293B', fontSize: '12px' }}>{apt.patientName}</div>
                           <div style={{ fontSize: '11px', color: '#64748B' }}>NIC: {apt.patientNic} | {apt.patientPhone}</div>
+                          {dupCount > 1 && apt.status !== 'Cancelled' && (
+                            <button
+                              type="button"
+                              onClick={() => setDuplicateFilterKey(isFilteredDup ? null : getDuplicateKey(apt))}
+                              title="Click to filter to this patient's duplicate bookings with this doctor today"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                marginTop: '4px',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                backgroundColor: isFilteredDup ? '#D97706' : '#FEF3C7',
+                                border: '1px solid #F59E0B',
+                                color: isFilteredDup ? '#FFFFFF' : '#92400E',
+                                fontSize: '10px',
+                                fontWeight: '800',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <AlertTriangle size={11} />
+                              <span>{dupCount} active bookings today</span>
+                            </button>
+                          )}
+                          {apt.statusChangeReason && (
+                            <div style={{ fontSize: '10px', color: '#64748B', fontStyle: 'italic', marginTop: '3px' }} title={`Status Override Reason: ${apt.statusChangeReason}`}>
+                              Override: "{apt.statusChangeReason.length > 28 ? apt.statusChangeReason.slice(0, 28) + '...' : apt.statusChangeReason}"
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '11px 14px' }}>
                           <div style={{ fontWeight: '700', color: '#004D40', fontSize: '12px' }}>LKR {apt.totalAmount?.toLocaleString()}</div>
@@ -1483,20 +1729,196 @@ const DoctorAppointmentsAdmin = () => {
                         </td>
                         <td style={{ padding: '11px 14px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end', alignItems: 'center' }}>
-                            {(!apt.checkedInAt || apt.arrivalStatus === 'Pending') && !isCompleted && !isCancelled && (
-                              <button onClick={() => { setPreviewApt(apt); window.scrollTo({ top: 220, behavior: 'smooth' }); }} disabled={actionLoading}
-                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #00796B', backgroundColor: '#E0F2F1', color: '#004D40', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <UserCheck size={12} /> Check-In
+                            {/* 1. [ QR ] */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedQrApt(apt)}
+                              title="Verify QR"
+                              style={{
+                                padding: '5px 7px',
+                                borderRadius: '5px',
+                                border: '1px solid #CFD8DC',
+                                backgroundColor: '#FFFFFF',
+                                cursor: 'pointer',
+                                color: '#00796B',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              <QrCode size={13} />
+                            </button>
+
+                            {/* 2. [ Find in Check-In ] */}
+                            <button
+                              type="button"
+                              onClick={() => handleFindInCheckIn(apt)}
+                              title="Find and preview at Check-In Desk"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '5px',
+                                border: '1px solid #00796B',
+                                backgroundColor: '#E0F2F1',
+                                color: '#004D40',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              <Search size={12} /> Find in Check-In
+                            </button>
+
+                            {/* 3. [ No-Show (gated) ] */}
+                            {(() => {
+                              const isTerminal = apt.status === 'Completed' || apt.status === 'Cancelled' || apt.status === 'NoShow' || apt.queueStatus === 'Completed' || apt.queueStatus === 'NoShow';
+                              if (isTerminal) return null;
+
+                              const isCalled = apt.queueStatus === 'Called';
+                              const isSessionPassed = (apt.doctorSession?.currentlyServingQueueNumber && apt.doctorSession.currentlyServingQueueNumber > apt.queueNumber) || apt.doctorSession?.sessionStatus === 'Completed';
+                              const canMarkNoShow = isCalled || isSessionPassed;
+
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => canMarkNoShow && handleStatusChange(apt.id, 'NoShow')}
+                                  disabled={!canMarkNoShow || actionLoading}
+                                  title={canMarkNoShow ? 'Mark appointment as No-Show' : 'Available once patient has been called'}
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '5px',
+                                    border: canMarkNoShow ? '1px solid #FCA5A5' : '1px solid #E2E8F0',
+                                    backgroundColor: canMarkNoShow ? '#FEF2F2' : '#F8FAFC',
+                                    color: canMarkNoShow ? '#B91C1C' : '#94A3B8',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    cursor: canMarkNoShow && !actionLoading ? 'pointer' : 'not-allowed',
+                                    opacity: canMarkNoShow ? 1 : 0.65,
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  No-Show
+                                </button>
+                              );
+                            })()}
+
+                            {/* 4. [ Force Status ] */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setForceStatusModalApt(apt);
+                                setForceStatusTarget(apt.status || 'Confirmed');
+                                setForceStatusReason('');
+                                setForceStatusError('');
+                              }}
+                              title="Administrative Status Override"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '5px',
+                                border: '1px solid #B2DFDB',
+                                backgroundColor: '#FFFFFF',
+                                color: '#004D40',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              <ShieldAlert size={12} color="#00796B" /> Force Status
+                            </button>
+
+                            {/* 5. [ ⋯ → Delete (confirm required) ] */}
+                            <div style={{ position: 'relative' }}>
+                              <button
+                                type="button"
+                                onClick={() => setOpenOverflowRowId(openOverflowRowId === apt.id ? null : apt.id)}
+                                style={{
+                                  padding: '4px 7px',
+                                  borderRadius: '5px',
+                                  border: '1px solid #CBD5E1',
+                                  backgroundColor: openOverflowRowId === apt.id ? '#F1F5F9' : '#FFFFFF',
+                                  cursor: 'pointer',
+                                  color: '#475569',
+                                  fontSize: '13px',
+                                  fontWeight: '900',
+                                  lineHeight: '1'
+                                }}
+                                title="More actions"
+                              >
+                                ⋯
                               </button>
-                            )}
-                            <button onClick={() => setSelectedQrApt(apt)} title="Verify QR" style={{ padding: '5px', borderRadius: '4px', border: '1px solid #CFD8DC', backgroundColor: '#FFFFFF', cursor: 'pointer', color: '#00796B' }}><QrCode size={13} /></button>
-                            {isInProgress && (
-                              <button onClick={() => handleStatusChange(apt.id, 'Completed')} disabled={actionLoading} style={{ padding: '4px 8px', borderRadius: '4px', border: 'none', backgroundColor: '#15803D', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>Complete</button>
-                            )}
-                            {!isCompleted && !isCancelled && (
-                              <button onClick={() => handleStatusChange(apt.id, 'NoShow')} disabled={actionLoading} style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer' }}>No-Show</button>
-                            )}
-                            <button onClick={() => handleDelete(apt.id)} disabled={actionLoading} title="Delete" style={{ padding: '4px', borderRadius: '4px', border: 'none', backgroundColor: '#FEE2E2', color: '#DC2626', cursor: 'pointer' }}><Trash2 size={13} /></button>
+
+                              {openOverflowRowId === apt.id && (
+                                <div style={{
+                                  position: 'absolute',
+                                  right: 0,
+                                  top: '100%',
+                                  marginTop: '4px',
+                                  backgroundColor: '#FFFFFF',
+                                  borderRadius: '8px',
+                                  border: '1px solid #E2E8F0',
+                                  boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+                                  zIndex: 50,
+                                  minWidth: '150px',
+                                  overflow: 'hidden'
+                                }}>
+                                  {isInProgress && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenOverflowRowId(null);
+                                        handleStatusChange(apt.id, 'Completed');
+                                      }}
+                                      style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        border: 'none',
+                                        background: 'none',
+                                        textAlign: 'left',
+                                        fontSize: '12px',
+                                        fontWeight: '600',
+                                        color: '#15803D',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                      }}
+                                    >
+                                      <CheckCircle2 size={13} /> Complete
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenOverflowRowId(null);
+                                      setDeleteModalApt(apt);
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                      padding: '8px 12px',
+                                      border: 'none',
+                                      background: 'none',
+                                      textAlign: 'left',
+                                      fontSize: '12px',
+                                      fontWeight: '600',
+                                      color: '#DC2626',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px'
+                                    }}
+                                  >
+                                    <Trash2 size={13} /> Delete Record
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -1551,7 +1973,7 @@ const DoctorAppointmentsAdmin = () => {
               Channeling Desk QR Verify
             </h3>
             <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#78909C' }}>
-              Ref: {selectedQrApt.appointmentNumber} • Queue #{String(selectedQrApt.queueNumber).padStart(2, '0')}
+              Ref: {selectedQrApt.appointmentNumber} • Token: <strong>{selectedQrApt.queueLabel || `#${String(selectedQrApt.queueNumber).padStart(2, '0')}`}</strong>
             </p>
 
             <div style={{
@@ -1761,6 +2183,250 @@ const DoctorAppointmentsAdmin = () => {
                 style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: '#DC2626', color: '#FFFFFF', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Confirm Cancel Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Force Status Override Modal */}
+      {forceStatusModalApt && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            padding: '26px',
+            maxWidth: '460px',
+            width: '100%',
+            position: 'relative',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+          }}>
+            <button
+              type="button"
+              onClick={() => setForceStatusModalApt(null)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <X size={20} color="#78909C" />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#00796B', marginBottom: '8px' }}>
+              <ShieldAlert size={22} color="#00796B" />
+              <h3 style={{ margin: 0, fontSize: '17px', fontWeight: '800' }}>
+                Force Status Override
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#64748B', lineHeight: '1.5' }}>
+              Administratively override appointment status. Bypasses standard transition rules, but <strong>requires an audit reason</strong>.
+            </p>
+
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '10px', padding: '12px 14px', marginBottom: '16px', border: '1px solid #E2E8F0', fontSize: '12px' }}>
+              <div><strong>Ref:</strong> {forceStatusModalApt.appointmentNumber}</div>
+              <div><strong>Patient:</strong> {forceStatusModalApt.patientName} (NIC: {forceStatusModalApt.patientNic || 'N/A'})</div>
+              <div><strong>Doctor:</strong> {forceStatusModalApt.doctorName}</div>
+              <div><strong>Current Status:</strong> <span style={{ fontWeight: '700', color: '#00796B' }}>{forceStatusModalApt.status}</span> (Queue: {forceStatusModalApt.queueStatus})</div>
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                TARGET STATUS *
+              </label>
+              <select
+                value={forceStatusTarget}
+                onChange={(e) => setForceStatusTarget(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  borderRadius: '8px',
+                  border: '1.5px solid #CBD5E1',
+                  fontSize: '13px',
+                  outline: 'none',
+                  backgroundColor: '#FFFFFF',
+                  color: '#1E293B',
+                  fontWeight: '600'
+                }}
+              >
+                <option value="Confirmed">Confirmed</option>
+                <option value="InProgress">InProgress (In Consultation)</option>
+                <option value="Completed">Completed</option>
+                <option value="NoShow">NoShow</option>
+                <option value="Cancelled">Cancelled</option>
+                <option value="Reserved">Reserved</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                OVERRIDE REASON (MANDATORY AUDIT TRAIL) *
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Specify administrative reason (e.g. Doctor requested urgent consultation override / System payment discrepancy verified / Patient arrived late by arrangement)..."
+                value={forceStatusReason}
+                onChange={(e) => {
+                  setForceStatusReason(e.target.value);
+                  if (forceStatusError) setForceStatusError('');
+                }}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  border: forceStatusError ? '1.5px solid #DC2626' : '1.5px solid #CBD5E1',
+                  borderRadius: '8px',
+                  fontSize: '12.5px',
+                  boxSizing: 'border-box',
+                  outline: 'none'
+                }}
+              />
+              {forceStatusError && (
+                <div style={{ color: '#DC2626', fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                  ⚠ {forceStatusError}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setForceStatusModalApt(null)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '7px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#64748B',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyForceStatus}
+                disabled={forceStatusLoading || !forceStatusReason.trim()}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  backgroundColor: !forceStatusReason.trim() ? '#94A3B8' : '#00796B',
+                  color: '#FFFFFF',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: !forceStatusReason.trim() || forceStatusLoading ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {forceStatusLoading ? <RefreshCw size={13} className="animate-spin" /> : <ShieldAlert size={14} />}
+                Apply Force Status
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Delete Confirmation Modal */}
+      {deleteModalApt && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.55)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '420px',
+            width: '100%',
+            position: 'relative',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.2)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#DC2626', marginBottom: '8px' }}>
+              <Trash2 size={22} />
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>
+                Confirm Permanent Deletion
+              </h3>
+            </div>
+            <p style={{ margin: '0 0 16px 0', fontSize: '12.5px', color: '#64748B', lineHeight: '1.5' }}>
+              Are you sure you want to permanently delete appointment <strong>{deleteModalApt.appointmentNumber}</strong> for patient <strong>{deleteModalApt.patientName}</strong>?
+            </p>
+            <div style={{
+              backgroundColor: '#FEF2F2',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              border: '1px solid #FCA5A5',
+              color: '#991B1B',
+              fontSize: '11.5px',
+              marginBottom: '18px'
+            }}>
+              ⚠ <strong>Permanent Action:</strong> This hard-deletes the appointment record from the database and restores session capacity if applicable. This cannot be undone.
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setDeleteModalApt(null)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '7px',
+                  border: '1px solid #CBD5E1',
+                  backgroundColor: '#FFFFFF',
+                  color: '#64748B',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={actionLoading}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '7px',
+                  border: 'none',
+                  backgroundColor: '#DC2626',
+                  color: '#FFFFFF',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: actionLoading ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {actionLoading ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Permanently Delete
               </button>
             </div>
           </div>

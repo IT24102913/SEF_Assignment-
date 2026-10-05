@@ -67,15 +67,15 @@ public class EmailSender : IEmailSender
 
         var smtpUser = !string.IsNullOrWhiteSpace(_smtpSettings.SmtpUser)
             ? _smtpSettings.SmtpUser
-            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpUser") ?? _config["SmtpSettings:SmtpUser"] ?? "teeranya123danansuriya@gmail.com");
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpUser") ?? _config["SmtpSettings:SmtpUser"] ?? string.Empty);
 
         var smtpPass = !string.IsNullOrWhiteSpace(_smtpSettings.SmtpPass)
             ? _smtpSettings.SmtpPass
-            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpPass") ?? _config["SmtpSettings:SmtpPass"] ?? "rvci rqxr toba cxgg");
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SmtpPass") ?? _config["SmtpSettings:SmtpPass"] ?? string.Empty);
 
         var senderEmail = !string.IsNullOrWhiteSpace(_smtpSettings.SenderEmail)
             ? _smtpSettings.SenderEmail
-            : (Environment.GetEnvironmentVariable("SmtpSettings__SenderEmail") ?? _config["SmtpSettings:SenderEmail"] ?? "teeranya123danansuriya@gmail.com");
+            : (Environment.GetEnvironmentVariable("SmtpSettings__SenderEmail") ?? _config["SmtpSettings:SenderEmail"] ?? string.Empty);
 
         var senderName = !string.IsNullOrWhiteSpace(_smtpSettings.SenderName)
             ? _smtpSettings.SenderName

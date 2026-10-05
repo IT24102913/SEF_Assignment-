@@ -75,7 +75,7 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '$_selectedDate • ${_selectedSession!.timeFormatted}',
+                            '$_selectedDate • ${_selectedSession!.sessionType} Session (${_selectedSession!.timeRange})',
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kPrimaryDark),
                           ),
                           Text(
@@ -265,90 +265,166 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
               ),
               const SizedBox(height: 18),
 
-              // Time Slots Grid
-              Text(
-                'Select Time Slot ($_selectedDate)',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: kText),
+              // OPD Session Blocks
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Select OPD Session Block ($_selectedDate)',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kText),
+                  ),
+                  Text(
+                    '${_sessionsForDate.length} Session${_sessionsForDate.length > 1 ? 's' : ''}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: kPrimary),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
 
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  childAspectRatio: 2.2,
-                ),
-                itemCount: _sessionsForDate.length,
-                itemBuilder: (context, index) {
-                  final session = _sessionsForDate[index];
-                  final isSelected = _selectedSession?.id == session.id;
-                  final isExpired = session.isExpired;
-                  final available = session.isAvailable && !isExpired;
+              if (_sessionsForDate.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: kBorder),
+                  ),
+                  child: const Center(
+                    child: Text('No sessions available for the selected date.', style: TextStyle(color: kTextMuted, fontSize: 13)),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _sessionsForDate.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final session = _sessionsForDate[index];
+                    final isSelected = _selectedSession?.id == session.id;
+                    final isExpired = session.isExpired;
+                    final available = session.isAvailable && !isExpired && session.slotsLeft > 0;
 
-                  return InkWell(
-                    onTap: available
-                        ? () {
-                            setState(() => _selectedSession = session);
-                          }
-                        : null,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
+                    final isMorning = session.sessionType.toLowerCase() == 'morning';
+                    final isEvening = session.sessionType.toLowerCase() == 'evening';
+                    final isNight = session.sessionType.toLowerCase() == 'night';
+
+                    final iconEmoji = isMorning ? '🌅' : isEvening ? '🌇' : '🌙';
+                    final sessionTitle = '${session.sessionType} Session';
+                    final timeDisplay = session.timeRange.isNotEmpty ? session.timeRange : session.timeFormatted;
+
+                    return Container(
                       decoration: BoxDecoration(
-                        color: isExpired
-                            ? const Color(0xFFFFF1F2)
-                            : !available
-                                ? const Color(0xFFF1F5F9)
-                                : isSelected
-                                    ? const Color(0xFFE0F2F1)
-                                    : Colors.white,
+                        color: isSelected
+                            ? const Color(0xFFF0FDF4)
+                            : isExpired || !available
+                                ? const Color(0xFFF8FAFC)
+                                : Colors.white,
                         border: Border.all(
                           color: isSelected
                               ? kPrimary
                               : isExpired
                                   ? const Color(0xFFFECDD3)
-                                  : available
-                                      ? kBorder
-                                      : const Color(0xFFE2E8F0),
+                                  : kBorder,
                           width: isSelected ? 2 : 1,
                         ),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: isSelected
+                            ? [BoxShadow(color: kPrimary.withValues(alpha: 0.15), blurRadius: 8, offset: const Offset(0, 2))]
+                            : [const BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 1))],
                       ),
+                      padding: const EdgeInsets.all(16),
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            session.timeFormatted,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: isExpired
-                                  ? const Color(0xFFE11D48)
-                                  : !available
-                                      ? Colors.grey
-                                      : kPrimaryDark,
-                            ),
+                          Row(
+                            children: [
+                              Text(iconEmoji, style: const TextStyle(fontSize: 22)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      sessionTitle,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color: isExpired || !available ? Colors.grey : kPrimaryDark,
+                                      ),
+                                    ),
+                                    Text(
+                                      timeDisplay,
+                                      style: const TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isExpired
+                                      ? const Color(0xFFFEE2E2)
+                                      : !available
+                                          ? const Color(0xFFF1F5F9)
+                                          : const Color(0xFFDCFCE7),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  isExpired
+                                      ? 'Expired'
+                                      : !available
+                                          ? 'Full'
+                                          : '${session.slotsLeft} of ${session.maxCapacity} slots left',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isExpired
+                                        ? const Color(0xFFB91C1C)
+                                        : !available
+                                            ? Colors.grey
+                                            : const Color(0xFF15803D),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            isExpired
-                                ? 'Expired'
-                                : (available ? 'Available' : 'Booked'),
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: isExpired
-                                  ? const Color(0xFFBE123C)
-                                  : (available ? kPrimary : Colors.grey),
-                              fontWeight: FontWeight.w600,
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: available
+                                  ? () {
+                                      setState(() => _selectedSession = session);
+                                    }
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isSelected ? kPrimaryDark : kPrimary,
+                                foregroundColor: Colors.white,
+                                disabledBackgroundColor: const Color(0xFFE2E8F0),
+                                disabledForegroundColor: const Color(0xFF94A3B8),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                elevation: isSelected ? 2 : 0,
+                              ),
+                              child: Text(
+                                isSelected
+                                    ? '✓ Selected ($sessionTitle)'
+                                    : available
+                                        ? 'Select $sessionTitle'
+                                        : isExpired
+                                            ? 'Session Expired'
+                                            : 'No Slots Left',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
             ],
           ],
         ),

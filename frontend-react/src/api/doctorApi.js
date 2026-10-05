@@ -80,6 +80,9 @@ export const getDoctorQueue = (doctorId, status = '') => {
 export const updateAppointmentStatus = (id, status, notes = '') =>
   api.put(`/doctorappointments/${id}/status`, { status, notes });
 
+export const forceStatusAppointment = (id, status, reason) =>
+  api.put(`/doctorappointments/${id}/force-status`, { status, reason });
+
 export const rescheduleAppointment = (id, newSessionId) =>
   api.post(`/doctorappointments/${id}/reschedule`, { newSessionId });
 

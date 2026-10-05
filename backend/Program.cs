@@ -244,18 +244,71 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// Auto-ensure DB schema updates
+// Auto-ensure DB schema updates & index creation
 try
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""CheckedInByUserId"" integer NULL;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""StatusChangeReason"" text NULL;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""ReadyAlertSentAt"" timestamp with time zone NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""IsSavedToEmr"" boolean NOT NULL DEFAULT FALSE;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""EmrLabReportId"" uuid NULL;");
+
+    if (db.Database.IsNpgsql())
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            conn.Open();
+        }
+
+        using var dupCmd = conn.CreateCommand();
+        dupCmd.CommandText = @"
+            SELECT ""DoctorSessionId"", ""QueueNumber"", COUNT(*) AS ""DupCount""
+            FROM public.""DoctorAppointments""
+            WHERE ""Status"" <> 'Cancelled'
+            GROUP BY ""DoctorSessionId"", ""QueueNumber""
+            HAVING COUNT(*) > 1;";
+
+        var duplicateSessions = new List<string>();
+        using (var reader = dupCmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var sId = reader.GetInt32(0);
+                var qNum = reader.GetInt32(1);
+                var dCount = reader.GetInt64(2);
+                duplicateSessions.Add($"Session {sId} (Queue #{qNum}, {dCount} rows)");
+            }
+        }
+
+        if (duplicateSessions.Count > 0)
+        {
+            app.Logger.LogWarning("Duplicate active queue numbers detected among non-cancelled appointments: {Duplicates}. Skipping creation of unique index IX_DoctorAppointments_DoctorSessionId_QueueNumber.", string.Join("; ", duplicateSessions));
+        }
+        else
+        {
+            db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_DoctorAppointments_DoctorSessionId_QueueNumber"" ON public.""DoctorAppointments"" (""DoctorSessionId"", ""QueueNumber"") WHERE ""Status"" <> 'Cancelled';");
+        }
+    }
 }
 catch (Exception ex)
 {
-    app.Logger.LogWarning(ex, "Could not run automatic schema column migration.");
+    app.Logger.LogWarning(ex, "Could not run automatic schema migration or index creation.");
+}
+
+// Check email credentials at startup
+var startupSmtpUser = builder.Configuration["SmtpSettings:SmtpUser"] ?? Environment.GetEnvironmentVariable("SmtpSettings__SmtpUser");
+var startupSmtpPass = builder.Configuration["SmtpSettings:SmtpPass"] ?? Environment.GetEnvironmentVariable("SmtpSettings__SmtpPass");
+var startupBrevoKey = builder.Configuration["Brevo:ApiKey"] ?? Environment.GetEnvironmentVariable("Brevo__ApiKey");
+bool hasValidSmtpCreds = !string.IsNullOrWhiteSpace(startupSmtpUser) && !string.IsNullOrWhiteSpace(startupSmtpPass)
+    && !startupSmtpUser.StartsWith("YOUR_") && !startupSmtpPass.StartsWith("YOUR_");
+bool hasValidBrevoCreds = !string.IsNullOrWhiteSpace(startupBrevoKey) && !startupBrevoKey.StartsWith("YOUR_");
+
+if (!hasValidSmtpCreds && !hasValidBrevoCreds)
+{
+    app.Logger.LogWarning("Email credentials are not configured, emails will not be sent");
 }
 
 // Health Check Endpoints (Public / Anonymous for Railway, graders, and uptime monitors)

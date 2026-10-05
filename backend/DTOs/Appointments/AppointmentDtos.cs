@@ -42,7 +42,9 @@ public class DoctorSessionDto
     public string HospitalBranch { get; set; } = "Health Bridge Colombo";
     public string SessionDate { get; set; } = string.Empty; // YYYY-MM-DD
     public string SessionTime { get; set; } = string.Empty; // HH:mm
-    public string TimeFormatted { get; set; } = string.Empty; // 08:00 AM
+    public string TimeFormatted { get; set; } = string.Empty; // 08:30 AM
+    public string SessionType { get; set; } = "Morning"; // Morning | Evening | Night
+    public string TimeRange { get; set; } = "08:30 AM – 12:00 PM";
     public int MaxCapacity { get; set; }
     public int CurrentBookings { get; set; }
     public bool IsAvailable { get; set; }
@@ -84,6 +86,12 @@ public class StatusUpdateDto
 {
     public string Status { get; set; } = string.Empty;
     public string? Notes { get; set; }
+}
+
+public class ForceStatusDto
+{
+    public string Status { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
 }
 
 public class CheckInRequest
@@ -167,9 +175,21 @@ public class AppointmentDto
     public string PaymentStatus { get; set; } = string.Empty;
     public string? PaymentReference { get; set; }
     public string? Notes { get; set; }
+    public string? StatusChangeReason { get; set; }
     public DateTime CreatedAt { get; set; }
     public string QrCodeText { get; set; } = string.Empty;
-    public string DisplaySummary { get; set; } = string.Empty;
+    public string QueueLabel { get; set; } = string.Empty; // e.g. M-01, E-07, N-03
+    public string SessionType { get; set; } = "Morning";
+    public string? EstimatedConsultationTime { get; set; } // e.g. "~5:13 PM"
+    public string? RecommendedArrivalTime { get; set; } // e.g. "4:53 PM"
+    public int? CurrentlyServingQueueNumber { get; set; }
+    public string? CurrentlyServingLabel { get; set; } // e.g. "E-04" or "First patient"
+    public string? SessionStatus { get; set; } // "Scheduled", "Active", "Delayed", etc.
+    public DateTime? ExpectedStartTime { get; set; }
+    public string? DelayReason { get; set; }
+    public string? RoomNumber { get; set; }
+    public bool IsToday { get; set; }
+    public string? DisplaySummary { get; set; }
 }
 
 public class DoctorStatsDto

@@ -21,7 +21,9 @@ public class DoctorSession
     [Required]
     public TimeOnly SessionTime { get; set; }
 
-    public int MaxCapacity { get; set; } = 1;
+    public SessionType SessionType { get; set; } = SessionType.Morning;
+
+    public int MaxCapacity { get; set; } = 25;
 
     public int CurrentBookings { get; set; } = 0;
 
