@@ -6,6 +6,7 @@ using HealthBridge.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace HealthBridge.Api.Controllers;
 
@@ -55,6 +56,37 @@ public class DoctorsController : ControllerBase
     {
         var specialties = await _appointmentService.GetSpecialtiesAsync();
         return Ok(specialties);
+    }
+
+    /// <summary>
+    /// Gets the doctor record linked to the caller's JWT.
+    /// Scoped automatically to the authenticated Doctor.
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = "Doctor")]
+    public async Task<IActionResult> GetMyDoctorProfile()
+    {
+        int? userId = null;
+        var nameId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (int.TryParse(nameId, out var parsedId))
+        {
+            userId = parsedId;
+        }
+
+        var email = User.FindFirstValue(ClaimTypes.Email)?.Trim().ToLowerInvariant();
+        var name = User.FindFirstValue(ClaimTypes.Name)?.Trim().ToLowerInvariant();
+
+        var doctor = await _context.Doctors.FirstOrDefaultAsync(d =>
+            (userId.HasValue && d.UserId.HasValue && d.UserId.Value == userId.Value) ||
+            (!string.IsNullOrEmpty(d.Email) && !string.IsNullOrEmpty(email) && d.Email.ToLower() == email) ||
+            (!string.IsNullOrEmpty(name) && d.FullName.ToLower() == name));
+
+        if (doctor == null)
+        {
+            return NotFound(new { message = "No doctor profile is linked to your account." });
+        }
+
+        return Ok(doctor);
     }
 
     /// <summary>
