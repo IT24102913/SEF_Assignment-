@@ -1,14 +1,39 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../context/AuthContext';
 import RoleSelector from './RoleSelector';
 import ConsultantPortal from './ConsultantPortal';
 import LaboratorianPortal from './LaboratorianPortal';
 import PharmacistPortal from './PharmacistPortal';
 import AdminPortalDashboard from './AdminPortalDashboard';
 import { LogOut, UserCheck, ShieldCheck, HeartPulse } from 'lucide-react';
-import { Link } from 'react-router-dom';
 
 export default function StaffPortal() {
-  const [staffSession, setStaffSession] = useState(null);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const roleParam = searchParams.get('role');
+
+  const createPharmacistSession = (currentUser) => ({
+    role: 'Pharmacist',
+    staffId: currentUser?.fullName || currentUser?.email || 'PHARM-303',
+    roleTitle: 'Pharmacist',
+    accentColor: '#9333ea',
+    user: currentUser
+  });
+
+  const [staffSession, setStaffSession] = useState(() => {
+    if (roleParam === 'Pharmacist' || (user && user.role === 'Pharmacist')) {
+      return createPharmacistSession(user);
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (!staffSession && (roleParam === 'Pharmacist' || (user && user.role === 'Pharmacist'))) {
+      setStaffSession(createPharmacistSession(user));
+    }
+  }, [roleParam, user]);
 
   const handleLogin = (session) => {
     setStaffSession(session);
@@ -16,6 +41,9 @@ export default function StaffPortal() {
 
   const handleLogout = () => {
     setStaffSession(null);
+    if (roleParam) {
+      setSearchParams({});
+    }
   };
 
   if (!staffSession) {
