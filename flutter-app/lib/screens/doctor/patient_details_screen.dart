@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../services/doctor_api_service.dart';
 import '../../services/auth_service.dart';
 import '../../utils/theme.dart';
@@ -22,6 +23,7 @@ class PatientDetailsScreen extends StatefulWidget {
 
 class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
   final _formKey = GlobalKey<FormState>();
+  final ScrollController _scrollCtrl = ScrollController();
 
   final TextEditingController _nameCtrl = TextEditingController();
   final TextEditingController _nicCtrl = TextEditingController();
@@ -30,8 +32,7 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
   final TextEditingController _addressCtrl = TextEditingController();
   final TextEditingController _notesCtrl = TextEditingController();
 
-  bool _validatingSlot = false;
-  bool _slotValidated = false;
+  AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
   String _bookingType = 'Reservation'; // 'Reservation' or 'OnlinePayment'
   bool _reserving = false;
 
@@ -53,6 +54,7 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
 
   @override
   void dispose() {
+    _scrollCtrl.dispose();
     _nameCtrl.dispose();
     _nicCtrl.dispose();
     _phoneCtrl.dispose();
@@ -62,41 +64,33 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
     super.dispose();
   }
 
-  Future<void> _validateAvailability() async {
-    setState(() => _validatingSlot = true);
-    try {
-      final sessions = await DoctorApiService.getDoctorSessions(widget.doctor.id, date: widget.sessionDate);
-      final match = sessions.firstWhere(
-        (s) => s.id == widget.session.id,
-        orElse: () => widget.session,
+  bool _validateForm() {
+    setState(() => _autoValidateMode = AutovalidateMode.onUserInteraction);
+    if (!_formKey.currentState!.validate()) {
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please correct the highlighted errors in the form.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ),
       );
-
-      if (mounted) {
-        if (match.isAvailable) {
-          setState(() => _slotValidated = true);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Session slot verified! Space is open.'), backgroundColor: Colors.green),
-          );
-        } else {
-          setState(() => _slotValidated = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('This slot is now fully booked. Please pick another session.'), backgroundColor: Colors.red),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not re-verify slot availability.')),
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(
+          200,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
         );
       }
-    } finally {
-      if (mounted) setState(() => _validatingSlot = false);
+      return false;
     }
+    return true;
   }
 
   Future<void> _confirmReservation() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_validateForm()) return;
+    HapticFeedback.lightImpact();
     setState(() => _reserving = true);
     try {
       final appointment = await DoctorApiService.bookAppointment({
@@ -112,6 +106,7 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
       });
 
       if (mounted) {
+        HapticFeedback.mediumImpact();
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -133,7 +128,10 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Reservation failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Reservation failed: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
         );
       }
     } finally {
@@ -142,43 +140,95 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
   }
 
   void _proceedToPayment() {
-    if (_formKey.currentState!.validate()) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PaymentConfirmationScreen(
-            doctor: widget.doctor,
-            session: widget.session,
-            sessionDate: widget.sessionDate,
-            patientName: _nameCtrl.text.trim(),
-            patientNic: _nicCtrl.text.trim(),
-            patientPhone: _phoneCtrl.text.trim(),
-            patientEmail: _emailCtrl.text.trim(),
-            patientAddress: _addressCtrl.text.trim(),
-            notes: _notesCtrl.text.trim(),
-          ),
+    if (!_validateForm()) return;
+    HapticFeedback.lightImpact();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentConfirmationScreen(
+          doctor: widget.doctor,
+          session: widget.session,
+          sessionDate: widget.sessionDate,
+          patientName: _nameCtrl.text.trim(),
+          patientNic: _nicCtrl.text.trim(),
+          patientPhone: _phoneCtrl.text.trim(),
+          patientEmail: _emailCtrl.text.trim(),
+          patientAddress: _addressCtrl.text.trim(),
+          notes: _notesCtrl.text.trim(),
         ),
-      );
-    }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final totalFee = widget.doctor.consultationFee + 300.0;
+
     return Scaffold(
       backgroundColor: kBg,
       appBar: AppBar(
         backgroundColor: kPrimaryDark,
         foregroundColor: Colors.white,
-        title: const Text('Patient Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        elevation: 0,
+        title: const Text('Patient Details & Booking', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+      ),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: const Border(top: BorderSide(color: kBorder)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: SizedBox(
+            height: 48,
+            child: ElevatedButton(
+              onPressed: _reserving
+                  ? null
+                  : _bookingType == 'Reservation'
+                      ? _confirmReservation
+                      : _proceedToPayment,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _bookingType == 'Reservation' ? const Color(0xFF047857) : kPrimary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                elevation: 0,
+              ),
+              child: _reserving
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _bookingType == 'Reservation'
+                              ? 'Confirm Reservation (Pay at Desk)'
+                              : 'Proceed to Payment (LKR ${totalFee.toStringAsFixed(0)})',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.arrow_forward, size: 16),
+                      ],
+                    ),
+            ),
+          ),
+        ),
       ),
       body: SingleChildScrollView(
+        controller: _scrollCtrl,
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
+          autovalidateMode: _autoValidateMode,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Persistent Teal Appointment Summary Banner
+              // Appointment Summary Banner
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
@@ -189,15 +239,15 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('STEP 3: PATIENT DETAILS FORM', style: TextStyle(color: Color(0xFF80CBC4), fontSize: 10, fontWeight: FontWeight.w800)),
+                    const Text('CONSULTATION SUMMARY', style: TextStyle(color: Color(0xFF80CBC4), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
                     const SizedBox(height: 4),
                     Text(
-                      'Doctor: ${widget.doctor.fullName} (${widget.doctor.specialization})',
+                      '${widget.doctor.fullName} (${widget.doctor.specialization})',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Date: ${widget.sessionDate}, ${widget.session.timeFormatted} | Fee: LKR ${widget.doctor.consultationFee.toStringAsFixed(0)}',
+                      '${widget.session.sessionType} Session • ${widget.sessionDate} (${widget.session.timeRange.isNotEmpty ? widget.session.timeRange : widget.session.timeFormatted})',
                       style: const TextStyle(color: Color(0xFFE0F2F1), fontSize: 12),
                     ),
                   ],
@@ -205,19 +255,62 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
               ),
               const SizedBox(height: 18),
 
+              // Booking Choice Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2F1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text('STEP 3', style: TextStyle(color: kPrimaryDark, fontWeight: FontWeight.w800, fontSize: 10)),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Choose Booking Preference',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: kPrimaryDark),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Two Differentiated Option Cards (Reservation vs Book & Pay Online)
+              _buildBookingOptionCard(
+                type: 'Reservation',
+                title: 'Reserve & Pay at Counter',
+                subtitle: 'Guaranteed queue token. Pay cash or card at the hospital channeling desk upon arrival.',
+                badge: 'No advance payment',
+                badgeColor: const Color(0xFFD97706),
+                icon: Icons.storefront_outlined,
+              ),
+              const SizedBox(height: 10),
+              _buildBookingOptionCard(
+                type: 'OnlinePayment',
+                title: 'Pay Online Now (Instant Pass)',
+                subtitle: 'Instant confirmation with digital receipt and hospital check-in QR code.',
+                badge: 'Fast-track Check-in',
+                badgeColor: const Color(0xFF047857),
+                icon: Icons.credit_card_outlined,
+              ),
+              const SizedBox(height: 20),
+
               // Form Container
               Container(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: kBorder),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x06000000), blurRadius: 6, offset: Offset(0, 2)),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Patient Identity & Contact Information',
+                      'Patient Identity & Contact Details',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: kText),
                     ),
                     const SizedBox(height: 14),
@@ -225,26 +318,45 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                     // Full Name
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name *',
+                      decoration: InputDecoration(
+                        labelText: 'Patient Full Name *',
                         hintText: 'e.g. Nuwan Perera',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       ),
-                      validator: (val) => val == null || val.trim().isEmpty ? 'Full Name is required' : null,
+                      validator: (val) {
+                        final trimmed = val?.trim() ?? '';
+                        if (trimmed.isEmpty) return 'Full Name is required';
+                        if (trimmed.length < 2) return 'Please enter at least 2 characters';
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 12),
 
                     // NIC
                     TextFormField(
                       controller: _nicCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'NIC / Passport *',
+                      decoration: InputDecoration(
+                        labelText: 'National ID / Passport *',
                         hintText: 'e.g. 199512345678 or 987654321V',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       ),
-                      validator: (val) => val == null || val.trim().isEmpty ? 'NIC / Passport is required' : null,
+                      validator: (val) {
+                        final trimmed = val?.trim() ?? '';
+                        if (trimmed.isEmpty) return 'NIC / Passport number is required';
+                        final nicRegex = RegExp(r'^([0-9]{9}[vVxX]|[0-9]{12}|[A-Za-z0-9]{7,10})$');
+                        if (!nicRegex.hasMatch(trimmed)) {
+                          return 'Invalid format (e.g. 199512345678 or 987654321V)';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 12),
 
@@ -252,13 +364,24 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                     TextFormField(
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Contact Phone Number *',
                         hintText: 'e.g. +94 77 123 4567',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       ),
-                      validator: (val) => val == null || val.trim().isEmpty ? 'Phone number is required' : null,
+                      validator: (val) {
+                        final clean = (val ?? '').replaceAll(RegExp(r'[\s\-]+'), '');
+                        if (clean.isEmpty) return 'Contact phone number is required';
+                        final phoneRegex = RegExp(r'^(?:07[0-9]{8}|\+947[0-9]{8}|0[0-9]{9})$');
+                        if (!phoneRegex.hasMatch(clean)) {
+                          return 'Invalid phone number (e.g. 0771234567 or +94771234567)';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 12),
 
@@ -266,23 +389,40 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                     TextFormField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email Address',
+                      decoration: InputDecoration(
+                        labelText: 'Email Address (for QR pass & delays) *',
                         hintText: 'e.g. patient@gmail.com',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       ),
+                      validator: (val) {
+                        final trimmed = val?.trim() ?? '';
+                        if (trimmed.isEmpty) {
+                          return 'Email is required for confirmation & QR pass';
+                        }
+                        final emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$');
+                        if (!emailRegex.hasMatch(trimmed)) {
+                          return 'Invalid email address (e.g. name@gmail.com)';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 12),
 
                     // Address
                     TextFormField(
                       controller: _addressCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Address (Optional)',
+                      decoration: InputDecoration(
+                        labelText: 'Residential Address (Optional)',
                         hintText: 'e.g. 45 Galle Road, Colombo',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -291,148 +431,118 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                     TextFormField(
                       controller: _notesCtrl,
                       maxLines: 2,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Clinical Notes / Symptoms (Optional)',
                         hintText: 'Brief note for the doctor...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        filled: true,
+                        fillColor: const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: kBorder)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Booking Type Preference Card Selector
-                    const Text('Booking & Payment Preference *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: kText)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => setState(() => _bookingType = 'Reservation'),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: _bookingType == 'Reservation' ? const Color(0xFFE0F2F1) : Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: _bookingType == 'Reservation' ? kPrimary : kBorder,
-                                  width: _bookingType == 'Reservation' ? 2 : 1,
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Reserve Place', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kPrimaryDark)),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                        decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
-                                        child: Text('Pay at Desk', style: TextStyle(color: Colors.green.shade800, fontSize: 9, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text('Get queue & QR immediately. Pay at hospital counter.', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => setState(() => _bookingType = 'OnlinePayment'),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: _bookingType == 'OnlinePayment' ? const Color(0xFFE0F2F1) : Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: _bookingType == 'OnlinePayment' ? kPrimary : kBorder,
-                                  width: _bookingType == 'OnlinePayment' ? 2 : 1,
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text('Pay Online', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: kPrimaryDark)),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                        decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(4)),
-                                        child: Text('Card/Wallet', style: TextStyle(color: Colors.blue.shade800, fontSize: 9, fontWeight: FontWeight.bold)),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text('Pay with Card or Mobile Wallet for fast-track arrival.', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Action Buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _validatingSlot ? null : _validateAvailability,
-                            icon: _validatingSlot
-                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
-                                : Icon(_slotValidated ? Icons.check : Icons.refresh, size: 16),
-                            label: Text(_slotValidated ? 'Validated' : 'Validate Slot', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: kPrimary,
-                              side: const BorderSide(color: kPrimary),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _bookingType == 'Reservation'
-                              ? ElevatedButton.icon(
-                                  onPressed: _reserving ? null : _confirmReservation,
-                                  icon: _reserving
-                                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                      : const Icon(Icons.check_circle, size: 16),
-                                  label: Text(_reserving ? 'Reserving...' : 'Reserve Place', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kPrimary,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  ),
-                                )
-                              : ElevatedButton.icon(
-                                  onPressed: _proceedToPayment,
-                                  icon: const Icon(Icons.payment, size: 16),
-                                  label: const Text('To Payment', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kPrimary,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  ),
-                                ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 24),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingOptionCard({
+    required String type,
+    required String title,
+    required String subtitle,
+    required String badge,
+    required Color badgeColor,
+    required IconData icon,
+  }) {
+    final isSelected = _bookingType == type;
+
+    return InkWell(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        setState(() => _bookingType = type);
+      },
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 64),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFF0FDF4) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? kPrimary : kBorder,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [BoxShadow(color: kPrimary.withValues(alpha: 0.12), blurRadius: 8, offset: const Offset(0, 2))]
+              : [const BoxShadow(color: Color(0x06000000), blurRadius: 4, offset: Offset(0, 1))],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: isSelected ? kPrimary : const Color(0xFF64748B), size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected ? kPrimaryDark : kText,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          badge,
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: badgeColor),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: isSelected ? kPrimary : Colors.grey, width: 2),
+                color: isSelected ? kPrimary : Colors.transparent,
+              ),
+              child: isSelected ? const Icon(Icons.check, size: 14, color: Colors.white) : null,
+            ),
+          ],
         ),
       ),
     );
