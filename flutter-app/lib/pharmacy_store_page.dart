@@ -722,7 +722,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: const EdgeInsets.all(24),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -769,7 +769,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
               if (isPickupOrCounter) ...[
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(16),
@@ -778,7 +778,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                   child: Column(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: const Color(0xFFECFDF5),
                           borderRadius: BorderRadius.circular(20),
@@ -789,9 +789,13 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                           children: const [
                             Icon(Icons.qr_code_2, size: 14, color: Color(0xFF047857)),
                             SizedBox(width: 4),
-                            Text(
-                              'HOSPITAL PHARMACY COUNTER QR PASS',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+                            Flexible(
+                              child: Text(
+                                'HOSPITAL COUNTER QR PASS',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
                             ),
                           ],
                         ),
