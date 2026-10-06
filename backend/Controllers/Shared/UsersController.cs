@@ -63,6 +63,13 @@ public class UsersController : ControllerBase
         }
 
         var profile = await _context.PatientProfiles.FirstOrDefaultAsync(p => p.UserId == user.Id);
+        var emrPatient = await _context.Patients.FirstOrDefaultAsync(p => p.UserId == user.Id || (p.Email != null && p.Email.ToLower() == user.Email.ToLower()));
+
+        var resolvedPhone = !string.IsNullOrWhiteSpace(profile?.PhoneNumber) ? profile.PhoneNumber : (emrPatient?.ContactPhone ?? "");
+        var resolvedAddress = !string.IsNullOrWhiteSpace(profile?.Address) ? profile.Address : (emrPatient?.Address ?? "");
+        var resolvedGender = !string.IsNullOrWhiteSpace(profile?.Gender) ? profile.Gender : (emrPatient?.Gender ?? "Male");
+        var resolvedDob = profile?.DateOfBirth ?? emrPatient?.DateOfBirth;
+        var resolvedEmergency = !string.IsNullOrWhiteSpace(profile?.EmergencyContact) ? profile.EmergencyContact : (emrPatient?.EmergencyContactPhone ?? emrPatient?.EmergencyContactName);
 
         var response = new UserProfileResponse
         {
@@ -71,13 +78,13 @@ public class UsersController : ControllerBase
             FullName = user.FullName,
             Email = user.Email,
             Role = user.Role,
-            PhoneNumber = profile?.PhoneNumber,
-            Address = profile?.Address,
+            PhoneNumber = resolvedPhone,
+            Address = resolvedAddress,
             City = profile?.City,
             NicNumber = profile?.NicNumber ?? user.NicNumber,
-            DateOfBirth = profile?.DateOfBirth,
-            Gender = profile?.Gender,
-            EmergencyContact = profile?.EmergencyContact,
+            DateOfBirth = resolvedDob,
+            Gender = resolvedGender,
+            EmergencyContact = resolvedEmergency,
             IsActive = user.IsActive,
             IsEmailVerified = user.IsEmailVerified,
             CreatedAt = user.CreatedAt
@@ -133,6 +140,18 @@ public class UsersController : ControllerBase
         if (dto.Gender != null) profile.Gender = dto.Gender.Trim();
         if (dto.EmergencyContact != null) profile.EmergencyContact = dto.EmergencyContact.Trim();
         profile.UpdatedAt = DateTime.UtcNow;
+
+        // Synchronize changes to linked EMR Patient record
+        var emrPatient = await _context.Patients.FirstOrDefaultAsync(p => p.UserId == user.Id || (p.Email != null && p.Email.ToLower() == user.Email.ToLower()));
+        if (emrPatient != null)
+        {
+            if (dto.PhoneNumber != null) emrPatient.ContactPhone = dto.PhoneNumber.Trim();
+            if (dto.Address != null) emrPatient.Address = dto.Address.Trim();
+            if (dto.Gender != null) emrPatient.Gender = dto.Gender.Trim();
+            if (dto.DateOfBirth.HasValue) emrPatient.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
+            if (dto.EmergencyContact != null) emrPatient.EmergencyContactPhone = dto.EmergencyContact.Trim();
+            emrPatient.UpdatedAt = DateTime.UtcNow;
+        }
 
         await _context.SaveChangesAsync();
 
