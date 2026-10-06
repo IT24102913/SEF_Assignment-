@@ -1,0 +1,245 @@
+import docImg from '../assets/doctor.jpg';
+import doc1Img from '../assets/doctor1.jpg';
+import doc2Img from '../assets/doctor2.jpg';
+import doc7Img from '../assets/doctor7.jpg';
+
+export const FALLBACK_DOCTORS = [
+  {
+    id: 1,
+    fullName: 'Dr. Anjali Perera',
+    specialization: 'Cardiology',
+    qualifications: 'MD, FRCP - Cardiologist',
+    hospital: 'Health Bridge Hospital - Colombo',
+    hospitalBranch: 'Health Bridge Hospital - Colombo',
+    roomNumber: 'Suite 201, 2nd Floor',
+    consultationFee: 2500.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '08:00 AM - 04:00 PM',
+    imageUrl: docImg,
+    phoneNumber: '+94 76 447 7999',
+    rating: 4.9,
+    reviewCount: 142,
+    experienceYears: 15,
+    isVerifiedConsultant: true,
+    bio: 'Specializing in interventional cardiology, coronary artery disease, and heart failure management.',
+    email: 'doctor@gmail.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 22
+  },
+  {
+    id: 2,
+    fullName: 'Dr. M.T.D Lakshan',
+    specialization: 'ENT',
+    qualifications: 'MBBS, MS (ENT), FRCS - Consultant ENT Surgeon',
+    hospital: 'Health Bridge Hospital - Colombo',
+    hospitalBranch: 'Health Bridge Hospital - Colombo',
+    roomNumber: 'Suite 104, 1st Floor',
+    consultationFee: 2500.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '08:00 AM - 04:00 PM',
+    imageUrl: doc1Img,
+    phoneNumber: '+94 76 447 7888',
+    rating: 4.9,
+    reviewCount: 120,
+    experienceYears: 18,
+    isVerifiedConsultant: true,
+    bio: 'Specialist in Ear, Nose & Throat disorders, endoscopic sinus surgery, and Head & Neck surgery.',
+    email: 'lakshan.ent@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 18
+  },
+  {
+    id: 3,
+    fullName: 'Dr. Malya Gunasekara',
+    specialization: 'General Medicine',
+    qualifications: 'MBBS, MD, MRCP - Consultant Physician & Gastroenterologist',
+    hospital: 'Health Bridge Hospital - Colombo',
+    hospitalBranch: 'Health Bridge Hospital - Colombo',
+    roomNumber: 'Suite 108, 1st Floor',
+    consultationFee: 3200.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '08:00 AM - 04:00 PM',
+    imageUrl: doc2Img,
+    phoneNumber: '+94 76 447 7999',
+    rating: 4.8,
+    reviewCount: 95,
+    experienceYears: 22,
+    isVerifiedConsultant: true,
+    bio: 'Expertise in adult internal medicine, lifestyle illnesses, and digestive wellness.',
+    email: 'malya.physician@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 20
+  },
+  {
+    id: 4,
+    fullName: 'Dr. Pumsith Gunawardena',
+    specialization: 'Neurology',
+    qualifications: 'MBBS, MD (Neuro), FCPS - Consultant Neurosurgeon',
+    hospital: 'Health Bridge Hospital - Kandy',
+    hospitalBranch: 'Health Bridge Hospital - Kandy',
+    roomNumber: 'Suite 305, 3rd Floor',
+    consultationFee: 4000.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '08:00 AM - 04:00 PM',
+    imageUrl: doc7Img,
+    phoneNumber: '+94 81 223 4567',
+    rating: 4.7,
+    reviewCount: 78,
+    experienceYears: 15,
+    isVerifiedConsultant: true,
+    bio: 'Brain & spinal cord surgery, stroke rehabilitation, and minimally invasive neurological interventions.',
+    email: 'pumsith.neuro@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 14
+  },
+  {
+    id: 5,
+    fullName: 'Dr. Rohan Wickramasinghe',
+    specialization: 'Orthopaedics',
+    qualifications: 'MBBS, MS (Ortho), FRCS - Orthopaedic Surgeon',
+    hospital: 'Health Bridge Hospital - Colombo',
+    hospitalBranch: 'Health Bridge Hospital - Colombo',
+    roomNumber: 'Suite 204, 2nd Floor',
+    consultationFee: 3500.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '09:00 AM - 04:00 PM',
+    imageUrl: docImg,
+    phoneNumber: '+94 76 447 7999',
+    rating: 4.9,
+    reviewCount: 110,
+    experienceYears: 20,
+    isVerifiedConsultant: true,
+    bio: 'Specializing in joint replacement, sports injury reconstruction, and spine surgery.',
+    email: 'rohan.ortho@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 16
+  },
+  {
+    id: 6,
+    fullName: 'Dr. Malith Silva',
+    specialization: 'Paediatrics',
+    qualifications: 'MBBS, DCH, MD (Paediatrics) - Consultant Paediatrician',
+    hospital: 'Health Bridge Hospital - Kandy',
+    hospitalBranch: 'Health Bridge Hospital - Kandy',
+    roomNumber: 'Suite 102, 1st Floor',
+    consultationFee: 2800.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '08:00 AM - 03:00 PM',
+    imageUrl: doc2Img,
+    phoneNumber: '+94 81 223 4568',
+    rating: 4.8,
+    reviewCount: 88,
+    experienceYears: 10,
+    isVerifiedConsultant: true,
+    bio: 'Dedicated paediatric care, newborn health assessment, immunization, and adolescent growth.',
+    email: 'malith.paed@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 19
+  },
+  {
+    id: 7,
+    fullName: 'Dr. Nilmini Senanayake',
+    specialization: 'Gynaecology',
+    qualifications: 'MBBS, MS (Obs & Gynae), FRCOG - Consultant Obstetrician & Gynaecologist',
+    hospital: 'Health Bridge Hospital - Kandy',
+    hospitalBranch: 'Health Bridge Hospital - Kandy',
+    roomNumber: 'Suite 206, 2nd Floor',
+    consultationFee: 3600.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '08:30 AM - 04:00 PM',
+    imageUrl: doc1Img,
+    phoneNumber: '+94 81 223 4569',
+    rating: 4.9,
+    reviewCount: 135,
+    experienceYears: 17,
+    isVerifiedConsultant: true,
+    bio: 'Comprehensive maternal and foetal health, laparoscopic gynaecological procedures, and fertility counsel.',
+    email: 'nilmini.gynae@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 21
+  },
+  {
+    id: 8,
+    fullName: 'Dr. Rashmi Fernando',
+    specialization: 'Dermatology',
+    qualifications: 'MBBS, MD (Dermatology) - Consultant Dermatologist',
+    hospital: 'Health Bridge Hospital - Colombo',
+    hospitalBranch: 'Health Bridge Hospital - Colombo',
+    roomNumber: 'Suite 112, 1st Floor',
+    consultationFee: 3000.00,
+    availableDays: 'Mon, Tue, Wed, Thu, Fri',
+    availableTime: '09:00 AM - 04:00 PM',
+    imageUrl: doc7Img,
+    phoneNumber: '+94 76 447 7999',
+    rating: 4.8,
+    reviewCount: 92,
+    experienceYears: 14,
+    isVerifiedConsultant: true,
+    bio: 'Advanced clinical dermatology, allergy testing, acne and eczema management, and aesthetic therapies.',
+    email: 'rashmi.derma@healthbridge.com',
+    isAvailable: true,
+    availableToday: true,
+    availableTomorrow: true,
+    slotsLeft: 17
+  }
+];
+
+export const generateFallbackSessions = (doctorId) => {
+  const sessions = [];
+  const now = new Date();
+
+  // Generate sessions for the next 7 days
+  for (let i = 0; i < 7; i++) {
+    const targetDate = new Date();
+    targetDate.setDate(now.getDate() + i);
+    const dateStr = targetDate.toISOString().split('T')[0];
+
+    // Morning Session: 09:00 AM
+    sessions.push({
+      id: doctorId * 1000 + i * 2 + 1,
+      doctorId: doctorId,
+      sessionDate: dateStr,
+      sessionTime: '09:00:00',
+      sessionType: 'Morning',
+      timeSlot: '09:00 AM',
+      maxCapacity: 25,
+      currentBookings: Math.min(10 + (i * 2), 22),
+      availableSlots: Math.max(3, 25 - (10 + (i * 2))),
+      isActive: true,
+      isAvailable: true,
+      isExpired: false
+    });
+
+    // Evening Session: 04:30 PM
+    sessions.push({
+      id: doctorId * 1000 + i * 2 + 2,
+      doctorId: doctorId,
+      sessionDate: dateStr,
+      sessionTime: '16:30:00',
+      sessionType: 'Evening',
+      timeSlot: '04:30 PM',
+      maxCapacity: 25,
+      currentBookings: Math.min(6 + (i * 3), 20),
+      availableSlots: Math.max(5, 25 - (6 + (i * 3))),
+      isActive: true,
+      isAvailable: true,
+      isExpired: false
+    });
+  }
+
+  return sessions;
+};

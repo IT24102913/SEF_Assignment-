@@ -42,6 +42,28 @@ public class AppointmentService : IAppointmentService
 
 
 
+    private static bool _doctorSessionsSchemaEnsured = false;
+    private async Task EnsureDoctorSessionsSchemaAsync()
+    {
+        if (_doctorSessionsSchemaEnsured) return;
+        try
+        {
+            await _context.Database.ExecuteSqlRawAsync(@"
+                ALTER TABLE ""DoctorSessions"" ADD COLUMN IF NOT EXISTS ""SessionType"" text NOT NULL DEFAULT 'Morning';
+                UPDATE ""DoctorSessions"" SET ""SessionType"" = CASE 
+                    WHEN ""SessionTime"" < '12:00:00' THEN 'Morning' 
+                    WHEN ""SessionTime"" < '17:00:00' THEN 'Evening' 
+                    ELSE 'Night' 
+                END WHERE ""SessionType"" = 'Morning' AND ""SessionTime"" >= '12:00:00';
+            ");
+            _doctorSessionsSchemaEnsured = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not ensure DoctorSessions schema column");
+        }
+    }
+
     private static readonly TimeZoneInfo LocalHospitalTimeZone = GetHospitalTimeZone();
 
     private static TimeZoneInfo GetHospitalTimeZone()
@@ -131,6 +153,7 @@ public class AppointmentService : IAppointmentService
 
     public async Task<List<DoctorDto>> GetDoctorsAsync(string? search, string? specialization, string? hospitalBranch, string? date, string? sortBy)
     {
+        await EnsureDoctorSessionsSchemaAsync();
         var localNow = GetLocalNow();
         var today = DateOnly.FromDateTime(localNow);
         var nowTime = TimeOnly.FromDateTime(localNow);
@@ -311,6 +334,7 @@ public class AppointmentService : IAppointmentService
 
     public async Task<List<DoctorSessionDto>> GetDoctorSessionsAsync(int doctorId, DateOnly? date)
     {
+        await EnsureDoctorSessionsSchemaAsync();
         var localNow = GetLocalNow();
         var today = DateOnly.FromDateTime(localNow);
         var nowTime = TimeOnly.FromDateTime(localNow);
