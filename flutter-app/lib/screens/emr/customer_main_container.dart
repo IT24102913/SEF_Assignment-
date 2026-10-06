@@ -703,6 +703,14 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
     );
   }
 
+  String _getDynamicNotificationTime(int minutesAgo) {
+    final time = DateTime.now().subtract(Duration(minutes: minutesAgo));
+    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $period';
+  }
+
   void _showNotificationsBottomSheet(BuildContext context) {
     final allNotifications = [
       {
@@ -711,7 +719,7 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
         'message': 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to medibridge@gmail.com.',
         'targetOrderNumber': 'ORD-20260923-7862',
         'isViolationWarning': true,
-        'time': '3:19:11 PM',
+        'time': _getDynamicNotificationTime(12),
       },
       {
         'id': 'notif-102',
@@ -719,7 +727,7 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
         'message': 'Your Complete Blood Count (CBC) pathology report is certified and ready.',
         'targetOrderNumber': '',
         'isViolationWarning': false,
-        'time': '11:45:00 AM',
+        'time': _getDynamicNotificationTime(95),
       },
     ];
 
