@@ -188,21 +188,44 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
 
     const getGalleryImages = (med) => {
         if (!med) return [];
-        const mainImg = med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop';
-        const list = [mainImg];
+        const list = [];
+
+        // 1. Parse additionalImagesJson (admin uploaded photos) FIRST so valid uploaded images take priority
         if (med.additionalImagesJson) {
             try {
-                const parsed = JSON.parse(med.additionalImagesJson);
+                const parsed = typeof med.additionalImagesJson === 'string'
+                    ? JSON.parse(med.additionalImagesJson)
+                    : med.additionalImagesJson;
                 if (Array.isArray(parsed)) {
                     parsed.forEach(url => {
-                        if (url && !list.includes(url)) list.push(url);
+                        if (url && typeof url === 'string' && url.trim() && !list.includes(url.trim())) {
+                            list.push(url.trim());
+                        }
                     });
                 }
             } catch (e) { }
         }
-        if (list.length === 1) {
-            list.push('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
+
+        // 2. Process main imageUrl
+        if (med.imageUrl && typeof med.imageUrl === 'string' && med.imageUrl.trim()) {
+            const main = med.imageUrl.trim();
+            const isBrokenStock = main.includes('photo-1584308666744-24d5c474f2ae') || main.includes('photo-1471864190281');
+            if (!list.includes(main)) {
+                if (isBrokenStock && list.length > 0) {
+                    list.push(main);
+                } else {
+                    list.unshift(main);
+                }
+            }
+        }
+
+        // 3. Guaranteed working high-res medical photo fallbacks
+        if (list.length === 0) {
             list.push('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
+        }
+        if (list.length === 1) {
+            list.push('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+            list.push('https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop');
         }
         return list;
     };
@@ -871,9 +894,16 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             >
                                 <div style={ps.imgWrapper}>
                                     <img
-                                        src={med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop'}
+                                        src={getGalleryImages(med)[0] || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop'}
                                         alt={med.name}
                                         style={ps.cardImg}
+                                        onError={(e) => {
+                                            const gallery = getGalleryImages(med);
+                                            const fallback = gallery[1] || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) {
+                                                e.target.src = fallback;
+                                            }
+                                        }}
                                     />
                                     {isRx && (
                                         <span style={ps.rxRequiredBadge} onClick={(e) => { e.stopPropagation(); setRxModalMedicine(med); }}>
