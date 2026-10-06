@@ -2549,7 +2549,7 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
   }
 
   Widget _buildSmartImage(String rawUrl, {BoxFit fit = BoxFit.cover}) {
-    final cleanUrl = rawUrl.trim();
+    final cleanUrl = MedicineModel.resolveImageUrl(rawUrl).trim();
     if (cleanUrl.isEmpty) {
       return const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8)));
     }
