@@ -69,32 +69,54 @@ class MedicineModel {
     this.pricePerUnit,
   }) : cardPrice = cardPrice ?? (price * (pillsPerCard > 0 ? pillsPerCard : 10));
 
+  static String resolveImageUrl(String? url) {
+    if (url == null) return '';
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return '';
+    if (trimmed.startsWith('data:image/')) return trimmed;
+    if (trimmed.startsWith('/uploads/')) {
+      return '${ApiConfig.activeHost}$trimmed';
+    }
+    if (trimmed.contains('/uploads/')) {
+      final relativePath = '/uploads/${trimmed.split('/uploads/').last}';
+      return '${ApiConfig.activeHost}$relativePath';
+    }
+    return trimmed;
+  }
+
   List<String> get galleryImages {
     final List<String> imgs = [];
+
+    // 1. Main imageUrl always comes FIRST (resolved)
     if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
-      imgs.add(imageUrl!.trim());
+      final resolved = resolveImageUrl(imageUrl);
+      if (resolved.isNotEmpty) imgs.add(resolved);
     }
+
+    // 2. Additional uploaded angle images come after
     if (additionalImagesJson != null && additionalImagesJson!.trim().isNotEmpty) {
       try {
         final parsed = jsonDecode(additionalImagesJson!);
         if (parsed is List) {
           for (final item in parsed) {
             if (item != null && item.toString().trim().isNotEmpty) {
-              final str = item.toString().trim();
-              if (!imgs.contains(str)) {
-                imgs.add(str);
+              final resolved = resolveImageUrl(item.toString());
+              if (resolved.isNotEmpty && !imgs.contains(resolved)) {
+                imgs.add(resolved);
               }
             }
           }
         }
       } catch (_) {}
     }
+
+    // 3. Fallbacks only if no images at all
     if (imgs.isEmpty) {
-      imgs.add('https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
     }
     if (imgs.length == 1) {
-      imgs.add('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
-      imgs.add('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop');
     }
     return imgs;
   }

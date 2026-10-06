@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getDisplayConfig } from '../../../utils/getDisplayConfig';
 import { api } from '../../../api/authApi';
+import { API_BASE_URL } from '../../../api/config';
 import PrescriptionViolationModal from '../../../components/modals/PrescriptionViolationModal';
 import {
     Search,
@@ -186,23 +187,77 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         }
     };
 
+    const resolveImageUrl = (url) => {
+        if (!url || typeof url !== 'string') return '';
+        const trimmed = url.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('data:image/')) return trimmed;
+
+        if (trimmed.startsWith('/uploads/')) {
+            const base = (API_BASE_URL || 'http://localhost:5126/api').replace(/\/api\/?$/, '');
+            return `${base}${trimmed}`;
+        }
+        if (trimmed.includes('/uploads/')) {
+            const relativePath = '/uploads/' + trimmed.split('/uploads/')[1];
+            const base = (API_BASE_URL || 'http://localhost:5126/api').replace(/\/api\/?$/, '');
+            return `${base}${relativePath}`;
+        }
+        return trimmed;
+    };
+
+    // SmartImg: renders both base64 data URIs and regular network URLs
+    const SmartImg = ({ src, alt, style, onError }) => {
+        if (!src) return null;
+        const resolved = resolveImageUrl(src);
+        return (
+            <img
+                src={resolved}
+                alt={alt}
+                style={style}
+                onError={(e) => {
+                    if (onError) onError(e);
+                    if (!e.target.src.includes('unsplash.com')) {
+                        e.target.src = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                    }
+                }}
+            />
+        );
+    };
+
     const getGalleryImages = (med) => {
         if (!med) return [];
-        const mainImg = med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop';
-        const list = [mainImg];
+        const list = [];
+
+        // 1. Main imageUrl always comes FIRST (as admin intended)
+        if (med.imageUrl && typeof med.imageUrl === 'string' && med.imageUrl.trim()) {
+            const resolvedMain = resolveImageUrl(med.imageUrl);
+            if (resolvedMain) list.push(resolvedMain);
+        }
+
+        // 2. Additional uploaded angle images come after
         if (med.additionalImagesJson) {
             try {
-                const parsed = JSON.parse(med.additionalImagesJson);
+                const parsed = typeof med.additionalImagesJson === 'string'
+                    ? JSON.parse(med.additionalImagesJson)
+                    : med.additionalImagesJson;
                 if (Array.isArray(parsed)) {
                     parsed.forEach(url => {
-                        if (url && !list.includes(url)) list.push(url);
+                        const resolved = resolveImageUrl(url);
+                        if (resolved && !list.includes(resolved)) {
+                            list.push(resolved);
+                        }
                     });
                 }
             } catch (e) { }
         }
-        if (list.length === 1) {
-            list.push('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
+
+        // 3. Fallbacks only if no images at all
+        if (list.length === 0) {
             list.push('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
+        }
+        if (list.length === 1) {
+            list.push('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+            list.push('https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop');
         }
         return list;
     };
@@ -870,10 +925,17 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                 }}
                             >
                                 <div style={ps.imgWrapper}>
-                                    <img
-                                        src={med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop'}
+                                    <SmartImg
+                                        src={getGalleryImages(med)[0] || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop'}
                                         alt={med.name}
                                         style={ps.cardImg}
+                                        onError={(e) => {
+                                            const gallery = getGalleryImages(med);
+                                            // Try next image in gallery on failure
+                                            const nextImg = gallery.find(u => u && !u.startsWith('data:') && e.target.src !== u);
+                                            const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) e.target.src = fallback;
+                                        }}
                                     />
                                     {isRx && (
                                         <span style={ps.rxRequiredBadge} onClick={(e) => { e.stopPropagation(); setRxModalMedicine(med); }}>
@@ -1841,10 +1903,16 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             {/* Left Column: Multi-Angle Gallery */}
                             <div style={ps.darazGallerySection}>
                                 <div style={ps.darazMainImgContainer}>
-                                    <img
+                                    <SmartImg
                                         src={getGalleryImages(selectedDetailMed)[activeDetailImageIndex] || selectedDetailMed.imageUrl}
                                         alt={selectedDetailMed.name}
                                         style={ps.darazMainImg}
+                                        onError={(e) => {
+                                            const gallery = getGalleryImages(selectedDetailMed);
+                                            const nextImg = gallery.find(u => u && !u.startsWith('data:') && e.target.src !== u);
+                                            const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) e.target.src = fallback;
+                                        }}
                                     />
                                     <div style={ps.genuineSeal}>
                                         <Sparkles size={12} color="#059669" /> 100% Genuine Medicine
@@ -1864,7 +1932,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 transform: activeDetailImageIndex === idx ? 'scale(1.05)' : 'scale(1)'
                                             }}
                                         >
-                                            <img src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg} />
+                                            <SmartImg src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg}
+                                                onError={(e) => {
+                                                    if (!e.target.src.includes('unsplash')) e.target.src = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=60&auto=format&fit=crop';
+                                                }}
+                                            />
                                         </button>
                                     ))}
                                 </div>
