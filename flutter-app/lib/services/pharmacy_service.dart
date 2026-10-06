@@ -71,9 +71,8 @@ class MedicineModel {
 
   List<String> get galleryImages {
     final List<String> imgs = [];
-    if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
-      imgs.add(imageUrl!.trim());
-    }
+
+    // 1. Parse additionalImagesJson (admin uploaded photos) FIRST so valid uploaded images take priority
     if (additionalImagesJson != null && additionalImagesJson!.trim().isNotEmpty) {
       try {
         final parsed = jsonDecode(additionalImagesJson!);
@@ -89,12 +88,27 @@ class MedicineModel {
         }
       } catch (_) {}
     }
+
+    // 2. Process main imageUrl
+    if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
+      final main = imageUrl!.trim();
+      final isBrokenStock = main.contains('photo-1584308666744-24d5c474f2ae') || main.contains('photo-1471864190281');
+      if (!imgs.contains(main)) {
+        if (isBrokenStock && imgs.isNotEmpty) {
+          imgs.add(main);
+        } else {
+          imgs.insert(0, main);
+        }
+      }
+    }
+
+    // 3. Fallback working high-res photos
     if (imgs.isEmpty) {
-      imgs.add('https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
     }
     if (imgs.length == 1) {
-      imgs.add('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
-      imgs.add('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop');
     }
     return imgs;
   }

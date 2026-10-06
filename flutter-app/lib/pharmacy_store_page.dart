@@ -2570,7 +2570,7 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
       cleanUrl,
       fit: fit,
       errorBuilder: (c, e, s) => Image.network(
-        'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop',
         fit: fit,
         errorBuilder: (c2, e2, s2) => const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8))),
       ),
