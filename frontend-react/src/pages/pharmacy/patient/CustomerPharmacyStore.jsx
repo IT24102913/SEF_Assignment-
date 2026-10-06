@@ -1628,9 +1628,38 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                 <div style={{ fontSize: '14px', fontWeight: 800, color: '#0F172A', marginBottom: '2px' }}>
                                     Ticket #{orderSuccessData.orderNumber || 'ORD-PICKUP'}
                                 </div>
-                                <p style={{ fontSize: '11.5px', color: '#64748B', margin: 0, lineHeight: 1.45 }}>
+                                <p style={{ fontSize: '11.5px', color: '#64748B', margin: '0 0 10px', lineHeight: 1.45 }}>
                                     Show this QR Digital Ticket at the Hospital Pharmacy Counter for instant order collection &amp; counter payment.
                                 </p>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`PHARMACY_ORDER|${orderSuccessData.orderNumber || orderSuccessData.id}|${orderSuccessData.customerName || 'Patient'}|${orderSuccessData.totalAmount || 0}`)}`;
+                                        const a = document.createElement('a');
+                                        a.href = qrUrl;
+                                        a.download = `Pharmacy_QR_Ticket_${orderSuccessData.orderNumber || 'Pass'}.png`;
+                                        a.target = '_blank';
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                    }}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '8px 16px',
+                                        backgroundColor: '#059669',
+                                        color: '#FFFFFF',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        fontWeight: 700,
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        boxShadow: '0 2px 6px rgba(5,150,105,0.2)'
+                                    }}
+                                >
+                                    📥 Save / Download QR Code
+                                </button>
                             </div>
                         )}
 

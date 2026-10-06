@@ -709,86 +709,218 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _showOrderSuccessDialog(Map<String, dynamic> orderData) {
+    final isPickupOrCounter = (orderData['deliveryMethod'] == 'Pickup' ||
+        orderData['paymentMethod'] == 'PayAtCounter' ||
+        orderData['deliveryAddress'] == 'Pickup' ||
+        orderData['paymentMethod'] == 'Pay at Counter');
+
+    final qrDataStr = 'PHARMACY_ORDER|${orderData['orderNumber'] ?? orderData['id'] ?? 'SUBMITTED'}|${orderData['customerName'] ?? 'Patient'}|${orderData['totalAmount'] ?? 0}';
+    final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${Uri.encodeComponent(qrDataStr)}';
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         contentPadding: const EdgeInsets.all(24),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: const BoxDecoration(
-                color: Color(0xFFECFDF5),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check_circle, color: Color(0xFF059669), size: 36),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD1FAE5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                'ORDER #${orderData['orderNumber'] ?? 'SUBMITTED'}',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Prescription Order Submitted!',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Your doctor prescription photo & details have been sent to our registered pharmacists for verification.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.4),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('📋 Next Steps for your Order:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
-                  SizedBox(height: 6),
-                  Text('1. Licensed pharmacist reviews your prescription receipt.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                  SizedBox(height: 4),
-                  Text('2. Pharmacist calculates total cost for medicines & delivery.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                  SizedBox(height: 4),
-                  Text('3. Quote will be posted under My Orders tab.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                  SizedBox(height: 4),
-                  Text('4. You can review the price and click Confirm & Pay.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF059669),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFECFDF5),
+                  shape: BoxShape.circle,
                 ),
-                child: const Text('BACK TO STORE', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Icon(Icons.check_circle, color: Color(0xFF059669), size: 36),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'ORDER #${orderData['orderNumber'] ?? 'SUBMITTED'}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isPickupOrCounter
+                    ? 'Counter Pickup QR Pass Generated!'
+                    : 'Prescription Order Submitted!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isPickupOrCounter
+                    ? 'Your order has been placed for Counter Pickup. Present the QR ticket pass below at the hospital pharmacy counter.'
+                    : 'Your doctor prescription photo & details have been sent to our registered pharmacists for verification.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.4),
+              ),
+              const SizedBox(height: 16),
+
+              if (isPickupOrCounter) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF059669), width: 1.5),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.qr_code_2, size: 14, color: Color(0xFF047857)),
+                            SizedBox(width: 4),
+                            Text(
+                              'HOSPITAL PHARMACY COUNTER QR PASS',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Image.network(
+                          qrUrl,
+                          width: 150,
+                          height: 150,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return const SizedBox(
+                              width: 150,
+                              height: 150,
+                              child: Center(child: CircularProgressIndicator(color: Color(0xFF059669))),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) => const SizedBox(
+                            width: 150,
+                            height: 150,
+                            child: Icon(Icons.qr_code, size: 80, color: Color(0xFF059669)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Ticket #${orderData['orderNumber'] ?? 'ORD-PICKUP'}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Show this QR Pass at the hospital counter for fast collection.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          final uri = Uri.parse(qrUrl);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('📥 Opening QR Code image pass to save to device!'),
+                                backgroundColor: Color(0xFF059669),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.download, size: 16),
+                        label: const Text('Save / Download QR Code', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF059669),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: isPickupOrCounter
+                      ? const [
+                          Text('📋 Pickup Instructions:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
+                          SizedBox(height: 6),
+                          Text('1. Visit HealthBridge Main Hospital Pharmacy Counter.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('2. Show this QR Ticket Pass or Order Number to staff.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('3. Pay at counter & receive your medicine package.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                        ]
+                      : const [
+                          Text('📋 Next Steps for your Order:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
+                          SizedBox(height: 6),
+                          Text('1. Licensed pharmacist reviews your prescription receipt.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('2. Pharmacist calculates total cost for medicines & delivery.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('3. Quote will be posted under My Orders tab.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('4. You can review the price and click Confirm & Pay.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                        ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF059669),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('BACK TO STORE', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
