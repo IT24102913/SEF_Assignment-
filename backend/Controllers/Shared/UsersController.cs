@@ -75,6 +75,7 @@ public class UsersController : ControllerBase
         {
             Id = profile?.Id ?? user.Id,
             UserId = user.Id,
+            PatientCode = emrPatient?.PatientCode ?? "",
             FullName = user.FullName,
             Email = user.Email,
             Role = user.Role,
@@ -84,7 +85,11 @@ public class UsersController : ControllerBase
             NicNumber = profile?.NicNumber ?? user.NicNumber,
             DateOfBirth = resolvedDob,
             Gender = resolvedGender,
+            BloodGroup = emrPatient?.BloodGroup ?? "Unknown",
             EmergencyContact = resolvedEmergency,
+            EmergencyContactName = emrPatient?.EmergencyContactName ?? "",
+            EmergencyContactPhone = emrPatient?.EmergencyContactPhone ?? resolvedEmergency,
+            Allergies = emrPatient?.Allergies ?? "",
             IsActive = user.IsActive,
             IsEmailVerified = user.IsEmailVerified,
             CreatedAt = user.CreatedAt
@@ -148,8 +153,12 @@ public class UsersController : ControllerBase
             if (dto.PhoneNumber != null) emrPatient.ContactPhone = dto.PhoneNumber.Trim();
             if (dto.Address != null) emrPatient.Address = dto.Address.Trim();
             if (dto.Gender != null) emrPatient.Gender = dto.Gender.Trim();
+            if (dto.BloodGroup != null) emrPatient.BloodGroup = dto.BloodGroup.Trim();
             if (dto.DateOfBirth.HasValue) emrPatient.DateOfBirth = DateTime.SpecifyKind(dto.DateOfBirth.Value, DateTimeKind.Utc);
             if (dto.EmergencyContact != null) emrPatient.EmergencyContactPhone = dto.EmergencyContact.Trim();
+            if (dto.EmergencyContactName != null) emrPatient.EmergencyContactName = dto.EmergencyContactName.Trim();
+            if (dto.EmergencyContactPhone != null) emrPatient.EmergencyContactPhone = dto.EmergencyContactPhone.Trim();
+            if (dto.Allergies != null) emrPatient.Allergies = dto.Allergies.Trim();
             emrPatient.UpdatedAt = DateTime.UtcNow;
         }
 
@@ -159,6 +168,7 @@ public class UsersController : ControllerBase
         {
             Id = profile.Id,
             UserId = user.Id,
+            PatientCode = emrPatient?.PatientCode ?? "",
             FullName = user.FullName,
             Email = user.Email,
             Role = user.Role,
@@ -168,7 +178,11 @@ public class UsersController : ControllerBase
             NicNumber = profile.NicNumber ?? user.NicNumber,
             DateOfBirth = profile.DateOfBirth,
             Gender = profile.Gender,
+            BloodGroup = emrPatient?.BloodGroup ?? "Unknown",
             EmergencyContact = profile.EmergencyContact,
+            EmergencyContactName = emrPatient?.EmergencyContactName ?? "",
+            EmergencyContactPhone = emrPatient?.EmergencyContactPhone ?? profile.EmergencyContact,
+            Allergies = emrPatient?.Allergies ?? "",
             IsActive = user.IsActive,
             IsEmailVerified = user.IsEmailVerified,
             CreatedAt = user.CreatedAt

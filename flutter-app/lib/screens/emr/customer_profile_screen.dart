@@ -260,7 +260,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         : (AuthState.patientCode ?? EmrApiService.activePatientCode);
     final nic = _patient?.nicNumber.isNotEmpty == true
         ? _patient!.nicNumber
-        : 'Not provided';
+        : ((AuthState.nic?.isNotEmpty == true) ? AuthState.nic! : 'Not provided');
     final initials = _getInitials(name);
 
     return Scaffold(

@@ -43,13 +43,18 @@ public class UpdateUserProfileDto
     public string? NicNumber { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
+    public string? BloodGroup { get; set; }
     public string? EmergencyContact { get; set; }
+    public string? EmergencyContactName { get; set; }
+    public string? EmergencyContactPhone { get; set; }
+    public string? Allergies { get; set; }
 }
 
 public class UserProfileResponse
 {
     public int Id { get; set; }
     public int UserId { get; set; }
+    public string PatientCode { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
@@ -59,7 +64,11 @@ public class UserProfileResponse
     public string? NicNumber { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Gender { get; set; }
+    public string? BloodGroup { get; set; }
     public string? EmergencyContact { get; set; }
+    public string? EmergencyContactName { get; set; }
+    public string? EmergencyContactPhone { get; set; }
+    public string? Allergies { get; set; }
     public bool IsActive { get; set; }
     public bool IsEmailVerified { get; set; }
     public DateTime CreatedAt { get; set; }
