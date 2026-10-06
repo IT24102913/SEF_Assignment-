@@ -41,124 +41,132 @@ public class EMRService : IEMRService
     public async Task<PatientDto?> GetPatientByIdAsync(Guid id)
     {
         var patient = await _db.Patients.FindAsync(id);
-        return patient == null ? null : MapPatientToDto(patient);
+        if (patient == null) return null;
+        var user = patient.UserId.HasValue
+            ? await _db.Users.FirstOrDefaultAsync(u => u.Id == patient.UserId.Value)
+            : await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == patient.Email.ToLower());
+        var profile = user != null ? await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == user.Id) : null;
+        var nic = profile?.NicNumber ?? user?.NicNumber ?? "";
+        return MapPatientToDto(patient, nic);
     }
 
     public async Task<PatientDto?> GetPatientByUserIdAsync(int userId)
     {
+        var currentUser = await _db.Users.FindAsync(userId);
+        var currentProfile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
+
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId);
-        if (patient == null)
+        if (patient == null && currentUser != null)
         {
-            var user = await _db.Users.FindAsync(userId);
-            if (user != null)
+            // Try linking if matched by email
+            var existingByEmail = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == currentUser.Email.ToLower());
+            if (existingByEmail != null)
             {
-                // Try linking if matched by email
-                var existingByEmail = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == user.Email.ToLower());
-                if (existingByEmail != null)
+                existingByEmail.UserId = currentUser.Id;
+                await _db.SaveChangesAsync();
+                patient = existingByEmail;
+            }
+            else
+            {
+                // Auto-create EMR patient for this registered user
+                var newCode = await GenerateNextPatientCodeAsync();
+                patient = new Patient
                 {
-                    existingByEmail.UserId = user.Id;
+                    Id = Guid.NewGuid(),
+                    UserId = currentUser.Id,
+                    PatientCode = newCode,
+                    FullName = currentUser.FullName,
+                    Email = currentUser.Email,
+                    ContactPhone = currentProfile?.PhoneNumber ?? "",
+                    Address = currentProfile?.Address ?? "",
+                    Gender = currentProfile?.Gender ?? "Other",
+                    DateOfBirth = currentProfile?.DateOfBirth, // null until customer chooses
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                _db.Patients.Add(patient);
+                try
+                {
                     await _db.SaveChangesAsync();
-                    patient = existingByEmail;
                 }
-                else
+                catch (Microsoft.EntityFrameworkCore.DbUpdateException)
                 {
-                    // Auto-create EMR patient for this registered user
-                    var profile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
-                    var newCode = await GenerateNextPatientCodeAsync();
-                    patient = new Patient
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = user.Id,
-                        PatientCode = newCode,
-                        FullName = user.FullName,
-                        Email = user.Email,
-                        ContactPhone = profile?.PhoneNumber ?? "",
-                        Address = profile?.Address ?? "",
-                        Gender = profile?.Gender ?? "Other",
-                        DateOfBirth = profile?.DateOfBirth, // null until customer chooses
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
-                    };
-                    _db.Patients.Add(patient);
-                    try
-                    {
-                        await _db.SaveChangesAsync();
-                    }
-                    catch (Microsoft.EntityFrameworkCore.DbUpdateException)
-                    {
-                        // Concurrent insert collision — try fetching the record that was just created
-                        patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == user.Email.ToLower());
-                    }
+                    // Concurrent insert collision — try fetching the record that was just created
+                    patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == currentUser.Email.ToLower());
                 }
             }
         }
 
         // Two-way sync: merge between Patient and PatientProfile
-        if (patient != null)
+        if (patient != null && currentProfile != null)
         {
-            var profile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
             bool patientChanged = false;
             bool profileChanged = false;
 
-            if (profile != null)
+            // Sync from profile to patient if patient fields are empty
+            if (string.IsNullOrWhiteSpace(patient.ContactPhone) && !string.IsNullOrWhiteSpace(currentProfile.PhoneNumber))
             {
-                // Sync from profile to patient if patient fields are empty
-                if (string.IsNullOrWhiteSpace(patient.ContactPhone) && !string.IsNullOrWhiteSpace(profile.PhoneNumber))
-                {
-                    patient.ContactPhone = profile.PhoneNumber.Trim();
-                    patientChanged = true;
-                }
-                if (string.IsNullOrWhiteSpace(patient.Address) && !string.IsNullOrWhiteSpace(profile.Address))
-                {
-                    patient.Address = profile.Address.Trim();
-                    patientChanged = true;
-                }
-                if ((string.IsNullOrWhiteSpace(patient.Gender) || patient.Gender == "Other") && !string.IsNullOrWhiteSpace(profile.Gender) && profile.Gender != "Other")
-                {
-                    patient.Gender = profile.Gender.Trim();
-                    patientChanged = true;
-                }
-                if (patient.DateOfBirth == null && profile.DateOfBirth != null)
-                {
-                    patient.DateOfBirth = profile.DateOfBirth;
-                    patientChanged = true;
-                }
-
-                // Sync from patient to profile if profile fields are empty
-                if (string.IsNullOrWhiteSpace(profile.PhoneNumber) && !string.IsNullOrWhiteSpace(patient.ContactPhone))
-                {
-                    profile.PhoneNumber = patient.ContactPhone.Trim();
-                    profileChanged = true;
-                }
-                if (string.IsNullOrWhiteSpace(profile.Address) && !string.IsNullOrWhiteSpace(patient.Address))
-                {
-                    profile.Address = patient.Address.Trim();
-                    profileChanged = true;
-                }
-                if ((string.IsNullOrWhiteSpace(profile.Gender) || profile.Gender == "Other") && !string.IsNullOrWhiteSpace(patient.Gender) && patient.Gender != "Other")
-                {
-                    profile.Gender = patient.Gender.Trim();
-                    profileChanged = true;
-                }
-                if (profile.DateOfBirth == null && patient.DateOfBirth != null)
-                {
-                    profile.DateOfBirth = patient.DateOfBirth;
-                    profileChanged = true;
-                }
-
-                if (patientChanged) patient.UpdatedAt = DateTime.UtcNow;
-                if (profileChanged) profile.UpdatedAt = DateTime.UtcNow;
-                if (patientChanged || profileChanged) await _db.SaveChangesAsync();
+                patient.ContactPhone = currentProfile.PhoneNumber.Trim();
+                patientChanged = true;
             }
+            if (string.IsNullOrWhiteSpace(patient.Address) && !string.IsNullOrWhiteSpace(currentProfile.Address))
+            {
+                patient.Address = currentProfile.Address.Trim();
+                patientChanged = true;
+            }
+            if ((string.IsNullOrWhiteSpace(patient.Gender) || patient.Gender == "Other") && !string.IsNullOrWhiteSpace(currentProfile.Gender) && currentProfile.Gender != "Other")
+            {
+                patient.Gender = currentProfile.Gender.Trim();
+                patientChanged = true;
+            }
+            if (patient.DateOfBirth == null && currentProfile.DateOfBirth != null)
+            {
+                patient.DateOfBirth = currentProfile.DateOfBirth;
+                patientChanged = true;
+            }
+
+            // Sync from patient to profile if profile fields are empty
+            if (string.IsNullOrWhiteSpace(currentProfile.PhoneNumber) && !string.IsNullOrWhiteSpace(patient.ContactPhone))
+            {
+                currentProfile.PhoneNumber = patient.ContactPhone.Trim();
+                profileChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(currentProfile.Address) && !string.IsNullOrWhiteSpace(patient.Address))
+            {
+                currentProfile.Address = patient.Address.Trim();
+                profileChanged = true;
+            }
+            if ((string.IsNullOrWhiteSpace(currentProfile.Gender) || currentProfile.Gender == "Other") && !string.IsNullOrWhiteSpace(patient.Gender) && patient.Gender != "Other")
+            {
+                currentProfile.Gender = patient.Gender.Trim();
+                profileChanged = true;
+            }
+            if (currentProfile.DateOfBirth == null && patient.DateOfBirth != null)
+            {
+                currentProfile.DateOfBirth = patient.DateOfBirth;
+                profileChanged = true;
+            }
+
+            if (patientChanged) patient.UpdatedAt = DateTime.UtcNow;
+            if (profileChanged) currentProfile.UpdatedAt = DateTime.UtcNow;
+            if (patientChanged || profileChanged) await _db.SaveChangesAsync();
         }
 
-        return patient == null ? null : MapPatientToDto(patient);
+        if (patient == null) return null;
+        var nic = currentProfile?.NicNumber ?? currentUser?.NicNumber ?? "";
+        return MapPatientToDto(patient, nic);
     }
 
     public async Task<PatientDto?> GetPatientByCodeAsync(string code)
     {
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == code.Trim().ToUpper());
-        return patient == null ? null : MapPatientToDto(patient);
+        if (patient == null) return null;
+        var user = patient.UserId.HasValue
+            ? await _db.Users.FirstOrDefaultAsync(u => u.Id == patient.UserId.Value)
+            : await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == patient.Email.ToLower());
+        var profile = user != null ? await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == user.Id) : null;
+        var nic = profile?.NicNumber ?? user?.NicNumber ?? "";
+        return MapPatientToDto(patient, nic);
     }
 
     public async Task<PatientDto> CreatePatientAsync(CreatePatientDto dto)
@@ -925,7 +933,9 @@ public class EMRService : IEMRService
     }
 
 
-    private static PatientDto MapPatientToDto(Patient p) => new()
+    private static PatientDto MapPatientToDto(Patient p) => MapPatientToDto(p, null);
+
+    private static PatientDto MapPatientToDto(Patient p, string? nicNumber) => new()
     {
         Id = p.Id,
         PatientCode = p.PatientCode,
@@ -935,6 +945,7 @@ public class EMRService : IEMRService
         BloodGroup = p.BloodGroup,
         ContactPhone = p.ContactPhone,
         Email = p.Email,
+        NicNumber = nicNumber ?? "",
         Address = p.Address,
         EmergencyContactName = p.EmergencyContactName,
         EmergencyContactPhone = p.EmergencyContactPhone,

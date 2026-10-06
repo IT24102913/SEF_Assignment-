@@ -19,7 +19,12 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
         city: currentUser?.city || '',
         nicNumber: currentUser?.nicNumber || currentUser?.nic || '',
         gender: currentUser?.gender || 'Male',
-        dateOfBirth: currentUser?.dateOfBirth ? currentUser.dateOfBirth.split('T')[0] : ''
+        dateOfBirth: currentUser?.dateOfBirth ? currentUser.dateOfBirth.split('T')[0] : '',
+        bloodGroup: currentUser?.bloodGroup || 'Unknown',
+        emergencyContactName: currentUser?.emergencyContactName || '',
+        emergencyContactPhone: currentUser?.emergencyContactPhone || currentUser?.emergencyContact || '',
+        allergies: currentUser?.allergies || '',
+        patientCode: currentUser?.patientCode || ''
     });
 
     const [passwordData, setPasswordData] = useState({
@@ -77,7 +82,12 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                     city: data.city || currentUser?.city || '',
                     nicNumber: data.nicNumber || data.nic || currentUser?.nicNumber || currentUser?.nic || '',
                     gender: data.gender || currentUser?.gender || 'Male',
-                    dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split('T')[0] : ''
+                    dateOfBirth: data.dateOfBirth ? data.dateOfBirth.split('T')[0] : '',
+                    bloodGroup: data.bloodGroup || 'Unknown',
+                    emergencyContactName: data.emergencyContactName || '',
+                    emergencyContactPhone: data.emergencyContactPhone || data.emergencyContact || '',
+                    allergies: data.allergies || '',
+                    patientCode: data.patientCode || ''
                 });
 
                 if (resolvedPhone) {
@@ -108,22 +118,18 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
 
         setLoading(true);
         try {
-            // Try updating via /users/profile first, fallback to /Patients/{id}
-            try {
-                await api.put('/users/profile', {
-                    phoneNumber: profileData.phoneNumber.trim(),
-                    address: profileData.address,
-                    city: profileData.city,
-                    gender: profileData.gender
-                });
-            } catch {
-                await api.put(`/Patients/${user?.id || 1}`, {
-                    phoneNumber: profileData.phoneNumber.trim(),
-                    address: profileData.address,
-                    city: profileData.city,
-                    gender: profileData.gender
-                });
-            }
+            await api.put('/users/profile', {
+                phoneNumber: profileData.phoneNumber.trim(),
+                address: profileData.address,
+                city: profileData.city,
+                gender: profileData.gender,
+                dateOfBirth: profileData.dateOfBirth ? `${profileData.dateOfBirth}T00:00:00Z` : null,
+                bloodGroup: profileData.bloodGroup,
+                emergencyContact: profileData.emergencyContactPhone,
+                emergencyContactName: profileData.emergencyContactName,
+                emergencyContactPhone: profileData.emergencyContactPhone,
+                allergies: profileData.allergies
+            });
 
             // Update local session user
             const updatedUser = {
@@ -131,7 +137,14 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                 phoneNumber: profileData.phoneNumber.trim(),
                 address: profileData.address,
                 city: profileData.city,
-                nicNumber: profileData.nicNumber
+                nicNumber: profileData.nicNumber,
+                gender: profileData.gender,
+                dateOfBirth: profileData.dateOfBirth,
+                bloodGroup: profileData.bloodGroup,
+                emergencyContactName: profileData.emergencyContactName,
+                emergencyContactPhone: profileData.emergencyContactPhone,
+                allergies: profileData.allergies,
+                patientCode: profileData.patientCode
             };
             localStorage.setItem('medix_user', JSON.stringify(updatedUser));
 
@@ -210,13 +223,33 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
 
     return (
         <div style={{ padding: '24px 0', maxWidth: '850px', margin: '0 auto' }}>
-            <div style={{ marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '24px', fontWeight: 900, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
-                    <User size={26} color="#0D9488" /> Patient Account & Profile Details
-                </h2>
-                <p style={{ fontSize: '14px', color: '#64748B', margin: '4px 0 0' }}>
-                    Manage your verified medical profile, contact information & security credentials
-                </p>
+            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                    <h2 style={{ fontSize: '24px', fontWeight: 900, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+                        <User size={26} color="#0D9488" /> Patient Account & Profile Details
+                    </h2>
+                    <p style={{ fontSize: '14px', color: '#64748B', margin: '4px 0 0' }}>
+                        Manage your verified medical profile, contact information & security credentials
+                    </p>
+                </div>
+                {profileData.patientCode && (
+                    <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '6px 16px',
+                        backgroundColor: '#E6F5F2',
+                        borderRadius: '20px',
+                        border: '1.5px solid #CCE8E3',
+                        color: '#095E51',
+                        fontSize: '13.5px',
+                        fontWeight: 800,
+                        boxShadow: '0 2px 6px rgba(9,94,81,0.06)'
+                    }}>
+                        <span style={{ fontSize: '12px', color: '#0D7C6B', textTransform: 'uppercase', letterSpacing: '0.5px' }}>EMR Record:</span>
+                        <span>{profileData.patientCode}</span>
+                    </div>
+                )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
@@ -312,9 +345,69 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                             </div>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
+                        {/* Medical Demographics: DOB & Gender */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px' }}>
                             <div>
-                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Delivery Address *</label>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Date of Birth</label>
+                                <input
+                                    type="date"
+                                    value={profileData.dateOfBirth}
+                                    onChange={(e) => setProfileData({ ...profileData, dateOfBirth: e.target.value })}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Gender</label>
+                                <select
+                                    value={profileData.gender}
+                                    onChange={(e) => setProfileData({ ...profileData, gender: e.target.value })}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', backgroundColor: '#FFFFFF', boxSizing: 'border-box' }}
+                                >
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Blood Group & Allergies */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px' }}>
+                            <div>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Blood Group</label>
+                                <select
+                                    value={profileData.bloodGroup}
+                                    onChange={(e) => setProfileData({ ...profileData, bloodGroup: e.target.value })}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', backgroundColor: '#FFFFFF', boxSizing: 'border-box' }}
+                                >
+                                    <option value="Unknown">Unknown</option>
+                                    <option value="A+">A+</option>
+                                    <option value="A-">A-</option>
+                                    <option value="B+">B+</option>
+                                    <option value="B-">B-</option>
+                                    <option value="O+">O+</option>
+                                    <option value="O-">O-</option>
+                                    <option value="AB+">AB+</option>
+                                    <option value="AB-">AB-</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Known Allergies</label>
+                                <input
+                                    type="text"
+                                    value={profileData.allergies}
+                                    onChange={(e) => setProfileData({ ...profileData, allergies: e.target.value })}
+                                    placeholder="e.g. Penicillin, Pollen (or None reported)"
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Address & City */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '16px' }}>
+                            <div>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Delivery / Residential Address *</label>
                                 <input
                                     type="text"
                                     required
@@ -332,6 +425,31 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                                     value={profileData.city}
                                     onChange={(e) => setProfileData({ ...profileData, city: e.target.value })}
                                     placeholder="e.g. Colombo, Kandy"
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Emergency Contacts */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
+                            <div>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Emergency Contact Name</label>
+                                <input
+                                    type="text"
+                                    value={profileData.emergencyContactName}
+                                    onChange={(e) => setProfileData({ ...profileData, emergencyContactName: e.target.value })}
+                                    placeholder="e.g. Jane Doe"
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
+                                />
+                            </div>
+
+                            <div>
+                                <label style={{ fontSize: '12.5px', fontWeight: 700, color: '#0F172A', display: 'block', marginBottom: '6px' }}>Emergency Contact Phone</label>
+                                <input
+                                    type="tel"
+                                    value={profileData.emergencyContactPhone}
+                                    onChange={(e) => setProfileData({ ...profileData, emergencyContactPhone: e.target.value })}
+                                    placeholder="e.g. +94 71 987 6543"
                                     style={{ width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', boxSizing: 'border-box' }}
                                 />
                             </div>
