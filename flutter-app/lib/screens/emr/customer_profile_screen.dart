@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/auth_api_service.dart';
 import '../../main.dart';
 import '../../utils/theme.dart';
 
@@ -180,6 +181,33 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
       }
+    }
+  }
+
+  Future<void> _openChangePasswordModal(String email) async {
+    final success = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ChangePasswordBottomSheet(userEmail: email),
+    );
+
+    if (!mounted) return;
+    if (success == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Text('Password updated successfully!'),
+            ],
+          ),
+          backgroundColor: Color(0xFF0D9488),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -582,6 +610,66 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
 
                   const SizedBox(height: 20),
 
+                  // ── Security & Credentials Card ───────────────────────────────
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: HealthBridgeTheme.cardDecoration(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.lock_reset_rounded, size: 20, color: HealthBridgeTheme.accentTeal),
+                            SizedBox(width: 8),
+                            Text(
+                              'Security & Credentials',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: HealthBridgeTheme.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Update your account password to safeguard your health records. Changes take effect across web and mobile immediately.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: HealthBridgeTheme.textSecondary,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _openChangePasswordModal(email),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: HealthBridgeTheme.accentTeal,
+                              side: const BorderSide(color: Color(0xFFCCE8E3), width: 1.5),
+                              backgroundColor: const Color(0xFFF2FAF8),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            icon: const Icon(Icons.key_rounded, color: HealthBridgeTheme.accentTeal, size: 19),
+                            label: const Text(
+                              'Change Password',
+                              style: TextStyle(
+                                color: HealthBridgeTheme.accentTeal,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
                   // ── Logout Section Card ───────────────────────────────────────
                   Container(
                     width: double.infinity,
@@ -685,6 +773,315 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           style: const TextStyle(fontSize: 13.5, color: HealthBridgeTheme.textPrimary, fontWeight: FontWeight.w700),
         ),
       ],
+    );
+  }
+}
+
+// ─── Change Password Modal Bottom Sheet ──────────────────────────────────────
+class _ChangePasswordBottomSheet extends StatefulWidget {
+  final String userEmail;
+
+  const _ChangePasswordBottomSheet({required this.userEmail});
+
+  @override
+  State<_ChangePasswordBottomSheet> createState() => _ChangePasswordBottomSheetState();
+}
+
+class _ChangePasswordBottomSheetState extends State<_ChangePasswordBottomSheet> {
+  final _currentPasswordCtrl = TextEditingController();
+  final _newPasswordCtrl = TextEditingController();
+  final _confirmPasswordCtrl = TextEditingController();
+
+  bool _obscureCurrent = true;
+  bool _obscureNew = true;
+  bool _obscureConfirm = true;
+
+  bool _submitting = false;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _currentPasswordCtrl.dispose();
+    _newPasswordCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final currentPass = _currentPasswordCtrl.text;
+    final newPass = _newPasswordCtrl.text;
+    final confirmPass = _confirmPasswordCtrl.text;
+
+    if (currentPass.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your current password.');
+      return;
+    }
+    if (newPass.length < 6) {
+      setState(() => _errorMessage = 'New password must be at least 6 characters.');
+      return;
+    }
+    if (newPass != confirmPass) {
+      setState(() => _errorMessage = 'New passwords do not match.');
+      return;
+    }
+
+    String email = widget.userEmail.trim();
+    if (email.isEmpty) {
+      final user = await AuthService.getUser();
+      email = user?.email.trim() ?? AuthState.email?.trim() ?? '';
+    }
+
+    if (email.isEmpty) {
+      setState(() => _errorMessage = 'Could not find your registered email. Please re-login.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await AuthApiService.changePassword(
+        email: email,
+        currentPassword: currentPass,
+        newPassword: newPass,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 14,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Drag indicator handle
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Header Row
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: HealthBridgeTheme.mintAccent,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.lock_reset_rounded, color: HealthBridgeTheme.accentTeal, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Change Password',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: HealthBridgeTheme.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        widget.userEmail.isNotEmpty ? widget.userEmail : 'Current Account',
+                        style: const TextStyle(fontSize: 12, color: HealthBridgeTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: HealthBridgeTheme.textSecondary),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Error Banner if any
+            if (_errorMessage != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF2F2),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626), size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(fontSize: 13, color: Color(0xFFB91C1C), fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            // Current Password
+            const Text('Current Password *', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: HealthBridgeTheme.textPrimary)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _currentPasswordCtrl,
+              obscureText: _obscureCurrent,
+              decoration: InputDecoration(
+                hintText: 'Enter your current password',
+                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                prefixIcon: const Icon(Icons.lock_outline, size: 18, color: HealthBridgeTheme.textSecondary),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscureCurrent ? Icons.visibility_off : Icons.visibility, size: 18, color: HealthBridgeTheme.textSecondary),
+                  onPressed: () => setState(() => _obscureCurrent = !_obscureCurrent),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                  borderSide: BorderSide(color: HealthBridgeTheme.accentTeal, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // New Password
+            const Text('New Password *', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: HealthBridgeTheme.textPrimary)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _newPasswordCtrl,
+              obscureText: _obscureNew,
+              decoration: InputDecoration(
+                hintText: 'Enter new password (min. 6 characters)',
+                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                prefixIcon: const Icon(Icons.vpn_key_outlined, size: 18, color: HealthBridgeTheme.textSecondary),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscureNew ? Icons.visibility_off : Icons.visibility, size: 18, color: HealthBridgeTheme.textSecondary),
+                  onPressed: () => setState(() => _obscureNew = !_obscureNew),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                  borderSide: BorderSide(color: HealthBridgeTheme.accentTeal, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Confirm New Password
+            const Text('Confirm New Password *', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: HealthBridgeTheme.textPrimary)),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _confirmPasswordCtrl,
+              obscureText: _obscureConfirm,
+              decoration: InputDecoration(
+                hintText: 'Re-enter your new password',
+                hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                prefixIcon: const Icon(Icons.check_circle_outline, size: 18, color: HealthBridgeTheme.textSecondary),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility, size: 18, color: HealthBridgeTheme.textSecondary),
+                  onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                ),
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                  borderSide: BorderSide(color: HealthBridgeTheme.accentTeal, width: 2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            // Submit Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _submitting ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: HealthBridgeTheme.accentTeal,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                child: _submitting
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
+                    : const Text(
+                        'Update Password',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
