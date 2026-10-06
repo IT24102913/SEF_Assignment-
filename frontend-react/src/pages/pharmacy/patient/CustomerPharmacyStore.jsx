@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { getDisplayConfig } from '../../../utils/getDisplayConfig';
 import { api } from '../../../api/authApi';
 import { API_BASE_URL } from '../../../api/config';
+import { resolveImageUrl, getImageUrl } from '../../../utils/imageUrl';
 import PrescriptionViolationModal from '../../../components/modals/PrescriptionViolationModal';
 import {
     Search,
@@ -185,24 +186,6 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         } else if (n.targetOrderNumber && onNavigate) {
             onNavigate('orders');
         }
-    };
-
-    const resolveImageUrl = (url) => {
-        if (!url || typeof url !== 'string') return '';
-        const trimmed = url.trim();
-        if (!trimmed) return '';
-        if (trimmed.startsWith('data:image/')) return trimmed;
-
-        if (trimmed.startsWith('/uploads/')) {
-            const base = (API_BASE_URL || 'http://localhost:5126/api').replace(/\/api\/?$/, '');
-            return `${base}${trimmed}`;
-        }
-        if (trimmed.includes('/uploads/')) {
-            const relativePath = '/uploads/' + trimmed.split('/uploads/')[1];
-            const base = (API_BASE_URL || 'http://localhost:5126/api').replace(/\/api\/?$/, '');
-            return `${base}${relativePath}`;
-        }
-        return trimmed;
     };
 
     // SmartImg: renders both base64 data URIs and regular network URLs

@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
 import { getDashboardPath } from '../../../utils/navigation';
 import api from '../../../api/authApi';
+import { resolveImageUrl, getImageUrl } from '../../../utils/imageUrl';
 import medicineImg from '../../../assets/medicine_capsules.jpg';
 import pillBg from '../../../assets/pill.jpg';
 import logoImage from '../../../assets/mediz.png';
@@ -661,9 +662,14 @@ const Medicines = () => {
             const res = await api.post('/uploads', uploadData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
-            if (res.data?.fileUrl) {
-                setFormData(prev => ({ ...prev, imageUrl: res.data.fileUrl }));
-                showToastMessage('Main medicine image uploaded to storage!', 'success');
+            if (res.data?.relativePath) {
+                setFormData(prev => ({ ...prev, imageUrl: res.data.relativePath }));
+                showToastMessage('Main medicine image uploaded!', 'success');
+            } else if (res.data?.fileUrl) {
+                // Fallback: extract relative path from absolute URL
+                const relPath = res.data.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
+                setFormData(prev => ({ ...prev, imageUrl: relPath }));
+                showToastMessage('Main medicine image uploaded!', 'success');
             }
         } catch (err) {
             console.warn('Storage upload fallback to preview:', err);
@@ -2031,7 +2037,7 @@ const Medicines = () => {
 
                                         {formData.imageUrl && (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', background: '#F8FAFC', padding: '8px 12px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                                                <img src={formData.imageUrl} alt="Main Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
+                                                <img src={resolveImageUrl(formData.imageUrl)} alt="Main Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
                                                 <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {formData.imageUrl}
                                                 </div>
@@ -2089,7 +2095,7 @@ const Medicines = () => {
                                             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
                                                 {formData.additionalImages.map((imgUrl, idx) => (
                                                     <div key={idx} style={{ position: 'relative', width: '64px', height: '64px', borderRadius: '8px', overflow: 'hidden', border: '2px solid #3B82F6' }}>
-                                                        <img src={imgUrl} alt={`Angle ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        <img src={resolveImageUrl(imgUrl)} alt={`Angle ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                         <button
                                                             type="button"
                                                             onClick={() => removeGalleryImage(idx)}
@@ -2368,7 +2374,7 @@ const Medicines = () => {
                                                     <div style={styles.medNameWrap}>
                                                         {med.imageUrl ? (
                                                             <img
-                                                                src={med.imageUrl}
+                                                                src={resolveImageUrl(med.imageUrl)}
                                                                 alt={med.name}
                                                                 style={{ width: '40px', height: '40px', borderRadius: '8px', objectFit: 'cover', border: '1px solid #E2E8F0' }}
                                                             />
