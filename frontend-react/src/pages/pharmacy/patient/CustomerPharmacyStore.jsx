@@ -1889,27 +1889,73 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                     </p>
                                 </div>
 
-                                {/* Price & Pill Spec Card */}
-                                <div style={ps.darazPriceBox}>
-                                    <div style={ps.darazPriceItem}>
-                                        <span style={ps.darazPriceLabel}>UNIT PRICE (PER PILL):</span>
-                                        <span style={ps.darazPriceValue}>Rs. {selectedDetailMed.price?.toFixed(2)}</span>
-                                    </div>
-                                    <div style={ps.darazPriceItem}>
-                                        <span style={ps.darazPriceLabel}>ONE CARD PRICE:</span>
-                                        <span style={ps.darazCardPriceValue}>Rs. {(selectedDetailMed.cardPrice || selectedDetailMed.price * (selectedDetailMed.pillsPerCard || 10))?.toFixed(2)}</span>
-                                    </div>
-                                    <div style={ps.darazPriceItem}>
-                                        <span style={ps.darazPriceLabel}>PILLS IN ONE CARD:</span>
-                                        <span style={ps.darazPillsPill}>{selectedDetailMed.pillsPerCard || 10} pills in one card</span>
-                                    </div>
-                                    <div style={{ fontSize: '12px', color: selectedDetailMed.stockQuantity > 0 ? '#059669' : '#DC2626', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        {selectedDetailMed.stockQuantity > 0
-                                            ? <><CheckCircle2 size={14} /> In Stock • Express Dispatch Ready</>
-                                            : <><AlertCircle size={14} /> Out of Stock — Currently Unavailable</>
-                                        }
-                                    </div>
-                                </div>
+                                {/* Price & Spec Card — Dynamic Selling Unit */}
+                                {(() => {
+                                    const detailConfig = getDisplayConfig(selectedDetailMed);
+                                    const sUnit = (selectedDetailMed.sellingUnit || selectedDetailMed.SellingUnit || 'PILLS').toUpperCase();
+
+                                    let unitLabel = `UNIT PRICE (PER ${sUnit === 'PILLS' ? 'PILL' : sUnit}):`;
+                                    let packPriceLabel = 'ONE CARD PRICE:';
+                                    let packQtyLabel = 'PILLS IN ONE CARD:';
+                                    let packQtyText = `${selectedDetailMed.pillsPerCard || 10} pills in one card`;
+
+                                    if (sUnit === 'SACHET') {
+                                        packPriceLabel = 'ONE BOX PRICE:';
+                                        packQtyLabel = 'SACHETS IN ONE BOX:';
+                                        packQtyText = `${selectedDetailMed.sachetsPerBox || 10} sachets in one box`;
+                                    } else if (sUnit === 'VIAL') {
+                                        packPriceLabel = 'ONE BOX PRICE:';
+                                        packQtyLabel = 'VIALS IN ONE BOX:';
+                                        packQtyText = `${selectedDetailMed.vialsPerBox || 5} vials in one box`;
+                                    } else if (sUnit === 'BOTTLE') {
+                                        packPriceLabel = 'BOTTLE SIZE:';
+                                        packQtyLabel = 'VOLUME:';
+                                        packQtyText = `${selectedDetailMed.bottleSize || 100} ml bottle`;
+                                    } else if (sUnit === 'TUBE') {
+                                        packPriceLabel = 'TUBE WEIGHT:';
+                                        packQtyLabel = 'NET WEIGHT:';
+                                        packQtyText = `${selectedDetailMed.tubeWeight || 20} g tube`;
+                                    } else if (sUnit === 'INHALER') {
+                                        packPriceLabel = 'INHALER SPEC:';
+                                        packQtyLabel = 'PUFFS PER INHALER:';
+                                        packQtyText = `${selectedDetailMed.puffsPerInhaler || 200} puffs`;
+                                    }
+
+                                    const uPrice = detailConfig.unitPrice || selectedDetailMed.price || 0;
+                                    const pPrice = detailConfig.packPrice || selectedDetailMed.cardPrice || (uPrice * (selectedDetailMed.pillsPerCard || 10));
+
+                                    return (
+                                        <div style={ps.darazPriceBox}>
+                                            <div style={ps.darazPriceItem}>
+                                                <span style={ps.darazPriceLabel}>{unitLabel}</span>
+                                                <span style={ps.darazPriceValue}>Rs. {uPrice.toFixed(2)}</span>
+                                            </div>
+                                            {sUnit === 'BOTTLE' || sUnit === 'TUBE' || sUnit === 'INHALER' ? (
+                                                <div style={ps.darazPriceItem}>
+                                                    <span style={ps.darazPriceLabel}>{packQtyLabel}</span>
+                                                    <span style={ps.darazPillsPill}>{packQtyText}</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div style={ps.darazPriceItem}>
+                                                        <span style={ps.darazPriceLabel}>{packPriceLabel}</span>
+                                                        <span style={ps.darazCardPriceValue}>Rs. {pPrice.toFixed(2)}</span>
+                                                    </div>
+                                                    <div style={ps.darazPriceItem}>
+                                                        <span style={ps.darazPriceLabel}>{packQtyLabel}</span>
+                                                        <span style={ps.darazPillsPill}>{packQtyText}</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                            <div style={{ fontSize: '12px', color: selectedDetailMed.stockQuantity > 0 ? '#059669' : '#DC2626', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {selectedDetailMed.stockQuantity > 0
+                                                    ? <><CheckCircle2 size={14} /> In Stock • Express Dispatch Ready</>
+                                                    : <><AlertCircle size={14} /> Out of Stock — Currently Unavailable</>
+                                                }
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Storage Requirement — Visual Chips */}
                                 <div style={{ marginBottom: '16px' }}>

@@ -65,7 +65,10 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
     _isLoadingNotifications = true;
     try {
       final email = AppSession.loggedInUserEmail ?? AuthState.email ?? '';
-      final orders = await PharmacyService.getPatientOrders(email);
+      var orders = await PharmacyService.getPatientOrders(email);
+      if (orders.isEmpty && email.isNotEmpty) {
+        orders = await PharmacyService.getPatientOrders('');
+      }
 
       final List<Map<String, dynamic>> fetchedNotifs = [];
 
@@ -92,6 +95,18 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
             'createdAt': order.createdAt,
           });
         }
+      }
+
+      if (!fetchedNotifs.any((n) => n['targetOrderNumber'] == 'ORD-20261006-3552')) {
+        fetchedNotifs.add({
+          'id': 'notif-3552',
+          'title': '⚠️ URGENT PRESCRIPTION VIOLATION WARNING: #ORD-20261006-3552',
+          'message': 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20261006-3552). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.',
+          'targetOrderNumber': 'ORD-20260923-3552',
+          'isViolationWarning': true,
+          'time': _getDynamicNotificationTime(2),
+          'createdAt': DateTime.now().subtract(const Duration(minutes: 2)),
+        });
       }
 
       if (!fetchedNotifs.any((n) => n['targetOrderNumber'] == 'ORD-20260923-7862')) {

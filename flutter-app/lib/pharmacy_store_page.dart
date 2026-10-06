@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -2547,6 +2548,35 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
     }).toList();
   }
 
+  Widget _buildSmartImage(String rawUrl, {BoxFit fit = BoxFit.cover}) {
+    final cleanUrl = rawUrl.trim();
+    if (cleanUrl.isEmpty) {
+      return const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8)));
+    }
+    if (cleanUrl.startsWith('data:image/') && cleanUrl.contains(';base64,')) {
+      try {
+        final base64Str = cleanUrl.split(';base64,').last;
+        final bytes = base64Decode(base64Str);
+        return Image.memory(
+          bytes,
+          fit: fit,
+          errorBuilder: (c, e, s) => const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8))),
+        );
+      } catch (_) {
+        return const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8)));
+      }
+    }
+    return Image.network(
+      cleanUrl,
+      fit: fit,
+      errorBuilder: (c, e, s) => Image.network(
+        'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop',
+        fit: fit,
+        errorBuilder: (c2, e2, s2) => const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8))),
+      ),
+    );
+  }
+
   Future<void> _launchGoogleSearch(String query) async {
     final searchUrl = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query + " medicine dosage brand details")}');
     if (await canLaunchUrl(searchUrl)) {
@@ -2621,11 +2651,11 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Main Image View with 100% Genuine Medicine Badge
+                  // Main Image View with Genuine Medicine Seal
                   Stack(
                     children: [
                       Container(
-                        height: 220,
+                        height: 260,
                         width: double.infinity,
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFC),
@@ -2634,17 +2664,7 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          child: activeImg.startsWith('http')
-                              ? Image.network(
-                                  activeImg,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (c, e, s) => const Center(
-                                    child: Icon(Icons.medication_liquid, size: 64, color: Color(0xFF94A3B8)),
-                                  ),
-                                )
-                              : const Center(
-                                  child: Icon(Icons.medication_liquid, size: 64, color: Color(0xFF94A3B8)),
-                                ),
+                          child: _buildSmartImage(activeImg, fit: BoxFit.contain),
                         ),
                       ),
                       Positioned(
@@ -2700,11 +2720,7 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  imgUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (c, e, s) => const Icon(Icons.image, color: Colors.grey),
-                                ),
+                                child: _buildSmartImage(imgUrl, fit: BoxFit.cover),
                               ),
                             ),
                           );
@@ -2770,66 +2786,98 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                    child: Builder(
+                      builder: (context) {
+                        final sUnit = (med.sellingUnit).toUpperCase();
+                        String unitLabel = 'UNIT PRICE (PER ${sUnit == 'PILLS' ? 'PILL' : sUnit}): ';
+                        String packPriceLabel = 'ONE CARD PRICE: ';
+                        String packQtyText = 'PILLS IN ONE CARD: ${med.pillsPerCard} pills in one card';
+
+                        if (sUnit == 'SACHET') {
+                          packPriceLabel = 'ONE BOX PRICE: ';
+                          packQtyText = 'SACHETS IN ONE BOX: ${med.sachetsPerBox ?? 10} sachets in one box';
+                        } else if (sUnit == 'VIAL') {
+                          packPriceLabel = 'ONE BOX PRICE: ';
+                          packQtyText = 'VIALS IN ONE BOX: ${med.vialsPerBox ?? 5} vials in one box';
+                        } else if (sUnit == 'BOTTLE') {
+                          packPriceLabel = 'BOTTLE SIZE: ';
+                          packQtyText = 'VOLUME: ${med.bottleSize ?? 100} ml bottle';
+                        } else if (sUnit == 'TUBE') {
+                          packPriceLabel = 'TUBE WEIGHT: ';
+                          packQtyText = 'NET WEIGHT: ${med.tubeWeight ?? 20} g tube';
+                        } else if (sUnit == 'INHALER') {
+                          packPriceLabel = 'INHALER SPEC: ';
+                          packQtyText = 'PUFFS PER INHALER: ${med.puffsPerInhaler ?? 200} puffs';
+                        }
+
+                        final double pPrice = (sUnit == 'SACHET' || sUnit == 'VIAL')
+                            ? (med.boxPrice ?? med.cardPrice)
+                            : med.cardPrice;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('UNIT PRICE (PER PILL): ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                            Text(
-                              'Rs. ${med.price.toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                            Row(
+                              children: [
+                                Text(unitLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                                Text(
+                                  'Rs. ${med.price.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Text('ONE CARD PRICE: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                            Text(
-                              'Rs. ${med.cardPrice.toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(8),
+                            if (sUnit != 'BOTTLE' && sUnit != 'TUBE' && sUnit != 'INHALER') ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Text(packPriceLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                                  Text(
+                                    'Rs. ${pPrice.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                  ),
+                                ],
                               ),
-                              child: Text(
-                                'PILLS IN ONE CARD: ${med.pillsPerCard} pills in one card',
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    packQtyText,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Icon(
+                                  med.stockQuantity > 0 ? Icons.check_circle : Icons.cancel,
+                                  color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  med.stockQuantity > 0
+                                      ? 'In Stock \u2022 Express Dispatch Ready'
+                                      : 'Out of Stock \u2014 Currently Unavailable',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Icon(
-                              med.stockQuantity > 0 ? Icons.check_circle : Icons.cancel,
-                              color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              med.stockQuantity > 0
-                                  ? 'In Stock \u2022 Express Dispatch Ready'
-                                  : 'Out of Stock \u2014 Currently Unavailable',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
 
