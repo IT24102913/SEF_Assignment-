@@ -11,6 +11,7 @@ import '../../screens/lab/lab_hub_screen.dart';
 import 'emr_patient_screen.dart';
 import 'ai_clinical_advisor_screen.dart';
 import '../../my_pharmacy_orders_page.dart';
+import '../../services/pharmacy_service.dart';
 
 import '../../widgets/draggable_floating_support_buttons.dart';
 
@@ -29,6 +30,8 @@ class CustomerMainContainer extends StatefulWidget {
 class _CustomerMainContainerState extends State<CustomerMainContainer> {
   late int _currentIndex;
   final Set<String> _dismissedNotificationIds = {};
+  List<Map<String, dynamic>> _dynamicNotifications = [];
+  bool _isLoadingNotifications = false;
 
   @override
   void initState() {
@@ -36,6 +39,93 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
     _currentIndex = widget.initialTabIndex;
     if (AuthState.patientCode != null && AuthState.patientCode!.isNotEmpty) {
       EmrApiService.setActivePatient(AuthState.patientCode!, AuthState.name ?? 'Patient');
+    }
+    _fetchLiveNotifications();
+  }
+
+  String _formatDateTimeToRelative(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) {
+      return 'Just now';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes} mins ago';
+    } else if (diff.inHours < 24) {
+      final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+      final minute = dt.minute.toString().padLeft(2, '0');
+      final period = dt.hour >= 12 ? 'PM' : 'AM';
+      return '$hour:$minute $period (${diff.inHours}h ago)';
+    } else {
+      return '${dt.day}/${dt.month}/${dt.year}';
+    }
+  }
+
+  Future<void> _fetchLiveNotifications() async {
+    if (_isLoadingNotifications) return;
+    _isLoadingNotifications = true;
+    try {
+      final email = AppSession.loggedInUserEmail ?? AuthState.email ?? '';
+      final orders = await PharmacyService.getPatientOrders(email);
+
+      final List<Map<String, dynamic>> fetchedNotifs = [];
+
+      for (final order in orders) {
+        final isRejected = order.status.toLowerCase().contains('reject') ||
+            order.status.toLowerCase().contains('violation') ||
+            order.status.toLowerCase().contains('invalid') ||
+            order.status.toLowerCase().contains('cancel');
+
+        if (isRejected) {
+          final note = (order.adminNote != null && order.adminNote!.isNotEmpty)
+              ? order.adminNote!
+              : 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #${order.orderNumber}). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.';
+
+          final timeAgo = _formatDateTimeToRelative(order.createdAt);
+
+          fetchedNotifs.add({
+            'id': 'notif-${order.id}',
+            'title': '⚠️ URGENT PRESCRIPTION VIOLATION WARNING: #${order.orderNumber}',
+            'message': note,
+            'targetOrderNumber': order.orderNumber,
+            'isViolationWarning': true,
+            'time': timeAgo,
+            'createdAt': order.createdAt,
+          });
+        }
+      }
+
+      if (!fetchedNotifs.any((n) => n['targetOrderNumber'] == 'ORD-20260923-7862')) {
+        fetchedNotifs.add({
+          'id': 'notif-7862',
+          'title': '⚠️ URGENT PRESCRIPTION VIOLATION WARNING: #ORD-20260923-7862',
+          'message': 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.',
+          'targetOrderNumber': 'ORD-20260923-7862',
+          'isViolationWarning': true,
+          'time': _getDynamicNotificationTime(12),
+          'createdAt': DateTime.now().subtract(const Duration(minutes: 12)),
+        });
+      }
+
+      fetchedNotifs.add({
+        'id': 'notif-102',
+        'title': 'Lab Report Ready: CBC Pathology',
+        'message': 'Your Complete Blood Count (CBC) pathology report is certified and ready.',
+        'targetOrderNumber': '',
+        'isViolationWarning': false,
+        'time': _getDynamicNotificationTime(95),
+        'createdAt': DateTime.now().subtract(const Duration(minutes: 95)),
+      });
+
+      if (mounted) {
+        setState(() {
+          _dynamicNotifications = fetchedNotifs;
+          _isLoadingNotifications = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingNotifications = false);
+      }
     }
   }
 
@@ -522,22 +612,22 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
   Future<void> _sendAppealEmail(String orderNumber) async {
     final Uri emailLaunchUri = Uri(
       scheme: 'mailto',
-      path: 'medibridge@gmail.com',
+      path: 'healthbridgeyourpharmacy@gmail.com',
       queryParameters: {
         'subject': 'Prescription Violation Appeal - Order #$orderNumber',
-        'body': 'Dear MediBridge Support Team,\n\nI am submitting an appeal regarding the prescription violation warning issued for Order #$orderNumber.\n\nPlease find my explanation and doctor letter details below:\n',
+        'body': 'Dear HealthBridge Support Team,\n\nI am submitting an appeal regarding the prescription violation warning issued for Order #$orderNumber.\n\nPlease find my explanation and doctor letter details below:\n',
       },
     );
     if (await canLaunchUrl(emailLaunchUri)) {
       await launchUrl(emailLaunchUri);
     } else {
-      await launchUrl(Uri.parse('mailto:medibridge@gmail.com?subject=Prescription%20Violation%20Appeal%20-%20Order%20%23$orderNumber'));
+      await launchUrl(Uri.parse('mailto:healthbridgeyourpharmacy@gmail.com?subject=Prescription%20Violation%20Appeal%20-%20Order%20%23$orderNumber'));
     }
   }
 
   void _showPrescriptionViolationModal(BuildContext context, Map<String, dynamic> notif) {
     final orderNumber = notif['targetOrderNumber'] ?? 'ORD-20260923-7862';
-    final message = notif['message'] ?? 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to medibridge@gmail.com.';
+    final message = notif['message'] ?? 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.';
 
     showDialog(
       context: context,
@@ -648,7 +738,7 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'To appeal this decision or attach a doctor letter, tap the button below to email medibridge@gmail.com.',
+                      'To appeal this decision or attach a doctor letter, tap the button below to email healthbridgeyourpharmacy@gmail.com.',
                       style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                     ),
                   ],
@@ -712,11 +802,13 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
   }
 
   void _showNotificationsBottomSheet(BuildContext context) {
-    final allNotifications = [
+    _fetchLiveNotifications();
+
+    final fallbackNotifications = [
       {
         'id': 'notif-7862',
         'title': '⚠️ URGENT PRESCRIPTION VIOLATION WARNING: #ORD-20260923-7862',
-        'message': 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to medibridge@gmail.com.',
+        'message': 'We detected that you uploaded an invalid non-medical image for prescription verification (Order #ORD-20260923-7862). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to healthbridgeyourpharmacy@gmail.com.',
         'targetOrderNumber': 'ORD-20260923-7862',
         'isViolationWarning': true,
         'time': _getDynamicNotificationTime(12),
@@ -730,6 +822,8 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
         'time': _getDynamicNotificationTime(95),
       },
     ];
+
+    final allNotifications = _dynamicNotifications.isNotEmpty ? _dynamicNotifications : fallbackNotifications;
 
     showModalBottomSheet(
       context: context,
