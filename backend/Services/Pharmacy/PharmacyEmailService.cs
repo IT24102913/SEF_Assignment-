@@ -41,7 +41,10 @@ public class PharmacyEmailService : IPharmacyEmailService
         var apiKey = !string.IsNullOrWhiteSpace(pharmacyApiKey) ? pharmacyApiKey : globalApiKey;
 
         var explicitSmtpServer = _config["PharmacyBrevo:SmtpServer"] 
-            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpServer");
+            ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpServer") 
+            ?? _config["Brevo:SmtpServer"] 
+            ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer")
+            ?? "smtp.gmail.com";
         var hasExplicitSmtp = !string.IsNullOrWhiteSpace(explicitSmtpServer);
 
         _logger.LogInformation("[PharmacyEmail] Initiating email send: FROM={From} TO={To} SUBJECT={Subject} (HasExplicitSmtp={HasSmtp})", 
@@ -71,18 +74,15 @@ public class PharmacyEmailService : IPharmacyEmailService
             });
         }
 
-        // Helper: Send via direct SMTP (e.g. Gmail SMTP)
+        // Helper: Send via direct SMTP (e.g. Gmail SMTP) with dual-port fallback (587 & 465)
         async Task<bool> SendSmtpInternalAsync()
         {
-            var smtpServer = explicitSmtpServer 
-                ?? _config["Brevo:SmtpServer"] 
-                ?? Environment.GetEnvironmentVariable("Brevo__SmtpServer") 
-                ?? "smtp.gmail.com";
+            var smtpServer = explicitSmtpServer;
             var smtpPortStr = _config["PharmacyBrevo:SmtpPort"] 
                 ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpPort") 
                 ?? _config["Brevo:SmtpPort"] 
                 ?? Environment.GetEnvironmentVariable("Brevo__SmtpPort");
-            var smtpPort = !string.IsNullOrEmpty(smtpPortStr) && int.TryParse(smtpPortStr, out int p) ? p : 465;
+            var configuredPort = !string.IsNullOrEmpty(smtpPortStr) && int.TryParse(smtpPortStr, out int p) ? p : 587;
             var smtpUser = _config["PharmacyBrevo:SmtpUser"] 
                 ?? Environment.GetEnvironmentVariable("PharmacyBrevo__SmtpUser") 
                 ?? _config["Brevo:SmtpUser"] 
@@ -106,19 +106,33 @@ public class PharmacyEmailService : IPharmacyEmailService
             }
             message.Body = bodyBuilder.ToMessageBody();
 
-            using var client = new SmtpClient();
-            client.CheckCertificateRevocation = false;
-            client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+            int[] portsToTry = configuredPort == 465 ? new[] { 465, 587 } : new[] { 587, 465 };
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var socketOptions = smtpPort == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls;
-            await client.ConnectAsync(smtpServer, smtpPort, socketOptions, cts.Token);
-            await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
-            await client.SendAsync(message, cts.Token);
-            await client.DisconnectAsync(true, cts.Token);
+            foreach (var port in portsToTry)
+            {
+                try
+                {
+                    using var client = new SmtpClient();
+                    client.CheckCertificateRevocation = false;
+                    client.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-            _logger.LogInformation("[PharmacyEmail] ✅ Email sent successfully to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, smtpPort);
-            return true;
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    var socketOptions = port == 465 ? MailKit.Security.SecureSocketOptions.SslOnConnect : MailKit.Security.SecureSocketOptions.StartTls;
+                    await client.ConnectAsync(smtpServer, port, socketOptions, cts.Token);
+                    await client.AuthenticateAsync(smtpUser, smtpPass, cts.Token);
+                    await client.SendAsync(message, cts.Token);
+                    await client.DisconnectAsync(true, cts.Token);
+
+                    _logger.LogInformation("[PharmacyEmail] ✅ Email sent successfully to {Email} via SMTP ({Server}:{Port})", toEmail, smtpServer, port);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("[PharmacyEmail] ⚠️ SMTP connection failed on port {Port}: {Msg}. Trying alternate port...", port, ex.Message);
+                }
+            }
+
+            return false;
         }
 
         // Helper: Send via Brevo HTTPS REST API (guaranteed delivery via port 443 with verified sender & reply-to)
@@ -130,9 +144,6 @@ public class PharmacyEmailService : IPharmacyEmailService
                 ?? Environment.GetEnvironmentVariable("Brevo__FromEmail") 
                 ?? "diniruga@gmail.com";
 
-            // If a dedicated pharmacy Brevo key is supplied, trust fromEmail directly.
-            // If sharing the global Brevo API key, ensure sender email matches the verified account email
-            // (with Reply-To set to pharmacy email) so Brevo MTA does not drop unverified sender addresses.
             var actualSenderEmail = (!string.IsNullOrWhiteSpace(pharmacyApiKey) || fromEmail.Equals(verifiedBrevoEmail, StringComparison.OrdinalIgnoreCase))
                 ? fromEmail
                 : verifiedBrevoEmail;
@@ -173,40 +184,24 @@ public class PharmacyEmailService : IPharmacyEmailService
         }
 
         // STRATEGY:
-        // 1. If explicit SMTP credentials were provided (e.g. PharmacyBrevo__SmtpServer=smtp.gmail.com), try SMTP first!
-        if (hasExplicitSmtp)
+        // 1. Try Direct SMTP (Gmail SMTP) first
+        try
         {
-            try
-            {
-                if (await SendSmtpInternalAsync()) return;
-            }
-            catch (Exception smtpEx)
-            {
-                _logger.LogWarning("[PharmacyEmail] ⚠️ Explicit SMTP failed ({Msg}). Trying Brevo HTTPS REST API fallback...", smtpEx.Message);
-            }
+            if (await SendSmtpInternalAsync()) return;
+        }
+        catch (Exception smtpEx)
+        {
+            _logger.LogWarning("[PharmacyEmail] ⚠️ Direct SMTP failed ({Msg}). Trying Brevo HTTPS REST API fallback...", smtpEx.Message);
         }
 
-        // 2. Try Brevo HTTPS REST API (guaranteed delivery via Port 443 with verified Brevo sender & reply-to)
+        // 2. Try Brevo HTTPS REST API fallback
         try
         {
             if (await SendBrevoRestInternalAsync()) return;
         }
         catch (Exception brevoEx)
         {
-            _logger.LogWarning("[PharmacyEmail] ⚠️ Brevo REST API failed ({Msg}).", brevoEx.Message);
-        }
-
-        // 3. Fallback to SMTP if not already attempted
-        if (!hasExplicitSmtp)
-        {
-            try
-            {
-                if (await SendSmtpInternalAsync()) return;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[PharmacyEmail] ❌ All email transport methods failed for {Email}: {Msg}", toEmail, ex.Message);
-            }
+            _logger.LogError(brevoEx, "[PharmacyEmail] ❌ All email transport methods failed for {Email}: {Msg}", toEmail, brevoEx.Message);
         }
     }
 
