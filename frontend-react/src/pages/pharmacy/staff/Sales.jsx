@@ -21,6 +21,7 @@ import {
     Search,
     CreditCard,
     Wallet,
+    Store,
     Banknote,
     FileText,
     Eye,
@@ -336,12 +337,13 @@ const Sales = () => {
 
         filteredOrders.forEach(o => {
             const pm = (o.paymentMethod || '').toLowerCase();
+            const dm = (o.deliveryMethod || '').toLowerCase();
             const amt = o.totalAmount || 0;
 
             if (pm.includes('card') || pm.includes('credit') || pm.includes('debit')) {
                 card.count += 1;
                 card.amount += amt;
-            } else if (pm.includes('online') || pm.includes('stripe') || pm.includes('transfer') || pm.includes('paypal')) {
+            } else if (pm.includes('counter') || pm.includes('payatcounter') || pm.includes('pickup') || dm.includes('pickup')) {
                 online.count += 1;
                 online.amount += amt;
             } else {
@@ -988,11 +990,11 @@ const Sales = () => {
                                 <div style={{ fontSize: '11px', color: '#64748B', textAlign: 'right', marginTop: '3px' }}>{paymentBreakdown.card.pct}% of period turnover</div>
                             </div>
 
-                            {/* Online */}
+                            {/* Counter / Pickup */}
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', fontWeight: 700, color: '#1E293B' }}>
-                                        <Wallet size={16} color="#8B5CF6" /> Online Gateway / Transfer
+                                        <Store size={16} color="#8B5CF6" /> Pay at Counter / Pickup
                                     </div>
                                     <div style={{ fontSize: '13px', fontWeight: 800, color: '#8B5CF6' }}>
                                         {formatCurrency(paymentBreakdown.online.amount)} <span style={{ fontSize: '11px', color: '#64748B', fontWeight: 500 }}>({paymentBreakdown.online.count} orders)</span>
