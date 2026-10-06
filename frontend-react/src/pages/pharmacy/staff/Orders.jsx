@@ -63,7 +63,8 @@ import {
     RotateCcw,
     Camera,
     AlertOctagon,
-    Mail
+    Mail,
+    QrCode
 } from 'lucide-react';
 
 const Orders = () => {
@@ -1132,6 +1133,38 @@ const Orders = () => {
                                 <div>Fulfillment: <strong>{selectedOrder.deliveryMethod === 'Pickup' ? 'Counter Pickup (FREE)' : 'Home Delivery (Delivery Charges < 500 - Pay on Delivery)'}</strong></div>
                                 {selectedOrder.deliveryAddress && <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>Address: {selectedOrder.deliveryAddress}</div>}
                             </div>
+
+                            {/* Counter Pickup Digital QR Ticket for Staff Verification */}
+                            {(selectedOrder.deliveryMethod === 'Pickup' || selectedOrder.paymentMethod === 'PayAtCounter') && (
+                                <div style={{
+                                    background: '#ECFDF5',
+                                    border: '1px solid #A7F3D0',
+                                    borderRadius: '12px',
+                                    padding: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '14px'
+                                }}>
+                                    <div style={{ background: '#FFFFFF', padding: '6px', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
+                                        <img
+                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`PHARMACY_ORDER|${selectedOrder.orderNumber || selectedOrder.id}|${selectedOrder.customerName || 'Patient'}|${selectedOrder.totalAmount || 0}`)}`}
+                                            alt="Staff QR Verification"
+                                            style={{ width: '70px', height: '70px', display: 'block' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#D1FAE5', color: '#065F46', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', marginBottom: '4px' }}>
+                                            <QrCode size={12} /> Counter Pickup QR Ticket
+                                        </div>
+                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A' }}>
+                                            Ticket Order #{selectedOrder.orderNumber}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#047857' }}>
+                                            Patient Counter Express Scan Validated
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {selectedOrder.prescriptionImageUrl && (
                                 <div style={{ background: '#FFFBEB', padding: '12px', borderRadius: '8px', border: '1px solid #FDE68A' }}>

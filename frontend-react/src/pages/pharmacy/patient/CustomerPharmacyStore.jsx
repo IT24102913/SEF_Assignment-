@@ -572,7 +572,9 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             setPrescriptionPreview(null);
             setPrescriptionFile(null);
 
-            if (isRx) {
+            const isPickupOrCounter = (deliveryMethod === 'Pickup' || paymentMethod === 'PayAtCounter');
+
+            if (isRx || isPickupOrCounter) {
                 setOrderSuccessData(createdOrder);
             } else {
                 showToastMessage('Order placed successfully!', 'success');
@@ -1556,10 +1558,10 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                 </div>
             )}
 
-            {/* Prescription Order Submission Confirmation Modal */}
+            {/* Prescription Order & Pickup QR Pass Submission Confirmation Modal */}
             {orderSuccessData && (
                 <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(5px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                    <div style={{ backgroundColor: '#FFFFFF', padding: '32px', borderRadius: '24px', maxWidth: '480px', width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #E2E8F0' }}>
+                    <div style={{ backgroundColor: '#FFFFFF', padding: '32px', borderRadius: '24px', maxWidth: '490px', width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #E2E8F0', maxHeight: '90vh', overflowY: 'auto' }}>
                         <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#ECFDF5', border: '2px solid #A7F3D0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                             <CheckCircle2 size={36} color="#059669" />
                         </div>
@@ -1568,32 +1570,107 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             Order #{orderSuccessData.orderNumber || 'Submitted'}
                         </span>
 
-                        <h3 style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', margin: '12px 0 8px' }}>
-                            Prescription Order Submitted!
+                        <h3 style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', margin: '12px 0 6px' }}>
+                            {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter')
+                                ? 'Counter Pickup QR Ticket Pass Generated!'
+                                : 'Prescription Order Submitted!'}
                         </h3>
 
-                        <p style={{ fontSize: '13.5px', color: '#475569', lineHeight: 1.55, margin: '0 0 20px' }}>
-                            Your doctor prescription photo &amp; details have been sent to our registered pharmacists for verification.
+                        <p style={{ fontSize: '13.5px', color: '#475569', lineHeight: 1.55, margin: '0 0 16px' }}>
+                            {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter')
+                                ? 'Your pharmacy order has been placed for Counter Pickup. Present the QR code below at the hospital counter.'
+                                : 'Your doctor prescription photo & details have been sent to our registered pharmacists for verification.'}
                         </p>
+
+                        {/* Generated QR Code Digital Pass for Pickup & Counter Orders */}
+                        {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter') && (
+                            <div style={{
+                                backgroundColor: '#F8FAFC',
+                                border: '2px dashed #059669',
+                                borderRadius: '18px',
+                                padding: '20px 16px',
+                                margin: '0 0 20px 0',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    backgroundColor: '#ECFDF5',
+                                    color: '#047857',
+                                    border: '1px solid #A7F3D0',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    padding: '4px 12px',
+                                    borderRadius: '20px',
+                                    marginBottom: '12px',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    <QrCode size={14} /> Hospital Pharmacy Counter QR Pass
+                                </div>
+
+                                <div style={{
+                                    backgroundColor: '#FFFFFF',
+                                    padding: '12px',
+                                    borderRadius: '16px',
+                                    display: 'inline-block',
+                                    boxShadow: '0 4px 14px rgba(0,0,0,0.06)',
+                                    marginBottom: '10px',
+                                    border: '1px solid #CBD5E1'
+                                }}>
+                                    <img
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`PHARMACY_ORDER|${orderSuccessData.orderNumber || orderSuccessData.id}|${orderSuccessData.customerName || 'Patient'}|${orderSuccessData.totalAmount || 0}`)}`}
+                                        alt="Pharmacy Counter Pickup QR Code Ticket"
+                                        style={{ width: '160px', height: '160px', display: 'block' }}
+                                    />
+                                </div>
+
+                                <div style={{ fontSize: '14px', fontWeight: 800, color: '#0F172A', marginBottom: '2px' }}>
+                                    Ticket #{orderSuccessData.orderNumber || 'ORD-PICKUP'}
+                                </div>
+                                <p style={{ fontSize: '11.5px', color: '#64748B', margin: 0, lineHeight: 1.45 }}>
+                                    Show this QR Digital Ticket at the Hospital Pharmacy Counter for instant order collection &amp; counter payment.
+                                </p>
+                            </div>
+                        )}
 
                         <div style={{ textAlign: 'left', backgroundColor: '#F8FAFC', padding: '16px', borderRadius: '14px', border: '1px solid #E2E8F0', fontSize: '12.5px', color: '#334155', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
                             <div style={{ fontWeight: 700, color: '#0F172A', marginBottom: '2px' }}>📋 Next Steps for your Order:</div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>1.</span>
-                                <span>Licensed pharmacist reviews your doctor prescription receipt.</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
-                                <span>Pharmacist calculates total cost for medicines and home delivery charges (payable on delivery &lt; Rs. 500).</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
-                                <span>An updated quote will be posted under <strong>My Orders</strong> tab.</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>4.</span>
-                                <span>You can review the approved price and click <strong>Confirm &amp; Pay</strong>.</span>
-                            </div>
+                            {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter') ? (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>1.</span>
+                                        <span>Visit the HealthBridge Main Hospital Pharmacy Counter.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
+                                        <span>Show this QR Digital Ticket or Order #{orderSuccessData.orderNumber} to the pharmacist.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
+                                        <span>Pay cash or card at counter &amp; collect your medicine package instantly!</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>1.</span>
+                                        <span>Licensed pharmacist reviews your doctor prescription receipt.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
+                                        <span>Pharmacist calculates total cost for medicines and home delivery charges (payable on delivery &lt; Rs. 500).</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
+                                        <span>An updated quote will be posted under <strong>My Orders</strong> tab.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>4.</span>
+                                        <span>You can review the approved price and click <strong>Confirm &amp; Pay</strong>.</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', gap: '12px' }}>
