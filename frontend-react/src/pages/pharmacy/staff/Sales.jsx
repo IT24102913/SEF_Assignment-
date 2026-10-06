@@ -592,7 +592,7 @@ const Sales = () => {
             t.customerEmail || 'N/A',
             t.items?.length || 1,
             t.totalAmount || 0,
-            t.paymentMethod || 'Cash on Delivery',
+            (t.paymentMethod === 'PayAtCounter' || t.deliveryMethod === 'Pickup' || (t.paymentMethod || '').toLowerCase().includes('counter')) ? 'Pay at Counter' : (t.paymentMethod || 'Cash on Delivery'),
             t.status || 'Completed'
         ]);
 
@@ -1283,7 +1283,8 @@ const Sales = () => {
                                         const pmBadge =
                                             (o.paymentMethod || '').toLowerCase().includes('card') ? { bg: '#E0F2FE', fg: '#0284C7', label: 'Card' } :
                                                 (o.paymentMethod || '').toLowerCase().includes('online') ? { bg: '#F3E8FF', fg: '#9333EA', label: 'Online' } :
-                                                    { bg: '#ECFDF5', fg: '#059669', label: 'Cash on Delivery' };
+                                                    ((o.paymentMethod || '').toLowerCase().includes('counter') || (o.paymentMethod || '').toLowerCase().includes('payatcounter') || (o.deliveryMethod || '').toLowerCase().includes('pickup')) ? { bg: '#ECFDF5', fg: '#047857', label: 'Pay at Counter' } :
+                                                        { bg: '#FFFBEB', fg: '#D97706', label: 'Cash on Delivery' };
 
                                         return (
                                             <tr key={o.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
