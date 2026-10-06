@@ -94,7 +94,7 @@ class MedicineModel {
     }
     if (imgs.length == 1) {
       imgs.add('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
-      imgs.add('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+      imgs.add('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
     }
     return imgs;
   }
