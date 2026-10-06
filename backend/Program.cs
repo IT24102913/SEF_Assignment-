@@ -253,6 +253,8 @@ try
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""CheckedInByUserId"" integer NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""StatusChangeReason"" text NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""ReadyAlertSentAt"" timestamp with time zone NULL;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorSessions"" ADD COLUMN IF NOT EXISTS ""SessionType"" text NOT NULL DEFAULT 'Morning';");
+    db.Database.ExecuteSqlRaw(@"UPDATE ""DoctorSessions"" SET ""SessionType"" = CASE WHEN ""SessionTime"" < '12:00:00' THEN 'Morning' WHEN ""SessionTime"" < '17:00:00' THEN 'Evening' ELSE 'Night' END WHERE ""SessionType"" = 'Morning' AND ""SessionTime"" >= '12:00:00';");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""IsSavedToEmr"" boolean NOT NULL DEFAULT FALSE;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""EmrLabReportId"" uuid NULL;");
 

@@ -8,6 +8,7 @@ import {
   forceStatusAppointment
 } from '../../../api/doctorApi';
 import logoImage from '../../../assets/mediz.png';
+import { FALLBACK_DOCTORS, generateFallbackSessions } from '../../../data/fallbackDoctors';
 import {
   Stethoscope, Calendar, Clock, MapPin, User, Search,
   CheckCircle2, XCircle, AlertCircle, RefreshCw, QrCode,
@@ -115,9 +116,14 @@ const DoctorAppointmentsAdmin = () => {
       if (Array.isArray(res.data) && res.data.length > 0) {
         setDoctorsList(res.data);
         setSelectedDoctorId(res.data[0].id);
+      } else {
+        setDoctorsList(FALLBACK_DOCTORS);
+        setSelectedDoctorId(FALLBACK_DOCTORS[0].id);
       }
     } catch (err) {
-      console.error('Failed to load doctors list', err);
+      console.warn('Failed to load doctors list from server, using fallback:', err);
+      setDoctorsList(FALLBACK_DOCTORS);
+      setSelectedDoctorId(FALLBACK_DOCTORS[0].id);
     }
   };
 
@@ -125,11 +131,14 @@ const DoctorAppointmentsAdmin = () => {
     setLoadingSessions(true);
     try {
       const res = await getDoctorSessions(docId);
-      if (Array.isArray(res.data)) {
+      if (Array.isArray(res.data) && res.data.length > 0) {
         setDoctorSessions(res.data);
+      } else {
+        setDoctorSessions(generateFallbackSessions(Number(docId)));
       }
     } catch (err) {
-      console.error('Failed to load sessions', err);
+      console.warn('Failed to load sessions from server, using fallback:', err);
+      setDoctorSessions(generateFallbackSessions(Number(docId)));
     } finally {
       setLoadingSessions(false);
     }

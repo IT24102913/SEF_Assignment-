@@ -35,6 +35,8 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationTokenExpiresAt\" timestamp with time zone;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"NicNumber\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"DoctorAppointments\" ADD COLUMN IF NOT EXISTS \"ReadyAlertSentAt\" timestamp with time zone;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"DoctorSessions\" ADD COLUMN IF NOT EXISTS \"SessionType\" text NOT NULL DEFAULT 'Morning';");
+            await context.Database.ExecuteSqlRawAsync("UPDATE \"DoctorSessions\" SET \"SessionType\" = CASE WHEN \"SessionTime\" < '12:00:00' THEN 'Morning' WHEN \"SessionTime\" < '17:00:00' THEN 'Evening' ELSE 'Night' END WHERE \"SessionType\" = 'Morning' AND \"SessionTime\" >= '12:00:00';");
             await context.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"IsEmailVerified\" = true;");
             await context.Database.ExecuteSqlRawAsync(@"
                 CREATE TABLE IF NOT EXISTS ""RecommendationWorkflows"" (
