@@ -286,6 +286,31 @@ public static class DbInitializer
                 CreatedAt = DateTime.UtcNow
             };
             context.PatientProfiles.Add(profile);
+            await context.SaveChangesAsync();
+        }
+
+        // Ensure EMR Patient record exists for patientUser
+        if (!await context.Patients.AnyAsync(p => p.UserId == patientUser.Id || p.Email == patientUser.Email))
+        {
+            var emrPatient = new HealthBridge.Api.Models.EMR.Patient
+            {
+                UserId = patientUser.Id,
+                PatientCode = "PAT-1001",
+                FullName = patientUser.FullName,
+                Email = patientUser.Email,
+                ContactPhone = "+94 77 123 4567",
+                Address = "742 Evergreen Terrace, Colombo",
+                Gender = "Male",
+                BloodGroup = "O+",
+                DateOfBirth = DateTime.UtcNow.AddYears(-30),
+                EmergencyContactName = "Jane Doe",
+                EmergencyContactPhone = "+94 71 987 6543",
+                Allergies = "None reported",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            context.Patients.Add(emrPatient);
+            await context.SaveChangesAsync();
         }
 
         // 4. Seed Categories if none exist
