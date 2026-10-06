@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getDisplayConfig } from '../../../utils/getDisplayConfig';
 import { api } from '../../../api/authApi';
+import { API_BASE_URL } from '../../../api/config';
 import PrescriptionViolationModal from '../../../components/modals/PrescriptionViolationModal';
 import {
     Search,
@@ -186,11 +187,54 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         }
     };
 
+    const resolveImageUrl = (url) => {
+        if (!url || typeof url !== 'string') return '';
+        const trimmed = url.trim();
+        if (!trimmed) return '';
+        if (trimmed.startsWith('data:image/')) return trimmed;
+
+        if (trimmed.startsWith('/uploads/')) {
+            const base = (API_BASE_URL || 'http://localhost:5126/api').replace(/\/api\/?$/, '');
+            return `${base}${trimmed}`;
+        }
+        if (trimmed.includes('/uploads/')) {
+            const relativePath = '/uploads/' + trimmed.split('/uploads/')[1];
+            const base = (API_BASE_URL || 'http://localhost:5126/api').replace(/\/api\/?$/, '');
+            return `${base}${relativePath}`;
+        }
+        return trimmed;
+    };
+
+    // SmartImg: renders both base64 data URIs and regular network URLs
+    const SmartImg = ({ src, alt, style, onError }) => {
+        if (!src) return null;
+        const resolved = resolveImageUrl(src);
+        return (
+            <img
+                src={resolved}
+                alt={alt}
+                style={style}
+                onError={(e) => {
+                    if (onError) onError(e);
+                    if (!e.target.src.includes('unsplash.com')) {
+                        e.target.src = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                    }
+                }}
+            />
+        );
+    };
+
     const getGalleryImages = (med) => {
         if (!med) return [];
         const list = [];
 
-        // 1. Parse additionalImagesJson (admin uploaded photos) FIRST so valid uploaded images take priority
+        // 1. Main imageUrl always comes FIRST (as admin intended)
+        if (med.imageUrl && typeof med.imageUrl === 'string' && med.imageUrl.trim()) {
+            const resolvedMain = resolveImageUrl(med.imageUrl);
+            if (resolvedMain) list.push(resolvedMain);
+        }
+
+        // 2. Additional uploaded angle images come after
         if (med.additionalImagesJson) {
             try {
                 const parsed = typeof med.additionalImagesJson === 'string'
@@ -198,28 +242,16 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     : med.additionalImagesJson;
                 if (Array.isArray(parsed)) {
                     parsed.forEach(url => {
-                        if (url && typeof url === 'string' && url.trim() && !list.includes(url.trim())) {
-                            list.push(url.trim());
+                        const resolved = resolveImageUrl(url);
+                        if (resolved && !list.includes(resolved)) {
+                            list.push(resolved);
                         }
                     });
                 }
             } catch (e) { }
         }
 
-        // 2. Process main imageUrl
-        if (med.imageUrl && typeof med.imageUrl === 'string' && med.imageUrl.trim()) {
-            const main = med.imageUrl.trim();
-            const isBrokenStock = main.includes('photo-1584308666744-24d5c474f2ae') || main.includes('photo-1471864190281');
-            if (!list.includes(main)) {
-                if (isBrokenStock && list.length > 0) {
-                    list.push(main);
-                } else {
-                    list.unshift(main);
-                }
-            }
-        }
-
-        // 3. Guaranteed working high-res medical photo fallbacks
+        // 3. Fallbacks only if no images at all
         if (list.length === 0) {
             list.push('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
         }
@@ -893,16 +925,16 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                 }}
                             >
                                 <div style={ps.imgWrapper}>
-                                    <img
+                                    <SmartImg
                                         src={getGalleryImages(med)[0] || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop'}
                                         alt={med.name}
                                         style={ps.cardImg}
                                         onError={(e) => {
                                             const gallery = getGalleryImages(med);
-                                            const fallback = gallery[1] || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
-                                            if (e.target.src !== fallback) {
-                                                e.target.src = fallback;
-                                            }
+                                            // Try next image in gallery on failure
+                                            const nextImg = gallery.find(u => u && !u.startsWith('data:') && e.target.src !== u);
+                                            const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) e.target.src = fallback;
                                         }}
                                     />
                                     {isRx && (
@@ -1871,10 +1903,16 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             {/* Left Column: Multi-Angle Gallery */}
                             <div style={ps.darazGallerySection}>
                                 <div style={ps.darazMainImgContainer}>
-                                    <img
+                                    <SmartImg
                                         src={getGalleryImages(selectedDetailMed)[activeDetailImageIndex] || selectedDetailMed.imageUrl}
                                         alt={selectedDetailMed.name}
                                         style={ps.darazMainImg}
+                                        onError={(e) => {
+                                            const gallery = getGalleryImages(selectedDetailMed);
+                                            const nextImg = gallery.find(u => u && !u.startsWith('data:') && e.target.src !== u);
+                                            const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) e.target.src = fallback;
+                                        }}
                                     />
                                     <div style={ps.genuineSeal}>
                                         <Sparkles size={12} color="#059669" /> 100% Genuine Medicine
@@ -1894,7 +1932,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 transform: activeDetailImageIndex === idx ? 'scale(1.05)' : 'scale(1)'
                                             }}
                                         >
-                                            <img src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg} />
+                                            <SmartImg src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg}
+                                                onError={(e) => {
+                                                    if (!e.target.src.includes('unsplash')) e.target.src = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=60&auto=format&fit=crop';
+                                                }}
+                                            />
                                         </button>
                                     ))}
                                 </div>

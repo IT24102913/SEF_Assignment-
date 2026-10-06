@@ -69,19 +69,40 @@ class MedicineModel {
     this.pricePerUnit,
   }) : cardPrice = cardPrice ?? (price * (pillsPerCard > 0 ? pillsPerCard : 10));
 
+  static String resolveImageUrl(String? url) {
+    if (url == null) return '';
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return '';
+    if (trimmed.startsWith('data:image/')) return trimmed;
+    if (trimmed.startsWith('/uploads/')) {
+      return '${ApiConfig.activeHost}$trimmed';
+    }
+    if (trimmed.contains('/uploads/')) {
+      final relativePath = '/uploads/${trimmed.split('/uploads/').last}';
+      return '${ApiConfig.activeHost}$relativePath';
+    }
+    return trimmed;
+  }
+
   List<String> get galleryImages {
     final List<String> imgs = [];
 
-    // 1. Parse additionalImagesJson (admin uploaded photos) FIRST so valid uploaded images take priority
+    // 1. Main imageUrl always comes FIRST (resolved)
+    if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
+      final resolved = resolveImageUrl(imageUrl);
+      if (resolved.isNotEmpty) imgs.add(resolved);
+    }
+
+    // 2. Additional uploaded angle images come after
     if (additionalImagesJson != null && additionalImagesJson!.trim().isNotEmpty) {
       try {
         final parsed = jsonDecode(additionalImagesJson!);
         if (parsed is List) {
           for (final item in parsed) {
             if (item != null && item.toString().trim().isNotEmpty) {
-              final str = item.toString().trim();
-              if (!imgs.contains(str)) {
-                imgs.add(str);
+              final resolved = resolveImageUrl(item.toString());
+              if (resolved.isNotEmpty && !imgs.contains(resolved)) {
+                imgs.add(resolved);
               }
             }
           }
@@ -89,20 +110,7 @@ class MedicineModel {
       } catch (_) {}
     }
 
-    // 2. Process main imageUrl
-    if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
-      final main = imageUrl!.trim();
-      final isBrokenStock = main.contains('photo-1584308666744-24d5c474f2ae') || main.contains('photo-1471864190281');
-      if (!imgs.contains(main)) {
-        if (isBrokenStock && imgs.isNotEmpty) {
-          imgs.add(main);
-        } else {
-          imgs.insert(0, main);
-        }
-      }
-    }
-
-    // 3. Fallback working high-res photos
+    // 3. Fallbacks only if no images at all
     if (imgs.isEmpty) {
       imgs.add('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
     }
