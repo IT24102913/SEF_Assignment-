@@ -15,6 +15,15 @@ class LabHubScreen extends StatefulWidget {
 }
 
 class _LabHubScreenState extends State<LabHubScreen> {
+  // Static in-memory cache to prevent counts from vanishing during transitions/rebuilds
+  static List<LabBooking>? _cachedBookings;
+  static int _cachedTotalBookings = 0;
+  static int _cachedPendingCount = 0;
+  static int _cachedActiveCount = 0;
+  static int _cachedResultsReadyCount = 0;
+  static bool? _cachedIsLoggedIn;
+  static String? _cachedUserName;
+
   int _totalBookings = 0;
   int _pendingCount = 0;
   int _activeCount = 0;
@@ -27,6 +36,20 @@ class _LabHubScreenState extends State<LabHubScreen> {
   @override
   void initState() {
     super.initState();
+    if (_cachedBookings != null) {
+      _recentBookings = _cachedBookings!;
+      _totalBookings = _cachedTotalBookings;
+      _pendingCount = _cachedPendingCount;
+      _activeCount = _cachedActiveCount;
+      _resultsReadyCount = _cachedResultsReadyCount;
+      _isLoggedIn = _cachedIsLoggedIn ?? false;
+      _userName = _cachedUserName ?? 'Patient';
+      _loading = false;
+    } else {
+      _isLoggedIn = (AuthState.token != null && AuthState.token!.isNotEmpty) ||
+          (AuthState.userId != null && AuthState.userId!.isNotEmpty) ||
+          AppSession.isLoggedIn;
+    }
     _loadData();
   }
 
@@ -47,12 +70,17 @@ class _LabHubScreenState extends State<LabHubScreen> {
           : (AuthState.userId ?? '');
       final userEmail = (user != null && user.email.isNotEmpty)
           ? user.email
-          : (AuthState.email?.isNotEmpty == true ? AuthState.email! : '');
+          : (AuthState.email?.isNotEmpty == true
+              ? AuthState.email!
+              : (AppSession.loggedInUserEmail ?? ''));
+
+      _cachedIsLoggedIn = loggedIn;
+      _cachedUserName = loggedIn ? rawName.split(' ').first : 'Guest';
 
       if (mounted) {
         setState(() {
           _isLoggedIn = loggedIn;
-          _userName = loggedIn ? rawName.split(' ').first : 'Guest';
+          _userName = _cachedUserName!;
         });
       }
 
@@ -60,41 +88,68 @@ class _LabHubScreenState extends State<LabHubScreen> {
         if (mounted) {
           setState(() {
             _loading = false;
-            _recentBookings = [];
-            _totalBookings = 0;
-            _pendingCount = 0;
-            _activeCount = 0;
-            _resultsReadyCount = 0;
+            if (!loggedIn) {
+              _recentBookings = [];
+              _totalBookings = 0;
+              _pendingCount = 0;
+              _activeCount = 0;
+              _resultsReadyCount = 0;
+              _cachedBookings = null;
+            }
           });
         }
         return;
       }
 
       final bookings = await LabApiService.getMyBookings(userId, email: userEmail)
-          .timeout(const Duration(seconds: 15), onTimeout: () => []);
+          .timeout(const Duration(seconds: 12));
+
+      final total = bookings.length;
+      final pending = bookings.where((b) =>
+        b.status == 'PendingLabApproval' ||
+        b.status == 'PendingPrescriptionUpload' ||
+        b.status == 'PendingAIVerification'
+      ).length;
+      final active = bookings.where((b) => 
+        b.status != 'Completed' && 
+        b.status != 'Cancelled' && 
+        b.status != 'Rejected'
+      ).length;
+      final results = bookings.where((b) => 
+        (b.status == 'ReportDelivered' || b.status == 'Completed') &&
+        (b.resultFileUrl != null && b.resultFileUrl!.isNotEmpty)
+      ).length;
+
+      _cachedBookings = bookings;
+      _cachedTotalBookings = total;
+      _cachedPendingCount = pending;
+      _cachedActiveCount = active;
+      _cachedResultsReadyCount = results;
+
       if (mounted) {
         setState(() {
           _recentBookings = bookings;
-          _totalBookings = bookings.length;
-          _pendingCount = bookings.where((b) =>
-            b.status == 'PendingLabApproval' ||
-            b.status == 'PendingPrescriptionUpload' ||
-            b.status == 'PendingAIVerification'
-          ).length;
-          _activeCount = bookings.where((b) => 
-            b.status != 'Completed' && 
-            b.status != 'Cancelled' && 
-            b.status != 'Rejected'
-          ).length;
-          _resultsReadyCount = bookings.where((b) => 
-            (b.status == 'ReportDelivered' || b.status == 'Completed') &&
-            (b.resultFileUrl != null && b.resultFileUrl!.isNotEmpty)
-          ).length;
+          _totalBookings = total;
+          _pendingCount = pending;
+          _activeCount = active;
+          _resultsReadyCount = results;
           _loading = false;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      // If network fails or times out, preserve previous cache so counts do NOT vanish
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          if (_cachedBookings != null) {
+            _recentBookings = _cachedBookings!;
+            _totalBookings = _cachedTotalBookings;
+            _pendingCount = _cachedPendingCount;
+            _activeCount = _cachedActiveCount;
+            _resultsReadyCount = _cachedResultsReadyCount;
+          }
+        });
+      }
     }
   }
 
@@ -297,7 +352,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ALL')),
-                            ),
+                            ).then((_) => _loadData()),
                           ),
                           const SizedBox(width: 8),
                           _StatCard(
@@ -308,7 +363,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
-                            ),
+                            ).then((_) => _loadData()),
                           ),
                           const SizedBox(width: 8),
                           _StatCard(
@@ -319,7 +374,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
-                            ),
+                            ).then((_) => _loadData()),
                           ),
                           const SizedBox(width: 8),
                           _StatCard(
@@ -330,7 +385,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'RESULTS')),
-                            ),
+                            ).then((_) => _loadData()),
                           ),
                         ],
                       ),
@@ -352,7 +407,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                               relatedBookings: allLatestActive,
                             ),
                           ),
-                        ),
+                        ).then((_) => _loadData()),
                         child: Row(
                           children: [
                             Container(
@@ -427,7 +482,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                                 relatedBookings: const [],
                               ),
                             ),
-                          ),
+                          ).then((_) => _loadData()),
                           child: Row(
                             children: [
                               Container(
@@ -520,7 +575,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                 badgeText: 'Instant Booking',
                 onTap: () => _requireLoginAction(
                   featureName: 'book a laboratory test',
-                  onAuthenticated: () => Navigator.pushNamed(context, '/catalogue'),
+                  onAuthenticated: () => Navigator.pushNamed(context, '/catalogue').then((_) => _loadData()),
                 ),
               ),
               const SizedBox(height: 12),
@@ -537,7 +592,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                   onAuthenticated: () => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'ACTIVE')),
-                  ),
+                  ).then((_) => _loadData()),
                 ),
               ),
               const SizedBox(height: 12),
@@ -554,7 +609,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                   onAuthenticated: () => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'RESULTS')),
-                  ),
+                  ).then((_) => _loadData()),
                 ),
               ),
               const SizedBox(height: 12),
@@ -570,7 +625,7 @@ class _LabHubScreenState extends State<LabHubScreen> {
                   onAuthenticated: () => Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const MyBookingsScreen(statusFilter: 'HISTORY')),
-                  ),
+                  ).then((_) => _loadData()),
                 ),
               ),
 

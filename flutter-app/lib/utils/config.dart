@@ -2,23 +2,22 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class ApiConfig {
-  /// Remote Production Backend Host (e.g. Railway URL)
+  /// Remote Production Backend Host (Railway URL)
   /// Can be supplied at build time:
   ///   flutter build apk --dart-define=BACKEND_URL=https://sefassignment-production.up.railway.app
   /// Or defaults to manualRemoteHost below:
   static const String _dartDefinedBackendUrl = String.fromEnvironment('BACKEND_URL', defaultValue: '');
 
-  /// Set to true so the mobile/web app connects to the running local backend and database
-  static const bool _useLocalInDebug = true;
+  /// Set to true only for local debugging (via flutter run with local backend)
+  static const bool _useLocalInDebug = false;
 
   /// Automatically safe for Git and CI/CD:
-  /// - Release APK builds (GitHub Actions / production) use Railway hosted backend unless defined.
-  /// - Debug mode or Web uses local backend by default.
+  /// - Release APK builds (GitHub Actions / downloaded release) ALWAYS connect to live Railway backend.
+  /// - Web builds use relative or local by default.
+  /// - Debug mode connects locally only if _useLocalInDebug is explicitly true.
   static bool get useLocalBackend {
     if (kIsWeb) return true;
-    if (kReleaseMode && _dartDefinedBackendUrl.isNotEmpty) {
-      return false;
-    }
+    if (kReleaseMode) return false;
     return _useLocalInDebug;
   }
 
@@ -41,26 +40,28 @@ class ApiConfig {
     return cleaned;
   }
 
-  /// Preferred local host:
-  /// - 'http://localhost:5126'   -> Web or local Windows desktop
-  /// - 'http://10.0.2.2:5126'    -> Android Emulator
-  /// - 'http://192.168.91.48:5126' -> Physical Android phone on the same Wi-Fi
-  static String get localHost {
-    if (kIsWeb) return 'http://localhost:5126';
-    return 'http://10.183.84.217:5126';
-  }
+  static String get localHost => 'http://localhost:5126';
 
-  static String _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://10.183.84.217:5126';
+  // In release mode or default configuration, activeHost defaults to live Railway production!
+  static String _activeHost = (kReleaseMode || !useLocalBackend)
+      ? 'https://sefassignment-production.up.railway.app'
+      : 'http://localhost:5126';
 
   static String get activeHost => _activeHost;
 
   static List<String> get candidateHosts {
+    if (kReleaseMode || !useLocalBackend) {
+      return [
+        productionHost,
+        'http://localhost:5126',
+        'http://10.0.2.2:5126',
+      ];
+    }
     return [
       'http://10.183.84.217:5126',
       'http://localhost:5126',
-      'http://192.168.1.6:5126',
-      'http://127.0.0.1:5126',
       'http://10.0.2.2:5126',
+      'http://127.0.0.1:5126',
       productionHost,
     ];
   }
@@ -84,7 +85,9 @@ class ApiConfig {
         }
       } catch (_) {}
     }
-    _activeHost = kIsWeb ? 'http://localhost:5126' : 'http://10.183.84.217:5126';
+    _activeHost = (kReleaseMode || !useLocalBackend)
+        ? productionHost
+        : (kIsWeb ? 'http://localhost:5126' : 'http://10.0.2.2:5126');
     return '$_activeHost/api';
   }
 }

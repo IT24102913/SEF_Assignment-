@@ -376,7 +376,7 @@ public class DoctorAppointmentsControllerTests
         await db.SaveChangesAsync();
 
         var mockEmailSender = new Mock<IEmailSender>();
-        var mockEmailService = new Mock<IEmailService>();
+        var mockEmailService = new Mock<IDoctorEmailService>();
         var mockConfig = new Mock<IConfiguration>();
         var mockScopeFactory = new Mock<IServiceScopeFactory>();
 
@@ -452,7 +452,7 @@ public class DoctorAppointmentsControllerTests
         await db.SaveChangesAsync();
 
         var mockEmailSender = new Mock<IEmailSender>();
-        var mockEmailService = new Mock<IEmailService>();
+        var mockEmailService = new Mock<IDoctorEmailService>();
         var mockConfig = new Mock<IConfiguration>();
         var mockScopeFactory = new Mock<IServiceScopeFactory>();
 
@@ -540,7 +540,7 @@ public class DoctorAppointmentsControllerTests
         var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
 
         var mockConfig = new Mock<IConfiguration>();
-        var mockEmailService = new Mock<IEmailService>();
+        var mockEmailService = new Mock<IDoctorEmailService>();
 
         var service = new AppointmentService(
             db,
@@ -641,7 +641,7 @@ public class DoctorAppointmentsControllerTests
         await db.SaveChangesAsync();
 
         var sentEmails = new List<(string Email, string EstTime, string ArrTime)>();
-        var mockEmailService = new Mock<IEmailService>();
+        var mockEmailService = new Mock<IDoctorEmailService>();
         mockEmailService.Setup(e => e.SendDoctorSessionDelayedAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
@@ -718,7 +718,7 @@ public class DoctorAppointmentsControllerTests
             NullLogger<AppointmentService>.Instance,
             new Mock<IEmailSender>().Object,
             new Mock<IServiceScopeFactory>().Object,
-            new Mock<IEmailService>().Object
+            new Mock<IDoctorEmailService>().Object
         );
 
         AppointmentDto? firstDto = null;
@@ -844,7 +844,7 @@ public class DoctorAppointmentsControllerTests
         await db.SaveChangesAsync();
 
         var notifiedEmails = new List<string>();
-        var mockEmailService = new Mock<IEmailService>();
+        var mockEmailService = new Mock<IDoctorEmailService>();
         mockEmailService.Setup(e => e.SendDoctorSessionStartedAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
             .Callback<string, string, string, string, string>((email, name, doc, sess, current) => {

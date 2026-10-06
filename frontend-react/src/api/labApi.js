@@ -5,6 +5,18 @@ const BASE_URL = `${API_BASE_URL}/lab`;
 
 const api = axios.create({ baseURL: BASE_URL });
 
+// Attach Authorization Bearer token to all lab API calls
+api.interceptors.request.use(
+  (config) => {
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    if (token && !token.startsWith('mock-demo')) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 // ─── Lab Tests ────────────────────────────────────────────────────────────────
 export const getAllTests = (search = '', category = '', includeInactive = false) =>
   api.get(`/tests?search=${search}&category=${category}&includeInactive=${includeInactive}`);

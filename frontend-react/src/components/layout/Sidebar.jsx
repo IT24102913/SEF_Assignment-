@@ -6,7 +6,13 @@ import {
   TestTube, LogOut, ArrowLeft, ShieldCheck, Sparkles, UserCheck
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getAllBookings } from '../../api/labApi';
+import { getAllBookings, getStats } from '../../api/labApi';
+
+// Persistent memory cache to prevent counts from resetting/vanishing during page navigation
+let cachedCounts = {
+  pendingApprovals: 0,
+  pendingTests: 0,
+};
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -15,42 +21,51 @@ export default function Sidebar() {
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
 
-  const [counts, setCounts] = useState({
-    pendingApprovals: 0,
-    pendingTests: 0,
-  });
+  const [counts, setCounts] = useState(cachedCounts);
 
   const fetchCounts = () => {
-    getAllBookings('')
+    getStats()
       .then(res => {
-        const all = res.data || [];
-        const pendingApprovals = all.filter(b => 
-          b.status === 'PendingLabApproval' ||
-          b.status === 'PendingPrescriptionUpload' ||
-          b.status === 'PendingAIVerification'
-        ).length;
-        const pendingTests = all.filter(b => 
-          b.status === 'Confirmed' ||
-          b.status === 'SampleCollected' ||
-          b.status === 'TestingInProgress' ||
-          b.status === 'ResultVerification' ||
-          b.status === 'ResultsReady' ||
-          b.status === 'ReportDelivered'
-        ).length;
-        setCounts({ pendingApprovals, pendingTests });
+        if (res?.data) {
+          const newCounts = {
+            pendingApprovals: res.data.pendingApproval ?? 0,
+            pendingTests: res.data.pendingTestsCount ?? 0,
+          };
+          cachedCounts = newCounts;
+          setCounts(newCounts);
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Fallback to getAllBookings with case-insensitive status matching
+        getAllBookings('')
+          .then(res => {
+            const all = res.data || [];
+            const pendingApprovals = all.filter(b => {
+              const s = (b.status || '').toLowerCase();
+              return s === 'pendinglabapproval' || s === 'pendingprescriptionupload' || s === 'pendingaiverification';
+            }).length;
+            const pendingTests = all.filter(b => {
+              const s = (b.status || '').toLowerCase();
+              return s === 'confirmed' || s === 'samplecollected' || s === 'testinginprogress' ||
+                     s === 'resultverification' || s === 'resultsready' || s === 'reportdelivered';
+            }).length;
+            const newCounts = { pendingApprovals, pendingTests };
+            cachedCounts = newCounts;
+            setCounts(newCounts);
+          })
+          .catch(() => {});
+      });
   };
 
   useEffect(() => {
     fetchCounts();
-    const interval = setInterval(fetchCounts, 8000);
+    const interval = setInterval(fetchCounts, 10000);
     window.addEventListener('lab-booking-updated', fetchCounts);
     return () => {
       clearInterval(interval);
       window.removeEventListener('lab-booking-updated', fetchCounts);
     };
-  }, [location.pathname]);
+  }, []);
 
   const handleLogout = () => {
     logout();
