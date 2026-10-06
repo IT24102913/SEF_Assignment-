@@ -275,6 +275,11 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+            tooltip: 'Refresh Profile',
+            onPressed: _fetchProfile,
+          ),
+          IconButton(
             icon: const Icon(Icons.logout_rounded, color: Colors.white),
             tooltip: 'Log Out',
             onPressed: _confirmLogout,
@@ -283,9 +288,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: HealthBridgeTheme.primaryTeal))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
-              child: Column(
+          : RefreshIndicator(
+              color: HealthBridgeTheme.accentTeal,
+              onRefresh: _fetchProfile,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // ── Patient Header Card ──────────────────────────────────────
@@ -732,6 +741,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 ],
               ),
             ),
+          ),
     );
   }
 

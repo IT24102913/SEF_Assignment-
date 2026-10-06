@@ -14,7 +14,7 @@ public class RegisterRequest
     public string Email { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "Phone number is required.")]
-    [RegularExpression(@"^(?:\+94|0)?7[0-9]{8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
+    [RegularExpression(@"^(?:\+94|0)?[\s\-]*7(?:[\s\-]*[0-9]){8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
     public string PhoneNumber { get; set; } = string.Empty;
 
     [Required(ErrorMessage = "NIC number is required.")]

@@ -117,24 +117,33 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
         }
 
         setLoading(true);
+        const cleanedPhone = profileData.phoneNumber ? profileData.phoneNumber.replace(/[\s\-]/g, '') : '';
+        const cleanedEmergency = profileData.emergencyContactPhone ? profileData.emergencyContactPhone.replace(/[\s\-]/g, '') : '';
+
         try {
             await api.put('/users/profile', {
-                phoneNumber: profileData.phoneNumber.trim(),
-                address: profileData.address,
-                city: profileData.city,
+                phoneNumber: cleanedPhone,
+                address: profileData.address?.trim() || '',
+                city: profileData.city?.trim() || '',
                 gender: profileData.gender,
                 dateOfBirth: profileData.dateOfBirth ? `${profileData.dateOfBirth}T00:00:00Z` : null,
                 bloodGroup: profileData.bloodGroup,
-                emergencyContact: profileData.emergencyContactPhone,
-                emergencyContactName: profileData.emergencyContactName,
-                emergencyContactPhone: profileData.emergencyContactPhone,
-                allergies: profileData.allergies
+                emergencyContact: cleanedEmergency,
+                emergencyContactName: profileData.emergencyContactName?.trim() || '',
+                emergencyContactPhone: cleanedEmergency,
+                allergies: profileData.allergies?.trim() || ''
             });
 
-            // Update local session user
+            // Update local state and session user
+            setProfileData(prev => ({
+                ...prev,
+                phoneNumber: cleanedPhone,
+                emergencyContactPhone: cleanedEmergency
+            }));
+
             const updatedUser = {
                 ...user,
-                phoneNumber: profileData.phoneNumber.trim(),
+                phoneNumber: cleanedPhone,
                 address: profileData.address,
                 city: profileData.city,
                 nicNumber: profileData.nicNumber,
@@ -142,7 +151,8 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
                 dateOfBirth: profileData.dateOfBirth,
                 bloodGroup: profileData.bloodGroup,
                 emergencyContactName: profileData.emergencyContactName,
-                emergencyContactPhone: profileData.emergencyContactPhone,
+                emergencyContactPhone: cleanedEmergency,
+                emergencyContact: cleanedEmergency,
                 allergies: profileData.allergies,
                 patientCode: profileData.patientCode
             };
@@ -150,10 +160,15 @@ const PatientProfileSection = ({ user: initialUser, showToast }) => {
 
             showToast?.('Profile updated successfully!', 'success');
         } catch (err) {
-            const msg = err.response?.data?.message ||
-                (err.response?.data?.errors?.PhoneNumber?.[0]) ||
-                'Failed to update profile details.';
-            showToast?.(msg, 'error');
+            const serverErrors = err.response?.data?.errors;
+            let errorMsg = err.response?.data?.message;
+            if (!errorMsg && serverErrors) {
+                const firstKey = Object.keys(serverErrors)[0];
+                if (firstKey && serverErrors[firstKey]?.length) {
+                    errorMsg = serverErrors[firstKey][0];
+                }
+            }
+            showToast?.(errorMsg || 'Failed to update profile details.', 'error');
         } finally {
             setLoading(false);
         }

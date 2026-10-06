@@ -24,7 +24,7 @@ public class PatientResponse
 
 public class UpdatePatientProfileRequest
 {
-    [RegularExpression(@"^(?:\+94|0)?7[0-9]{8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
+    [RegularExpression(@"^(?:\+94|0)?[\s\-]*7(?:[\s\-]*[0-9]){8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
     public string? PhoneNumber { get; set; }
     public string? Address { get; set; }
     public string? City { get; set; }
@@ -36,7 +36,7 @@ public class UpdatePatientProfileRequest
 
 public class UpdateUserProfileDto
 {
-    [RegularExpression(@"^(?:\+94|0)?7[0-9]{8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
+    [RegularExpression(@"^(?:\+94|0)?[\s\-]*7(?:[\s\-]*[0-9]){8}$", ErrorMessage = "Please enter a valid Sri Lankan phone number, e.g., +94771234567 or 0771234567.")]
     public string? PhoneNumber { get; set; }
     public string? Address { get; set; }
     public string? City { get; set; }
