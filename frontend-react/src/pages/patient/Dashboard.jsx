@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api/authApi';
+import { getMyAppointments } from '../../api/doctorApi';
+import { getMyBookings } from '../../api/labApi';
+import { emrApi } from '../../api/emrApi';
 import logoImage from '../../assets/mediz.png';
 import loginBg from '../../assets/hut.png';
 
@@ -704,7 +707,119 @@ const CompanyTrustAndFacilities = () => {
 };
 
 /* ─── Dashboard Home ─────────────────────────────────── */
-const DashboardHome = ({ user, onNavigate }) => (
+const DashboardHome = ({ user, onNavigate }) => {
+    const [stats, setStats] = useState({
+        prescriptions: 0,
+        labTests: 0,
+        pendingOrders: 0,
+        appointments: 0,
+        loading: true,
+    });
+
+    useEffect(() => {
+        let isMounted = true;
+        const fetchAllStats = async () => {
+            const userEmail = (user?.email || user?.Email || '').trim();
+            const patientId = parseInt(user?.id || user?.userId || user?.Id) || null;
+            const patientCode = user?.patientCode || '';
+
+            let prescriptionsCount = 0;
+            let labCount = 0;
+            let pendingOrdersCount = 0;
+            let appointmentsCount = 0;
+
+            // 1. Fetch Orders (Pending orders & Prescription orders)
+            try {
+                let apiOrders = [];
+                try {
+                    const res = await api.get('/PharmacyOrders');
+                    apiOrders = res.data || [];
+                } catch (e) {
+                    // fallback to local cache
+                }
+                let localOrders = [];
+                try {
+                    localOrders = JSON.parse(localStorage.getItem('medix_pharmacy_orders') || '[]');
+                } catch (e) {}
+
+                const orderMap = new Map();
+                [...apiOrders, ...localOrders].forEach(o => {
+                    if (o && (o.id || o.orderNumber)) {
+                        orderMap.set(o.id || o.orderNumber, o);
+                    }
+                });
+                const allOrders = Array.from(orderMap.values()).filter(o => {
+                    if (!userEmail) return true;
+                    return (o.customerEmail?.toLowerCase() === userEmail.toLowerCase()) || (patientId && o.patientId === patientId);
+                });
+
+                // Pending orders are those that are not Delivered and not Cancelled/Rejected
+                pendingOrdersCount = allOrders.filter(o => 
+                    !['delivered', 'cancelled', 'rejected'].includes((o.status || '').toLowerCase())
+                ).length;
+
+                // Rx orders
+                const rxOrders = allOrders.filter(o => 
+                    (o.prescriptionImageUrl || (o.items && o.items.some(i => i.requiresPrescription))) &&
+                    !['cancelled', 'rejected'].includes((o.status || '').toLowerCase())
+                ).length;
+                prescriptionsCount = rxOrders;
+            } catch (e) {
+                console.warn('Failed to load orders for stats:', e);
+            }
+
+            // Also check EMR clinical summary for active prescriptions count if available
+            try {
+                const codeToUse = patientCode || (user?.id ? `PAT-${user.id}` : '');
+                if (codeToUse) {
+                    const summary = await emrApi.getClinicalSummary(codeToUse).catch(() => null);
+                    if (summary?.activePrescriptionsCount !== undefined && summary.activePrescriptionsCount > 0) {
+                        prescriptionsCount = Math.max(prescriptionsCount, summary.activePrescriptionsCount);
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+
+            // 2. Fetch Lab Bookings
+            try {
+                const res = await getMyBookings(patientId || 1, userEmail);
+                const raw = res?.data || res || [];
+                const bookings = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
+                labCount = bookings.filter(b => 
+                    !['cancelled', 'rejected'].includes((b.status || '').toLowerCase())
+                ).length;
+            } catch (e) {
+                console.warn('Failed to load lab bookings for stats:', e);
+            }
+
+            // 3. Fetch Doctor Appointments
+            try {
+                const res = await getMyAppointments({ patientId, email: userEmail });
+                const appointments = Array.isArray(res?.data) ? res.data : [];
+                appointmentsCount = appointments.filter(a => 
+                    !['cancelled', 'rejected'].includes((a.status || '').toLowerCase())
+                ).length;
+            } catch (e) {
+                console.warn('Failed to load appointments for stats:', e);
+            }
+
+            if (isMounted) {
+                setStats({
+                    prescriptions: prescriptionsCount,
+                    labTests: labCount,
+                    pendingOrders: pendingOrdersCount,
+                    appointments: appointmentsCount,
+                    loading: false,
+                });
+            }
+        };
+
+        fetchAllStats();
+        return () => { isMounted = false; };
+    }, [user]);
+
+    return (
     <div style={{ maxWidth: '1180px', margin: '0 auto' }}>
         {/* 1. Welcome Banner - Mint Green with Crisp White Text */}
         <div style={{
@@ -737,10 +852,10 @@ const DashboardHome = ({ user, onNavigate }) => (
         {/* 3. Dark Modern Quick Stats Widgets */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '18px', marginBottom: '36px' }}>
             {[
-                { label: 'Active Prescriptions', value: '2', icon: Pill, color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', border: 'rgba(167,139,250,0.3)', tab: 'orders' },
-                { label: 'Lab Tests Booked', value: '1', icon: FlaskConical, color: '#FBBF24', bg: 'rgba(251,191,36,0.15)', border: 'rgba(251,191,36,0.3)', tab: 'labs' },
-                { label: 'Pending Orders', value: '1', icon: ClipboardList, color: '#2DD4BF', bg: 'rgba(45,212,191,0.15)', border: 'rgba(45,212,191,0.3)', tab: 'orders' },
-                { label: 'Appointments', value: '0', icon: CalendarDays, color: '#60A5FA', bg: 'rgba(96,165,250,0.15)', border: 'rgba(96,165,250,0.3)', tab: 'channeling' },
+                { label: 'Active Prescriptions', value: stats.prescriptions, icon: Pill, color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', border: 'rgba(167,139,250,0.3)', tab: 'orders' },
+                { label: 'Lab Tests Booked', value: stats.labTests, icon: FlaskConical, color: '#FBBF24', bg: 'rgba(251,191,36,0.15)', border: 'rgba(251,191,36,0.3)', tab: 'labs' },
+                { label: 'Pending Orders', value: stats.pendingOrders, icon: ClipboardList, color: '#2DD4BF', bg: 'rgba(45,212,191,0.15)', border: 'rgba(45,212,191,0.3)', tab: 'orders' },
+                { label: 'Appointments', value: stats.appointments, icon: CalendarDays, color: '#60A5FA', bg: 'rgba(96,165,250,0.15)', border: 'rgba(96,165,250,0.3)', tab: 'channeling' },
             ].map(({ label, value, icon: Icon, color, bg, border, tab }) => (
                 <div key={label}
                     onClick={() => tab && onNavigate(tab)}
@@ -805,7 +920,8 @@ const DashboardHome = ({ user, onNavigate }) => (
             </div>
         </div>
     </div>
-);
+  );
+};
 
 /* ─── Footer (Mint Green Theme with Clear White Letters) ─────── */
 const CorporateFooter = () => (

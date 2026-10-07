@@ -371,12 +371,30 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     setCurrentStep(3);
 
     try {
+      const isDocGenMed = (doctor.specialization || '').toLowerCase().includes('general') || (doctor.specialization || '').toLowerCase().includes('physician');
       const res = await getDoctorSessions(doctor.id);
       if (Array.isArray(res.data) && res.data.length > 0) {
-        const validUpcomingSessions = res.data.filter(s => !s.isExpired);
-        setAvailableSessions(validUpcomingSessions);
-        if (validUpcomingSessions.length > 0) {
-          const uniqueDates = [...new Set(validUpcomingSessions.map(s => s.sessionDate))];
+        // Filter out expired sessions and Night sessions for non-General Medicine doctors
+        const validUpcomingSessions = res.data.filter(s => {
+          if (s.isExpired) return false;
+          if ((s.sessionType || '').toLowerCase() === 'night' && !isDocGenMed) return false;
+          return true;
+        });
+
+        // Deduplicate: Keep only ONE session per sessionType on each date (preferring higher maxCapacity)
+        const dedupMap = new Map();
+        for (const s of validUpcomingSessions) {
+          const key = `${s.sessionDate}_${(s.sessionType || 'Morning').toLowerCase()}`;
+          const existing = dedupMap.get(key);
+          if (!existing || (s.maxCapacity || 0) > (existing.maxCapacity || 0) || (s.currentBookings || 0) > (existing.currentBookings || 0)) {
+            dedupMap.set(key, s);
+          }
+        }
+        const dedupList = Array.from(dedupMap.values());
+
+        setAvailableSessions(dedupList);
+        if (dedupList.length > 0) {
+          const uniqueDates = [...new Set(dedupList.map(s => s.sessionDate))].sort();
           setSelectedSessionDate(uniqueDates[0]);
         } else {
           const fallback = generateFallbackSessions(doctor.id);
@@ -740,8 +758,17 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     try {
       const res = await getDoctorSessions(apt.doctorId);
       if (Array.isArray(res.data)) {
-        // Exclude current session and expired/unavailable sessions
-        setRescheduleSessions(res.data.filter(s => s.id !== apt.doctorSessionId && s.isAvailable && !s.isExpired));
+        // Exclude current session and expired/unavailable sessions, and deduplicate
+        const valid = res.data.filter(s => s.id !== apt.doctorSessionId && s.isAvailable && !s.isExpired);
+        const dedup = new Map();
+        for (const s of valid) {
+          const key = `${s.sessionDate}_${(s.sessionType || 'Morning').toLowerCase()}`;
+          const existing = dedup.get(key);
+          if (!existing || (s.maxCapacity || 0) > (existing.maxCapacity || 0)) {
+            dedup.set(key, s);
+          }
+        }
+        setRescheduleSessions(Array.from(dedup.values()));
       }
     } catch (err) {
       notify('Failed to load reschedule sessions', 'error');
@@ -783,11 +810,47 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     }
   };
 
-  const uniqueSessionDates = [...new Set(availableSessions.filter(s => !s.isExpired).map(s => s.sessionDate))];
+  const isSelectedDocGenMed = (selectedDoctor?.specialization || '').toLowerCase().includes('general') ||
+    (selectedDoctor?.specialization || '').toLowerCase().includes('physician');
 
-  const sessionsForSelectedDate = availableSessions.filter(
-    s => s.sessionDate === selectedSessionDate && !s.isExpired
-  );
+  const uniqueSessionDates = React.useMemo(() => {
+    const valid = availableSessions.filter(s => {
+      if (s.isExpired) return false;
+      const type = (s.sessionType || '').toLowerCase();
+      if (type === 'night' && !isSelectedDocGenMed) return false;
+      return true;
+    });
+    return [...new Set(valid.map(s => s.sessionDate))].sort();
+  }, [availableSessions, isSelectedDocGenMed]);
+
+  const sessionsForSelectedDate = React.useMemo(() => {
+    const rawSessions = availableSessions.filter(
+      s => s.sessionDate === selectedSessionDate && !s.isExpired
+    );
+
+    // Specialty restriction: Night session is strictly for General Medicine
+    const valid = rawSessions.filter(s => {
+      const type = (s.sessionType || '').toLowerCase();
+      if (type === 'night' && !isSelectedDocGenMed) {
+        return false;
+      }
+      return true;
+    });
+
+    // Deduplicate: Keep only ONE session per sessionType (Morning, Evening, Night) on this date
+    // Prefer higher maxCapacity, then higher bookings
+    const map = new Map();
+    for (const session of valid) {
+      const type = session.sessionType || 'Morning';
+      const existing = map.get(type);
+      if (!existing || (session.maxCapacity || 0) > (existing.maxCapacity || 0) || (session.currentBookings || 0) > (existing.currentBookings || 0)) {
+        map.set(type, session);
+      }
+    }
+
+    const order = { 'Morning': 1, 'Evening': 2, 'Night': 3 };
+    return Array.from(map.values()).sort((a, b) => (order[a.sessionType] || 99) - (order[b.sessionType] || 99));
+  }, [availableSessions, selectedSessionDate, isSelectedDocGenMed]);
 
   const totalFee = (selectedDoctor?.consultationFee || 0) + 300.00;
 

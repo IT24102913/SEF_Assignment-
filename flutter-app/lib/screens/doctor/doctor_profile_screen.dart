@@ -60,7 +60,7 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
           _sessions = upcomingSessions;
           _loadingSessions = false;
           if (upcomingSessions.isNotEmpty) {
-            final dates = upcomingSessions.map((s) => s.sessionDate).toSet().toList();
+            final dates = _uniqueDates;
             if (dates.isNotEmpty) {
               _selectedDate = dates.first;
               final firstDateSessions = _getFilteredSessionsForDate(_selectedDate);
@@ -79,12 +79,22 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
     }
   }
 
-  List<String> get _uniqueDates => _sessions.where((s) => !_isSessionExpired(s)).map((s) => s.sessionDate).toSet().toList();
+  List<String> get _uniqueDates {
+    final spec = widget.doctor.specialization.trim().toLowerCase();
+    final isGeneralMedicine = spec == 'general medicine' || spec.contains('physician');
+    return _sessions
+        .where((s) => !_isSessionExpired(s) && (isGeneralMedicine || s.sessionType.toLowerCase() != 'night'))
+        .map((s) => s.sessionDate)
+        .toSet()
+        .toList();
+  }
 
-  /// Specialty-correct visibility: Night option (19:30–21:30) is restricted to General Medicine
+  /// Specialty-correct visibility: Night option is restricted to General Medicine
+  /// Deduplicated: Exactly ONE session per sessionType (Morning, Evening, Night) on each date
   List<DoctorSession> _getFilteredSessionsForDate(String date) {
-    final isGeneralMedicine = widget.doctor.specialization.trim().toLowerCase() == 'general medicine';
-    return _sessions.where((s) {
+    final spec = widget.doctor.specialization.trim().toLowerCase();
+    final isGeneralMedicine = spec == 'general medicine' || spec.contains('physician');
+    final matching = _sessions.where((s) {
       if (s.sessionDate != date) return false;
       if (_isSessionExpired(s)) return false;
       if (s.sessionType.toLowerCase() == 'night' && !isGeneralMedicine) {
@@ -92,6 +102,20 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
       }
       return true;
     }).toList();
+
+    // Deduplicate by sessionType, keeping the session with the highest maxCapacity
+    final Map<String, DoctorSession> deduplicated = {};
+    for (final session in matching) {
+      final key = session.sessionType.toLowerCase();
+      if (!deduplicated.containsKey(key) || session.maxCapacity > deduplicated[key]!.maxCapacity) {
+        deduplicated[key] = session;
+      }
+    }
+
+    final order = {'morning': 1, 'evening': 2, 'night': 3};
+    final list = deduplicated.values.toList();
+    list.sort((a, b) => (order[a.sessionType.toLowerCase()] ?? 99).compareTo(order[b.sessionType.toLowerCase()] ?? 99));
+    return list;
   }
 
   void _onSelectSession(DoctorSession session) {
