@@ -594,7 +594,6 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
 
                   final isMorning = session.sessionType.toLowerCase() == 'morning';
                   final isEvening = session.sessionType.toLowerCase() == 'evening';
-                  final iconEmoji = isMorning ? '🌅' : isEvening ? '🌇' : '🌙';
                   final sessionTitle = '${session.sessionType} OPD Session';
                   final timeDisplay = session.timeRange.isNotEmpty ? session.timeRange : session.timeFormatted;
 
@@ -623,7 +622,7 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                       ),
                       child: Row(
                         children: [
-                          // Emoji / Time of Day Indicator
+                          // Time of Day Indicator
                           Container(
                             width: 44,
                             height: 44,
@@ -636,7 +635,19 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             alignment: Alignment.center,
-                            child: Text(iconEmoji, style: const TextStyle(fontSize: 22)),
+                            child: Icon(
+                              isMorning
+                                  ? Icons.wb_sunny_rounded
+                                  : isEvening
+                                      ? Icons.wb_twilight_rounded
+                                      : Icons.nightlight_round,
+                              color: isMorning
+                                  ? const Color(0xFFD97706)
+                                  : isEvening
+                                      ? const Color(0xFF7C3AED)
+                                      : const Color(0xFF4F46E5),
+                              size: 22,
+                            ),
                           ),
                           const SizedBox(width: 12),
 

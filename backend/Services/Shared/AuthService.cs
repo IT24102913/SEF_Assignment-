@@ -211,13 +211,18 @@ public class AuthService : IAuthService
     {
         string? patientCode = null;
         PatientProfile? profile = null;
+        Patient? p = null;
 
         if (user.Role == UserRole.Patient)
         {
-            var p = await _context.Patients.FirstOrDefaultAsync(x => x.UserId == user.Id || x.Email.ToLower() == user.Email.ToLower());
+            p = await _context.Patients.FirstOrDefaultAsync(x => x.UserId == user.Id || x.Email.ToLower() == user.Email.ToLower());
             patientCode = p?.PatientCode;
             profile = await _context.PatientProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id);
         }
+
+        var resolvedPhone = !string.IsNullOrWhiteSpace(profile?.PhoneNumber) ? profile.PhoneNumber : (p?.ContactPhone ?? "");
+        var resolvedAddress = !string.IsNullOrWhiteSpace(profile?.Address) ? profile.Address : (p?.Address ?? "");
+        var resolvedNic = !string.IsNullOrWhiteSpace(profile?.NicNumber) ? profile.NicNumber : (user.NicNumber ?? "");
 
         return new UserResponse
         {
@@ -229,8 +234,9 @@ public class AuthService : IAuthService
             IsPharmacyBlocked = user.IsPharmacyBlocked,
             BlockReason = user.BlockReason,
             ProfileImage = user.ProfileImage,
-            NicNumber = profile?.NicNumber ?? user.NicNumber,
-            PhoneNumber = profile?.PhoneNumber,
+            NicNumber = resolvedNic,
+            PhoneNumber = resolvedPhone,
+            Address = resolvedAddress,
             IsEmailVerified = user.IsEmailVerified
         };
     }

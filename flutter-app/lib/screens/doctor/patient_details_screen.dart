@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/doctor_api_service.dart';
 import '../../services/auth_service.dart';
+import '../../services/emr_api_service.dart';
 import '../../utils/theme.dart';
 import 'payment_confirmation_screen.dart';
 
@@ -35,6 +36,7 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
   AutovalidateMode _autoValidateMode = AutovalidateMode.disabled;
   String _bookingType = 'Reservation'; // 'Reservation' or 'OnlinePayment'
   bool _reserving = false;
+  bool _isAutofilled = false;
 
   @override
   void initState() {
@@ -43,12 +45,72 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
   }
 
   Future<void> _prefillUserData() async {
+    // 1. First prefill immediately from cached AuthService data
     final user = await AuthService.getUser();
     if (user != null && mounted) {
       setState(() {
-        _nameCtrl.text = user.name;
-        _emailCtrl.text = user.email;
+        if (_nameCtrl.text.isEmpty && user.name.isNotEmpty) _nameCtrl.text = user.name;
+        if (_emailCtrl.text.isEmpty && user.email.isNotEmpty) _emailCtrl.text = user.email;
+        if (_nicCtrl.text.isEmpty && user.nicNumber != null && user.nicNumber!.isNotEmpty) {
+          _nicCtrl.text = user.nicNumber!;
+        }
+        if (_phoneCtrl.text.isEmpty && user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
+          _phoneCtrl.text = user.phoneNumber!;
+        }
+        if (_addressCtrl.text.isEmpty && user.address != null && user.address!.isNotEmpty) {
+          _addressCtrl.text = user.address!;
+        }
+        if ((user.nicNumber != null && user.nicNumber!.isNotEmpty) ||
+            (user.phoneNumber != null && user.phoneNumber!.isNotEmpty)) {
+          _isAutofilled = true;
+        }
       });
+    }
+
+    // 2. Fetch fresh verified patient profile from backend to ensure NIC, phone, and address are present
+    try {
+      final patient = await EmrApiService.getMyPatient();
+      if (mounted) {
+        setState(() {
+          if (_nameCtrl.text.isEmpty && patient.fullName.isNotEmpty) {
+            _nameCtrl.text = patient.fullName;
+          }
+          if (_emailCtrl.text.isEmpty && patient.email.isNotEmpty) {
+            _emailCtrl.text = patient.email;
+          }
+          if (_nicCtrl.text.isEmpty && patient.nicNumber.isNotEmpty) {
+            _nicCtrl.text = patient.nicNumber;
+          }
+          if (_phoneCtrl.text.isEmpty && patient.contactPhone.isNotEmpty) {
+            _phoneCtrl.text = patient.contactPhone;
+          }
+          if (_addressCtrl.text.isEmpty && patient.address.isNotEmpty) {
+            _addressCtrl.text = patient.address;
+          }
+          if (patient.nicNumber.isNotEmpty || patient.contactPhone.isNotEmpty) {
+            _isAutofilled = true;
+          }
+        });
+
+        // Cache updated fields to AuthService for instant offline retrieval
+        if (user != null) {
+          final updated = AuthUser(
+            token: user.token,
+            userId: user.userId,
+            name: patient.fullName.isNotEmpty ? patient.fullName : user.name,
+            email: patient.email.isNotEmpty ? patient.email : user.email,
+            role: user.role,
+            profilePicture: user.profilePicture,
+            patientCode: patient.patientCode.isNotEmpty ? patient.patientCode : user.patientCode,
+            nicNumber: patient.nicNumber.isNotEmpty ? patient.nicNumber : user.nicNumber,
+            phoneNumber: patient.contactPhone.isNotEmpty ? patient.contactPhone : user.phoneNumber,
+            address: patient.address.isNotEmpty ? patient.address : user.address,
+          );
+          await AuthService.saveUser(updated);
+        }
+      }
+    } catch (_) {
+      // Offline fallback: already initialized from local storage
     }
   }
 
@@ -313,7 +375,38 @@ class _PatientDetailsScreenState extends State<PatientDetailsScreen> {
                       'Patient Identity & Contact Details',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: kText),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
+                    if (_isAutofilled) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDF4),
+                          border: Border.all(color: const Color(0xFFBBF7D0)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF16A34A)),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Your registered National ID, phone, name and contact details are auto-filled. You can update any field if booking for someone else.',
+                                style: TextStyle(
+                                  color: Color(0xFF166534),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ] else ...[
+                      const SizedBox(height: 4),
+                    ],
 
                     // Full Name
                     TextFormField(
