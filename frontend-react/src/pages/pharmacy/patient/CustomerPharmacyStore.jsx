@@ -4,6 +4,7 @@ import { api } from '../../../api/authApi';
 import { API_BASE_URL } from '../../../api/config';
 import { resolveImageUrl, getImageUrl } from '../../../utils/imageUrl';
 import PrescriptionViolationModal from '../../../components/modals/PrescriptionViolationModal';
+import WellnessChatModal from '../../../components/pharmacy/WellnessChatModal';
 import {
     Search,
     ShoppingBag,
@@ -42,6 +43,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [isDirectRxMode, setIsDirectRxMode] = useState(false);
     const [orderSuccessData, setOrderSuccessData] = useState(null);
     const [rxModalMedicine, setRxModalMedicine] = useState(null);
+    const [wellnessChatOpen, setWellnessChatOpen] = useState(false);
 
     // Advanced UI & Detailed Daraz Modal State
     const [viewMode, setViewMode] = useState('web'); // 'web' | 'mobile'
@@ -820,6 +822,115 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     </div>
                 </div>
             )}
+
+            {/* Wellness Assistant Banner (Light Blue Theme) */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '20px',
+                padding: '20px 24px',
+                background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
+                border: '2px solid #BFDBFE',
+                borderRadius: '16px',
+                marginBottom: '20px',
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 8px 20px -4px rgba(37, 99, 235, 0.15)'
+            }}>
+                {/* Left: Icon + Text */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                    <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
+                    }}>
+                        <Sparkles size={28} color="white" />
+                    </div>
+                    <div>
+                        <div style={{
+                            fontSize: '16px',
+                            fontWeight: 800,
+                            color: '#1E40AF',
+                            marginBottom: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            flexWrap: 'wrap'
+                        }}>
+                            Wellness Assistant
+                            <span style={{
+                                fontSize: '10px',
+                                padding: '2px 8px',
+                                background: '#2563EB',
+                                color: 'white',
+                                borderRadius: '10px',
+                                fontWeight: 700,
+                                letterSpacing: '0.5px'
+                            }}>
+                                AI POWERED
+                            </span>
+                        </div>
+                        <div style={{
+                            fontSize: '13px',
+                            color: '#1E40AF',
+                            opacity: 0.85,
+                            lineHeight: 1.5
+                        }}>
+                            Feeling unwell? Get instant home remedies and friendly wellness guidance from our AI.
+                        </div>
+                    </div>
+                </div>
+
+                {/* Center/Right: Chat Now Button */}
+                <button
+                    onClick={() => setWellnessChatOpen(true)}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        fontWeight: 700,
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
+                        flexShrink: 0
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 18px rgba(37, 99, 235, 0.45)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.35)';
+                    }}
+                >
+                    <MessageSquare size={18} />
+                    Chat Now
+                </button>
+
+                {/* Right: 🤖 Robot Emoji Placeholder */}
+                <div style={{
+                    fontSize: '44px',
+                    lineHeight: 1,
+                    userSelect: 'none',
+                    filter: 'drop-shadow(0 4px 8px rgba(37, 99, 235, 0.2))',
+                    marginLeft: '8px'
+                }}>
+                    🤖
+                </div>
+            </div>
 
             {/* Toolbar & Categories */}
             <div style={ps.toolbar}>
@@ -2144,6 +2255,14 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     </div>
                 </div>
             )}
+
+            {/* Wellness AI Chat Assistant Modal */}
+            <WellnessChatModal
+                isOpen={wellnessChatOpen}
+                onClose={() => setWellnessChatOpen(false)}
+                user={user}
+                onAddToCart={addToCart}
+            />
         </div>
     );
 };
