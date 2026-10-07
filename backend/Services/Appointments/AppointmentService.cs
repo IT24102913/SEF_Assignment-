@@ -360,6 +360,99 @@ public class AppointmentService : IAppointmentService
         };
     }
 
+    public static HashSet<DayOfWeek> ParseDoctorAvailableDays(string? availableDays)
+    {
+        var set = new HashSet<DayOfWeek>();
+        if (string.IsNullOrWhiteSpace(availableDays))
+        {
+            return new HashSet<DayOfWeek> { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday };
+        }
+
+        var text = availableDays.Trim().ToLowerInvariant();
+
+        if (text.Contains("all") || text.Contains("daily") || text.Contains("everyday"))
+        {
+            return new HashSet<DayOfWeek>((DayOfWeek[])Enum.GetValues(typeof(DayOfWeek)));
+        }
+
+        if (text.Contains("weekday") || text.Contains("mon - fri") || text.Contains("mon-fri") || text.Contains("mon to fri"))
+        {
+            set.Add(DayOfWeek.Monday);
+            set.Add(DayOfWeek.Tuesday);
+            set.Add(DayOfWeek.Wednesday);
+            set.Add(DayOfWeek.Thursday);
+            set.Add(DayOfWeek.Friday);
+        }
+
+        if (text.Contains("weekend"))
+        {
+            set.Add(DayOfWeek.Saturday);
+            set.Add(DayOfWeek.Sunday);
+        }
+
+        var parts = text.Split(new[] { ',', ';', '/', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var raw in parts)
+        {
+            var p = raw.Trim().ToLowerInvariant();
+            if (p.StartsWith("mon")) set.Add(DayOfWeek.Monday);
+            else if (p.StartsWith("tue")) set.Add(DayOfWeek.Tuesday);
+            else if (p.StartsWith("wed")) set.Add(DayOfWeek.Wednesday);
+            else if (p.StartsWith("thu")) set.Add(DayOfWeek.Thursday);
+            else if (p.StartsWith("fri")) set.Add(DayOfWeek.Friday);
+            else if (p.StartsWith("sat")) set.Add(DayOfWeek.Saturday);
+            else if (p.StartsWith("sun")) set.Add(DayOfWeek.Sunday);
+        }
+
+        if (!set.Any())
+        {
+            set.Add(DayOfWeek.Monday);
+            set.Add(DayOfWeek.Wednesday);
+            set.Add(DayOfWeek.Friday);
+        }
+
+        return set;
+    }
+
+    public static HashSet<SessionType> ParseDoctorSessionTypes(string? availableTime, bool isGenMed)
+    {
+        var set = new HashSet<SessionType>();
+        if (string.IsNullOrWhiteSpace(availableTime))
+        {
+            set.Add(SessionType.Morning);
+            set.Add(SessionType.Evening);
+            if (isGenMed) set.Add(SessionType.Night);
+            return set;
+        }
+
+        var text = availableTime.Trim().ToLowerInvariant();
+
+        if (text.Contains("morning")) set.Add(SessionType.Morning);
+        if (text.Contains("evening")) set.Add(SessionType.Evening);
+        if (text.Contains("night") && isGenMed) set.Add(SessionType.Night);
+
+        if (!set.Any())
+        {
+            bool hasAmOrMorning = text.Contains("am") || text.Contains("08:") || text.Contains("09:") || text.Contains("10:") || text.Contains("11:");
+            bool hasPmOrEvening = text.Contains("pm") || text.Contains("16:") || text.Contains("17:") || text.Contains("18:") || text.Contains("19:") || text.Contains("04:") || text.Contains("05:") || text.Contains("06:");
+            bool hasNightTime = text.Contains("20:") || text.Contains("21:") || text.Contains("22:") || text.Contains("08:00 pm") || text.Contains("09:00 pm");
+
+            if (hasAmOrMorning) set.Add(SessionType.Morning);
+            if (hasPmOrEvening && (text.Contains("04:") || text.Contains("05:") || text.Contains("06:") || text.Contains("16:") || text.Contains("17:") || text.Contains("18:") || text.Contains("19:") || text.Contains("evening") || text.Contains("04:00") || text.Contains("05:00") || text.Contains("4pm") || text.Contains("5pm") || text.Contains("6pm") || text.Contains("7pm") || text.Contains("8pm")))
+            {
+                set.Add(SessionType.Evening);
+            }
+            if (hasNightTime && isGenMed) set.Add(SessionType.Night);
+        }
+
+        if (!set.Any())
+        {
+            set.Add(SessionType.Morning);
+            set.Add(SessionType.Evening);
+        }
+
+        return set;
+    }
+
     public async Task<List<DoctorSessionDto>> GetDoctorSessionsAsync(int doctorId, DateOnly? date)
     {
         await EnsureDoctorSessionsSchemaAsync();
@@ -381,6 +474,12 @@ public class AppointmentService : IAppointmentService
 
         // 2. Fetch Doctor and weekly recurring schedule templates
         var doctor = await _context.Doctors.FindAsync(doctorId);
+        var doctorSpec = (doctor?.Specialization ?? string.Empty).ToLower();
+        bool isGenMed = doctorSpec.Contains("general") || doctorSpec.Contains("physician");
+
+        var allowedDays = ParseDoctorAvailableDays(doctor?.AvailableDays);
+        var allowedSessionTypes = ParseDoctorSessionTypes(doctor?.AvailableTime, isGenMed);
+
         var schedules = await _context.DoctorSchedules
             .Where(s => s.DoctorId == doctorId && s.IsActive)
             .ToListAsync();
@@ -392,11 +491,26 @@ public class AppointmentService : IAppointmentService
             await _context.SaveChangesAsync();
         }
 
-        // 3. Dynamically ensure DoctorSessions exist for target dates as real OPD clinic blocks
+        // 3. Dynamically ensure DoctorSessions exist for target dates matching doctor roster
         if (doctor != null)
         {
             var minDate = targetDates.Min();
             var maxDate = targetDates.Max();
+
+            // Clean up obsolete unbooked future sessions that fall on days doctor is NOT available or types not conducted
+            var obsoleteSessions = await _context.DoctorSessions
+                .Where(s => s.DoctorId == doctorId && s.SessionDate >= today && s.SessionDate <= maxDate && s.CurrentBookings == 0)
+                .ToListAsync();
+
+            var toRemove = obsoleteSessions
+                .Where(s => !allowedDays.Contains(s.SessionDate.DayOfWeek) || !allowedSessionTypes.Contains(s.SessionType))
+                .ToList();
+
+            if (toRemove.Any())
+            {
+                _context.DoctorSessions.RemoveRange(toRemove);
+                await _context.SaveChangesAsync();
+            }
 
             var existingSessions = await _context.DoctorSessions
                 .Where(s => s.DoctorId == doctorId && s.SessionDate >= minDate && s.SessionDate <= maxDate)
@@ -408,18 +522,22 @@ public class AppointmentService : IAppointmentService
                     .Select(s => (s.SessionDate, s.SessionType))
             );
 
-            var spec = (doctor.Specialization ?? string.Empty).ToLower();
-            bool isGenMed = spec.Contains("general") || spec.Contains("physician");
-
-            var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>
+            var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>();
+            if (allowedSessionTypes.Contains(SessionType.Morning))
             {
-                (SessionType.Morning, new TimeOnly(8, 30), 25),
-                (SessionType.Evening, new TimeOnly(16, 30), 25)
-            };
-
-            if (isGenMed)
+                sessionConfigs.Add((SessionType.Morning, new TimeOnly(8, 30), 25));
+            }
+            if (allowedSessionTypes.Contains(SessionType.Evening))
+            {
+                sessionConfigs.Add((SessionType.Evening, new TimeOnly(16, 30), 25));
+            }
+            if (allowedSessionTypes.Contains(SessionType.Night) && isGenMed)
             {
                 sessionConfigs.Add((SessionType.Night, new TimeOnly(20, 0), 15));
+            }
+            if (!sessionConfigs.Any())
+            {
+                sessionConfigs.Add((SessionType.Morning, new TimeOnly(8, 30), 25));
             }
 
             var newSessions = new List<DoctorSession>();
@@ -427,6 +545,8 @@ public class AppointmentService : IAppointmentService
             foreach (var targetDate in targetDates)
             {
                 if (targetDate < today) continue;
+                // STRICT CHECK: Only generate sessions on days the doctor is scheduled to work!
+                if (!allowedDays.Contains(targetDate.DayOfWeek)) continue;
 
                 foreach (var cfg in sessionConfigs)
                 {
@@ -474,11 +594,12 @@ public class AppointmentService : IAppointmentService
             .ThenBy(s => s.SessionTime)
             .ToListAsync();
 
-        var doctorSpec = (doctor?.Specialization ?? string.Empty).ToLower();
-        bool docIsGenMed = doctorSpec.Contains("general") || doctorSpec.Contains("physician");
-
         // Specialty filter: Night sessions are strictly for General Medicine
-        var validSessions = list.Where(s => docIsGenMed || s.SessionType != SessionType.Night);
+        // Roster filter: Exclude sessions on days or session types doctor does NOT work (unless existing patient bookings exist)
+        var validSessions = list.Where(s =>
+            (isGenMed || s.SessionType != SessionType.Night) &&
+            (s.CurrentBookings > 0 || (allowedDays.Contains(s.SessionDate.DayOfWeek) && allowedSessionTypes.Contains(s.SessionType)))
+        );
 
         // Deduplicate: exactly ONE session per SessionType on each date
         // Priority: standard OPD capacity (MaxCapacity >= 15), then active bookings, then Id

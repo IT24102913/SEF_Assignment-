@@ -14,7 +14,7 @@ import {
 } from '../../../api/doctorApi';
 import { api } from '../../../api/authApi';
 import doctorAgent from '../../../assets/doctor-agent.png';
-import { FALLBACK_DOCTORS, generateFallbackSessions } from '../../../data/fallbackDoctors';
+import { FALLBACK_DOCTORS, generateFallbackSessions, parseDoctorAvailableDays, parseDoctorSessionTypes } from '../../../data/fallbackDoctors';
 
 const filterFallbackDoctors = (list, params = {}) => {
   let filtered = [...list];
@@ -372,12 +372,23 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
     try {
       const isDocGenMed = (doctor.specialization || '').toLowerCase().includes('general') || (doctor.specialization || '').toLowerCase().includes('physician');
+      const allowedDays = parseDoctorAvailableDays(doctor.availableDays);
+      const allowedTypes = parseDoctorSessionTypes(doctor.availableTime, isDocGenMed);
+
       const res = await getDoctorSessions(doctor.id);
       if (Array.isArray(res.data) && res.data.length > 0) {
-        // Filter out expired sessions and Night sessions for non-General Medicine doctors
+        // Filter out expired sessions, Night sessions for non-General Medicine, and sessions outside doctor's roster
         const validUpcomingSessions = res.data.filter(s => {
           if (s.isExpired) return false;
           if ((s.sessionType || '').toLowerCase() === 'night' && !isDocGenMed) return false;
+          if (s.sessionDate && allowedDays.length > 0) {
+            const d = new Date(s.sessionDate + 'T00:00:00');
+            if (!allowedDays.includes(d.getDay())) return false;
+          }
+          if (s.sessionType && allowedTypes.length > 0) {
+            const matchesType = allowedTypes.some(t => t.toLowerCase() === (s.sessionType || '').toLowerCase());
+            if (!matchesType) return false;
+          }
           return true;
         });
 
@@ -397,23 +408,23 @@ const DoctorChannelingSection = ({ user, showToast }) => {
           const uniqueDates = [...new Set(dedupList.map(s => s.sessionDate))].sort();
           setSelectedSessionDate(uniqueDates[0]);
         } else {
-          const fallback = generateFallbackSessions(doctor.id);
+          const fallback = generateFallbackSessions(doctor.id, doctor);
           setAvailableSessions(fallback);
-          const uniqueDates = [...new Set(fallback.map(s => s.sessionDate))];
+          const uniqueDates = [...new Set(fallback.map(s => s.sessionDate))].sort();
           setSelectedSessionDate(uniqueDates[0] || '');
         }
       } else {
-        const fallback = generateFallbackSessions(doctor.id);
+        const fallback = generateFallbackSessions(doctor.id, doctor);
         setAvailableSessions(fallback);
-        const uniqueDates = [...new Set(fallback.map(s => s.sessionDate))];
+        const uniqueDates = [...new Set(fallback.map(s => s.sessionDate))].sort();
         setSelectedSessionDate(uniqueDates[0] || '');
       }
     } catch (err) {
       console.warn('Failed to fetch sessions from server, using scheduled slots:', err);
-      const fallback = generateFallbackSessions(doctor.id);
+      const fallback = generateFallbackSessions(doctor.id, doctor);
       setAvailableSessions(fallback);
       if (fallback.length > 0) {
-        const uniqueDates = [...new Set(fallback.map(s => s.sessionDate))];
+        const uniqueDates = [...new Set(fallback.map(s => s.sessionDate))].sort();
         setSelectedSessionDate(uniqueDates[0] || '');
       }
     }
@@ -814,25 +825,48 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     (selectedDoctor?.specialization || '').toLowerCase().includes('physician');
 
   const uniqueSessionDates = React.useMemo(() => {
+    const allowedDays = parseDoctorAvailableDays(selectedDoctor?.availableDays);
+    const allowedTypes = parseDoctorSessionTypes(selectedDoctor?.availableTime, isSelectedDocGenMed);
+
     const valid = availableSessions.filter(s => {
       if (s.isExpired) return false;
       const type = (s.sessionType || '').toLowerCase();
       if (type === 'night' && !isSelectedDocGenMed) return false;
+      if (selectedDoctor && s.sessionDate) {
+        const d = new Date(s.sessionDate + 'T00:00:00');
+        if (!allowedDays.includes(d.getDay())) return false;
+      }
+      if (selectedDoctor && s.sessionType) {
+        const matchesType = allowedTypes.some(t => t.toLowerCase() === type);
+        if (!matchesType) return false;
+      }
       return true;
     });
     return [...new Set(valid.map(s => s.sessionDate))].sort();
-  }, [availableSessions, isSelectedDocGenMed]);
+  }, [availableSessions, isSelectedDocGenMed, selectedDoctor]);
 
   const sessionsForSelectedDate = React.useMemo(() => {
+    const allowedDays = parseDoctorAvailableDays(selectedDoctor?.availableDays);
+    const allowedTypes = parseDoctorSessionTypes(selectedDoctor?.availableTime, isSelectedDocGenMed);
+
+    if (selectedSessionDate) {
+      const d = new Date(selectedSessionDate + 'T00:00:00');
+      if (!allowedDays.includes(d.getDay())) return [];
+    }
+
     const rawSessions = availableSessions.filter(
       s => s.sessionDate === selectedSessionDate && !s.isExpired
     );
 
-    // Specialty restriction: Night session is strictly for General Medicine
+    // Specialty & roster restriction
     const valid = rawSessions.filter(s => {
       const type = (s.sessionType || '').toLowerCase();
       if (type === 'night' && !isSelectedDocGenMed) {
         return false;
+      }
+      if (selectedDoctor && s.sessionType) {
+        const matchesType = allowedTypes.some(t => t.toLowerCase() === type);
+        if (!matchesType) return false;
       }
       return true;
     });
@@ -850,7 +884,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
     const order = { 'Morning': 1, 'Evening': 2, 'Night': 3 };
     return Array.from(map.values()).sort((a, b) => (order[a.sessionType] || 99) - (order[b.sessionType] || 99));
-  }, [availableSessions, selectedSessionDate, isSelectedDocGenMed]);
+  }, [availableSessions, selectedSessionDate, isSelectedDocGenMed, selectedDoctor]);
 
   const totalFee = (selectedDoctor?.consultationFee || 0) + 300.00;
 
