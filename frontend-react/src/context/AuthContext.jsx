@@ -14,8 +14,28 @@ export const AuthProvider = ({ children }) => {
 
         if (storedToken && storedUser) {
             setToken(storedToken);
-            const parsedUser = JSON.parse(storedUser);
-            setUser(parsedUser);
+            try {
+                const parsedUser = JSON.parse(storedUser);
+                setUser(parsedUser);
+
+                // Fetch latest profile in background to keep nicNumber, phoneNumber, address fresh
+                if (!storedToken.startsWith('mock-demo')) {
+                    api.get('/users/profile').then(res => {
+                        if (res?.data) {
+                            const enriched = {
+                                ...parsedUser,
+                                fullName: res.data.fullName || parsedUser.fullName,
+                                nicNumber: res.data.nicNumber || res.data.nic || parsedUser.nicNumber,
+                                phoneNumber: res.data.phoneNumber || res.data.phone || parsedUser.phoneNumber,
+                                address: res.data.address || parsedUser.address,
+                                city: res.data.city || parsedUser.city,
+                            };
+                            setUser(enriched);
+                            sessionStorage.setItem('user', JSON.stringify(enriched));
+                        }
+                    }).catch(() => {});
+                }
+            } catch (_) {}
         }
         setLoading(false);
     }, []);
@@ -23,9 +43,30 @@ export const AuthProvider = ({ children }) => {
     const login = async (email, password) => {
         const data = await apiLogin(email, password);
         setToken(data.token);
-        setUser(data.user);
+        let userData = data.user;
+        
+        // Fetch full profile if NIC or phone is missing from login payload
+        try {
+            if (!data.token.startsWith('mock-demo')) {
+                const profileRes = await api.get('/users/profile', {
+                    headers: { Authorization: `Bearer ${data.token}` }
+                });
+                if (profileRes?.data) {
+                    userData = {
+                        ...userData,
+                        fullName: profileRes.data.fullName || userData.fullName,
+                        nicNumber: profileRes.data.nicNumber || profileRes.data.nic || userData.nicNumber,
+                        phoneNumber: profileRes.data.phoneNumber || profileRes.data.phone || userData.phoneNumber,
+                        address: profileRes.data.address || userData.address,
+                        city: profileRes.data.city || userData.city,
+                    };
+                }
+            }
+        } catch (_) {}
+
+        setUser(userData);
         sessionStorage.setItem('token', data.token);
-        sessionStorage.setItem('user', JSON.stringify(data.user));
+        sessionStorage.setItem('user', JSON.stringify(userData));
         return data;
     };
 

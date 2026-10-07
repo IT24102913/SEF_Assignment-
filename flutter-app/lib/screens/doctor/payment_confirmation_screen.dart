@@ -70,7 +70,7 @@ class PaymentConfirmationScreen extends StatefulWidget {
 class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _autoValidate = false;
-  String _paymentMethod = 'CreditCard'; // CreditCard, BankTransfer, Counter
+  String _paymentMethod = 'CreditCard'; // CreditCard, BankTransfer
   final TextEditingController _cardNumCtrl = TextEditingController(text: '4532 8912 3456 7890');
   final TextEditingController _expiryCtrl = TextEditingController(text: '12/28');
   final TextEditingController _cvvCtrl = TextEditingController(text: '123');
@@ -103,20 +103,18 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
     HapticFeedback.lightImpact();
 
     // 1. Strictly Validate Payment Inputs
-    if (_paymentMethod != 'Counter') {
-      if (_formKey.currentState == null || !_formKey.currentState!.validate()) {
-        HapticFeedback.heavyImpact();
-        setState(() => _autoValidate = true);
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please complete and correct all highlighted payment fields.'),
-            backgroundColor: Color(0xFFDC2626),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
+    if (_formKey.currentState == null || !_formKey.currentState!.validate()) {
+      HapticFeedback.heavyImpact();
+      setState(() => _autoValidate = true);
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please complete and correct all highlighted payment fields.'),
+          backgroundColor: Color(0xFFDC2626),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
     }
 
     setState(() {
@@ -125,29 +123,6 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
     });
 
     try {
-      if (_paymentMethod == 'Counter') {
-        // Reservation (Pay on arrival at hospital reception)
-        final booking = await DoctorApiService.bookAppointment({
-          'doctorId': widget.doctor.id,
-          'doctorSessionId': widget.session.id,
-          'bookingType': 'Reservation',
-          'patientName': widget.patientName,
-          'patientPhone': widget.patientPhone,
-          'patientEmail': widget.patientEmail,
-          'patientNic': widget.patientNic,
-          'patientAddress': widget.patientAddress,
-          'notes': widget.notes,
-        });
-
-        if (mounted) {
-          HapticFeedback.mediumImpact();
-          setState(() {
-            _confirmedAppointment = booking;
-            _isProcessing = false;
-          });
-        }
-        return;
-      }
 
       // Online Payment (CreditCard or BankTransfer)
       final booking = await DoctorApiService.bookAppointment({
@@ -234,19 +209,6 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                     Navigator.pop(ctx);
                   },
                 ),
-                const Divider(),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(backgroundColor: Color(0xFFF1F5F9), child: Icon(Icons.storefront_outlined, color: Color(0xFF475569))),
-                  title: const Text('Pay on Arrival (Hospital Counter)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  subtitle: const Text('Settle fee at the channeling desk on arrival', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                  trailing: _paymentMethod == 'Counter' ? const Icon(Icons.check_circle, color: kPrimary) : null,
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    setState(() => _paymentMethod = 'Counter');
-                    Navigator.pop(ctx);
-                  },
-                ),
               ],
             ),
           ),
@@ -305,11 +267,9 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                               const Icon(Icons.lock_outline, size: 16),
                               const SizedBox(width: 8),
                               Text(
-                                _paymentMethod == 'Counter'
-                                    ? (_errorMessage != null ? 'Retry Reservation' : 'Confirm & Reserve (Pay on Arrival)')
-                                    : (_errorMessage != null
-                                        ? 'Retry Payment (LKR ${_totalFee.toStringAsFixed(0)})'
-                                        : 'Pay LKR ${_totalFee.toStringAsFixed(0)}'),
+                                _errorMessage != null
+                                    ? 'Retry Payment (LKR ${_totalFee.toStringAsFixed(0)})'
+                                    : 'Pay LKR ${_totalFee.toStringAsFixed(0)}',
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                               ),
                             ],
@@ -433,11 +393,7 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                   radius: 18,
                   backgroundColor: const Color(0xFFE0F2F1),
                   child: Icon(
-                    _paymentMethod == 'CreditCard'
-                        ? Icons.credit_card
-                        : _paymentMethod == 'BankTransfer'
-                            ? Icons.account_balance
-                            : Icons.storefront_outlined,
+                    _paymentMethod == 'CreditCard' ? Icons.credit_card : Icons.account_balance,
                     color: kPrimary,
                     size: 20,
                   ),
@@ -451,9 +407,7 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                       Text(
                         _paymentMethod == 'CreditCard'
                             ? 'Credit / Debit Card'
-                            : _paymentMethod == 'BankTransfer'
-                                ? 'Bank Transfer / Deposit'
-                                : 'Pay on Arrival (Hospital Counter)',
+                            : 'Bank Transfer / Deposit',
                         style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: kPrimaryDark),
                       ),
                     ],
@@ -622,8 +576,7 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                       ),
                     ],
                   )
-                : _paymentMethod == 'BankTransfer'
-                    ? Column(
+                : Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text('Bank Transfer Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: kText)),
@@ -668,27 +621,6 @@ class _PaymentConfirmationScreenState extends State<PaymentConfirmationScreen> {
                             ),
                           ),
                         ],
-                      )
-                    : Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFCBD5E1)),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Icon(Icons.info_outline, color: Color(0xFF475569), size: 20),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Your consultation slot will be reserved immediately. You can settle the fee in cash or card at the hospital channeling reception on your consultation day.',
-                                style: TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.45),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
           ),
         ),

@@ -4,13 +4,15 @@ import {
   Award, ArrowRight, ArrowLeft, CheckCircle2, QrCode, Printer,
   Sparkles, RefreshCw, X, CreditCard, Smartphone, Building2,
   Phone, AlertCircle, ChevronRight, Stethoscope, HeartPulse,
-  Brain, Bone, Baby, Activity, Sparkle, Headphones, FileText
+  Brain, Bone, Baby, Activity, Sparkle, Headphones, FileText,
+  Sun, Sunset, Moon
 } from 'lucide-react';
 import {
   getDoctors, getSpecialties, getDoctorSessions, recommendSpecialty,
   bookAppointment, payAppointment, getMyAppointments, cancelAppointment,
   rescheduleAppointment
 } from '../../../api/doctorApi';
+import { api } from '../../../api/authApi';
 import doctorAgent from '../../../assets/doctor-agent.png';
 import { FALLBACK_DOCTORS, generateFallbackSessions } from '../../../data/fallbackDoctors';
 
@@ -74,27 +76,100 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   const [selectedSessionDate, setSelectedSessionDate] = useState('');
   const [selectedSession, setSelectedSession] = useState(null);
 
+  // Helper to extract cached user from sessionStorage or prop
+  const getInitialUserData = () => {
+    let u = user;
+    if (!u) {
+      try {
+        const stored = sessionStorage.getItem('user');
+        if (stored) u = JSON.parse(stored);
+      } catch (_) {}
+    }
+    return {
+      fullName: u?.fullName || u?.name || '',
+      nic: u?.nicNumber || u?.nic || u?.patientNic || '',
+      phone: u?.phoneNumber || u?.phone || u?.contactPhone || '',
+      email: u?.email || '',
+      address: u?.address || '',
+      notes: ''
+    };
+  };
+
   // Patient Details State
-  const [patientDetails, setPatientDetails] = useState({
-    fullName: user?.fullName || user?.name || '',
-    nic: user?.nicNumber || '',
-    phone: user?.phoneNumber || '',
-    email: user?.email || '',
-    address: user?.address || '',
-    notes: ''
+  const [patientDetails, setPatientDetails] = useState(getInitialUserData);
+  const [isAutofilled, setIsAutofilled] = useState(() => {
+    const init = getInitialUserData();
+    return Boolean(init.nic || init.phone);
   });
 
   useEffect(() => {
-    if (user) {
-      setPatientDetails(prev => ({
-        ...prev,
-        fullName: prev.fullName || user.fullName || user.name || '',
-        nic: prev.nic || user.nicNumber || '',
-        phone: prev.phone || user.phoneNumber || '',
-        email: prev.email || user.email || '',
-        address: prev.address || user.address || ''
-      }));
-    }
+    let isMounted = true;
+
+    const loadProfileData = async () => {
+      // 1. First sync immediately from user prop or sessionStorage
+      let u = user;
+      if (!u) {
+        try {
+          const stored = sessionStorage.getItem('user');
+          if (stored) u = JSON.parse(stored);
+        } catch (_) {}
+      }
+
+      const propName = u?.fullName || u?.name || '';
+      const propNic = u?.nicNumber || u?.nic || u?.patientNic || '';
+      const propPhone = u?.phoneNumber || u?.phone || u?.contactPhone || '';
+      const propEmail = u?.email || '';
+      const propAddress = u?.address || '';
+
+      if (propName || propNic || propPhone || propEmail || propAddress) {
+        setPatientDetails(prev => ({
+          ...prev,
+          fullName: prev.fullName || propName,
+          nic: prev.nic || propNic,
+          phone: prev.phone || propPhone,
+          email: prev.email || propEmail,
+          address: prev.address || propAddress
+        }));
+        if (propNic || propPhone) {
+          setIsAutofilled(true);
+        }
+      }
+
+      // 2. Query backend /users/profile to ensure real database NIC, phone, and address are auto-filled
+      try {
+        const token = sessionStorage.getItem('token');
+        if (token && !token.startsWith('mock-demo')) {
+          const res = await api.get('/users/profile');
+          if (res?.data && isMounted) {
+            const p = res.data;
+            const fetchedName = p.fullName || '';
+            const fetchedNic = p.nicNumber || p.nic || '';
+            const fetchedPhone = p.phoneNumber || p.phone || '';
+            const fetchedEmail = p.email || '';
+            const fetchedAddress = p.address || p.city || '';
+
+            setPatientDetails(prev => ({
+              ...prev,
+              fullName: prev.fullName || fetchedName,
+              nic: prev.nic || fetchedNic,
+              phone: prev.phone || fetchedPhone,
+              email: prev.email || fetchedEmail,
+              address: prev.address || fetchedAddress
+            }));
+
+            if (fetchedNic || fetchedPhone) {
+              setIsAutofilled(true);
+            }
+          }
+        }
+      } catch (err) {
+        // Fallback already satisfied by storage/props
+      }
+    };
+
+    loadProfileData();
+
+    return () => { isMounted = false; };
   }, [user]);
 
   const [formErrors, setFormErrors] = useState({});
@@ -470,9 +545,6 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     }
     if (paymentMethod === 'BankTransfer') {
       return !checkBankRefError(bankRef);
-    }
-    if (paymentMethod === 'Counter') {
-      return true;
     }
     return false;
   };
@@ -1911,7 +1983,6 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                       const disabled = !session.isAvailable || session.isExpired;
                       const sessionType = session.sessionType || 'Morning';
                       
-                      const icon = sessionType === 'Morning' ? '🌅' : sessionType === 'Evening' ? '🌇' : '🌙';
                       const defaultRange = sessionType === 'Morning' ? '08:30 AM – 12:00 PM' : sessionType === 'Evening' ? '04:30 PM – 07:30 PM' : '08:00 PM – 10:00 PM';
                       const timeRange = session.timeRange || defaultRange;
                       const slotsLeft = session.slotsLeft !== undefined ? session.slotsLeft : Math.max(0, session.maxCapacity - session.currentBookings);
@@ -1935,8 +2006,15 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         >
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                              <span style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span>{icon}</span> {sessionType} Session
+                              <span style={{ fontSize: '15px', fontWeight: '800', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {sessionType === 'Morning' ? (
+                                  <Sun size={17} color="#D97706" />
+                                ) : sessionType === 'Evening' ? (
+                                  <Sunset size={17} color="#7C3AED" />
+                                ) : (
+                                  <Moon size={17} color="#4F46E5" />
+                                )}
+                                <span>{sessionType} Session</span>
                               </span>
                               <span style={{
                                 fontSize: '11px',
@@ -2111,6 +2189,28 @@ const DoctorChannelingSection = ({ user, showToast }) => {
             <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
               Patient Contact & Identity Information
             </h3>
+
+            {isAutofilled && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '12px 16px',
+                marginBottom: '16px',
+                backgroundColor: '#F0FDF4',
+                border: '1px solid #BBF7D0',
+                borderRadius: '10px',
+                fontSize: '12.5px',
+                color: '#166534',
+                lineHeight: 1.4
+              }}>
+                <CheckCircle2 size={18} color="#16A34A" style={{ flexShrink: 0 }} />
+                <div>
+                  <strong style={{ display: 'block', marginBottom: '2px' }}>Verified Account Information Auto-filled</strong>
+                  <span>Your National ID, contact phone, name, and registered details were automatically populated. You can edit them if booking for a family member or dependent.</span>
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
@@ -2492,7 +2592,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#1E293B', marginBottom: '8px', letterSpacing: '0.02em' }}>
                   SELECT PAYMENT METHOD
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                   {[
                     {
                       id: 'CreditCard',
@@ -2505,12 +2605,6 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                       label: 'Bank Transfer / CDM',
                       sub: 'CEFTS, Direct Bank Deposit',
                       icon: <Building2 size={18} />
-                    },
-                    {
-                      id: 'Counter',
-                      label: 'Pay at Hospital Counter',
-                      sub: 'Cash / Card upon arrival',
-                      icon: <ShieldCheck size={18} />
                     }
                   ].map(tab => (
                     <button
@@ -2814,62 +2908,6 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 </div>
               )}
 
-              {/* Tab Form Content 3: Pay at Hospital Counter */}
-              {paymentMethod === 'Counter' && (
-                <div style={{
-                  padding: '22px 20px',
-                  borderRadius: '12px',
-                  backgroundColor: '#FFFFFF',
-                  border: '1px solid #E2E8F0',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                  marginBottom: '20px',
-                  textAlign: 'center'
-                }}>
-                  <div style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '50%',
-                    backgroundColor: '#F0FDF4',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 12px auto'
-                  }}>
-                    <Building2 size={24} color="#00796B" />
-                  </div>
-                  <h4 style={{ margin: '0 0 6px 0', fontSize: '15px', fontWeight: '800', color: '#0F172A' }}>
-                    Pay Upon Arrival at Hospital Counter
-                  </h4>
-                  <p style={{ margin: '0 auto 16px auto', fontSize: '12px', color: '#475569', lineHeight: '1.6', maxWidth: '460px' }}>
-                    Your appointment slot and sequential queue number will be reserved immediately. Please settle the fee of <strong>LKR {totalFee.toLocaleString()}</strong> at the hospital reception or channeling cashier desk upon arrival.
-                  </p>
-
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '8px',
-                    backgroundColor: '#F8FAFC',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    textAlign: 'center',
-                    border: '1px solid #E2E8F0'
-                  }}>
-                    <div>
-                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '600' }}>ACCEPTED METHODS</div>
-                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#0F172A', marginTop: '2px' }}>Cash / Cards / QR</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '600' }}>TOKEN ALLOCATION</div>
-                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#0F172A', marginTop: '2px' }}>Instant Queue Number</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '10px', color: '#64748B', fontWeight: '600' }}>ARRIVAL TIME</div>
-                      <div style={{ fontSize: '11px', fontWeight: '700', color: '#0F172A', marginTop: '2px' }}>20 Mins Prior</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Action Button: Disabled Until Active Method Pass Validation */}
               <button
                 type="button"
@@ -2897,14 +2935,14 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 {isProcessingPayment ? (
                   <>
                     <RefreshCw size={16} className="animate-spin" />
-                    <span>{paymentMethod === 'Counter' ? 'Confirming Reservation...' : 'Processing Payment...'}</span>
+                    <span>Processing Payment...</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 size={18} />
                     <span>
-                      {paymentMethod === 'Counter'
-                        ? 'Confirm Booking & Pay at Counter'
+                      {paymentMethod === 'BankTransfer'
+                        ? 'Confirm Bank Transfer & Reserve Slot'
                         : `Authorize & Pay LKR ${totalFee.toLocaleString()}`}
                     </span>
                   </>
