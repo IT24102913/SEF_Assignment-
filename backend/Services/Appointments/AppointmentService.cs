@@ -1779,22 +1779,34 @@ public class AppointmentService : IAppointmentService
             throw new InvalidOperationException($"Cannot delay a session in {session.SessionStatus} state.");
         }
 
-        var origStart = session.SessionDate.ToDateTime(session.SessionTime);
-        if (expectedStartTime <= origStart || expectedStartTime == default)
+        var origStartUtc = DateTime.SpecifyKind(session.SessionDate.ToDateTime(session.SessionTime), DateTimeKind.Utc);
+
+        TimeOnly newTime;
+        if (expectedStartTime != default)
         {
-            expectedStartTime = origStart.AddMinutes(30);
+            newTime = TimeOnly.FromDateTime(expectedStartTime);
         }
-        else if (DateOnly.FromDateTime(expectedStartTime) != session.SessionDate)
+        else
         {
-            expectedStartTime = session.SessionDate.ToDateTime(TimeOnly.FromDateTime(expectedStartTime));
+            newTime = session.SessionTime.AddMinutes(30);
+        }
+
+        var targetStartUtc = DateTime.SpecifyKind(session.SessionDate.ToDateTime(newTime), DateTimeKind.Utc);
+        if (session.SessionTime > new TimeOnly(18, 0) && newTime < new TimeOnly(6, 0))
+        {
+            targetStartUtc = targetStartUtc.AddDays(1);
+        }
+        else if (targetStartUtc <= origStartUtc)
+        {
+            targetStartUtc = origStartUtc.AddMinutes(30);
         }
 
         session.SessionStatus = SessionStatus.Delayed;
-        session.ExpectedStartTime = expectedStartTime;
-        session.DelayReason = reason;
+        session.ExpectedStartTime = targetStartUtc;
+        session.DelayReason = string.IsNullOrWhiteSpace(reason) ? "Doctor running late" : reason.Trim();
 
         await _context.SaveChangesAsync();
-        _logger.LogInformation("Doctor session {SessionId} delayed to {ExpectedTime}. Reason: {Reason}", sessionId, expectedStartTime, reason);
+        _logger.LogInformation("Doctor session {SessionId} delayed to {ExpectedTime}. Reason: {Reason}", sessionId, targetStartUtc, session.DelayReason);
 
         var affectedAppointments = await _context.DoctorAppointments
             .Where(a => a.DoctorSessionId == sessionId &&
@@ -1807,16 +1819,16 @@ public class AppointmentService : IAppointmentService
 
         if (affectedAppointments.Count > 0)
         {
-            var delayMinutes = Math.Max(0, (int)Math.Round((expectedStartTime - origStart).TotalMinutes));
+            var delayMinutes = Math.Max(0, (int)Math.Round((targetStartUtc - origStartUtc).TotalMinutes));
             var sessionDuration = GetSessionDurationMinutes(session.SessionType);
             var maxCap = session.MaxCapacity;
-            var expectedStartTimeStr = expectedStartTime.ToString("h:mm tt");
+            var expectedStartTimeStr = targetStartUtc.ToString("h:mm tt");
             var doctorName = session.Doctor?.FullName ?? "Doctor";
             var sessionName = $"{session.SessionType} session";
             var buffer = int.TryParse(_configuration?["Queue:ArrivalBufferMinutes"], out var dBuf) ? dBuf : 20;
 
             var aptRecs = affectedAppointments.Select(a => {
-                var (est, rec) = EstimateConsultationTime(expectedStartTime, a.QueueNumber, sessionDuration, maxCap, buffer);
+                var (est, rec) = EstimateConsultationTime(targetStartUtc, a.QueueNumber, sessionDuration, maxCap, buffer);
                 return new {
                     a.PatientEmail,
                     a.PatientName,

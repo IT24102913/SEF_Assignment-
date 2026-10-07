@@ -17,6 +17,311 @@ import {
   CalendarDays, MoreHorizontal
 } from 'lucide-react';
 
+const parseSessionBaseTime = (session) => {
+  if (!session) return { hours: 8, minutes: 30 };
+  const raw = String(session.timeFormatted || session.timeSlot || session.sessionTime || '08:30').trim();
+  const match = raw.match(/(\d{1,2})[:.](\d{2})\s*(AM|PM)?/i);
+  if (match) {
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const period = match[3] ? match[3].toUpperCase() : null;
+    if (period === 'PM' && h < 12) h += 12;
+    if (period === 'AM' && h === 12) h = 0;
+    return { hours: h, minutes: m };
+  }
+  return { hours: 8, minutes: 30 };
+};
+
+const formatToStandard12h = (hours24, minutes) => {
+  const period = hours24 >= 12 ? 'PM' : 'AM';
+  let h12 = hours24 % 12;
+  if (h12 === 0) h12 = 12;
+  return `${String(h12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${period}`;
+};
+
+const getOffsetTime = (session, addMinutes) => {
+  const base = parseSessionBaseTime(session);
+  const total = base.hours * 60 + base.minutes + addMinutes;
+  const newH = Math.floor(total / 60) % 24;
+  const newM = total % 60;
+  return formatToStandard12h(newH, newM);
+};
+
+const parseTimeStringParts = (timeStr) => {
+  if (!timeStr) return { hour: '09', minute: '00', period: 'AM' };
+  const clean = String(timeStr).trim().replace('.', ':');
+  const match = clean.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (match) {
+    const hNum = parseInt(match[1], 10);
+    const mNum = parseInt(match[2], 10);
+    const rawPeriod = match[3] ? match[3].toUpperCase() : null;
+    let period = rawPeriod || (hNum >= 12 ? 'PM' : 'AM');
+    let h12 = hNum;
+    if (!rawPeriod && hNum > 12) {
+      h12 = hNum - 12;
+      period = 'PM';
+    } else if (h12 > 12) {
+      h12 = h12 % 12;
+    }
+    if (h12 === 0) h12 = 12;
+    return {
+      hour: String(h12).padStart(2, '0'),
+      minute: String(mNum).padStart(2, '0'),
+      period: period
+    };
+  }
+  return { hour: '09', minute: '00', period: 'AM' };
+};
+
+const formatExpectedTime = (val) => {
+  if (!val) return '';
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  } catch {}
+  return String(val);
+};
+
+const SixBoxTimePicker = ({ value, onChange }) => {
+  const parsed = parseTimeStringParts(value);
+  const h1 = parsed.hour[0] || '0';
+  const h2 = parsed.hour[1] || '9';
+  const m1 = parsed.minute[0] || '0';
+  const m2 = parsed.minute[1] || '0';
+  const period = parsed.period || 'AM';
+
+  const refH1 = useRef(null);
+  const refH2 = useRef(null);
+  const refM1 = useRef(null);
+  const refM2 = useRef(null);
+
+  const updateTime = (newH1, newH2, newM1, newM2, newP) => {
+    let hourNum = parseInt(`${newH1}${newH2}`, 10);
+    if (isNaN(hourNum) || hourNum < 1) hourNum = 12;
+    if (hourNum > 12) hourNum = 12;
+
+    let minNum = parseInt(`${newM1}${newM2}`, 10);
+    if (isNaN(minNum)) minNum = 0;
+    if (minNum > 59) minNum = 59;
+
+    const formatted = `${String(hourNum).padStart(2, '0')}:${String(minNum).padStart(2, '0')} ${newP}`;
+    onChange(formatted);
+  };
+
+  const handleH1Change = (e) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (!raw) return;
+    const digit = parseInt(raw.slice(-1), 10);
+    if (digit > 1) {
+      updateTime('0', String(digit), m1, m2, period);
+      refM1.current?.focus();
+      refM1.current?.select();
+    } else {
+      updateTime(String(digit), h2, m1, m2, period);
+      refH2.current?.focus();
+      refH2.current?.select();
+    }
+  };
+
+  const handleH2Change = (e) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (!raw) return;
+    const digit = parseInt(raw.slice(-1), 10);
+    let newH1 = h1;
+    if (newH1 === '1' && digit > 2) {
+      updateTime('1', '2', m1, m2, period);
+    } else if (newH1 === '0' && digit === 0) {
+      updateTime('1', '2', m1, m2, period);
+    } else {
+      updateTime(newH1, String(digit), m1, m2, period);
+    }
+    refM1.current?.focus();
+    refM1.current?.select();
+  };
+
+  const handleM1Change = (e) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (!raw) return;
+    let digit = parseInt(raw.slice(-1), 10);
+    if (digit > 5) digit = 5;
+    updateTime(h1, h2, String(digit), m2, period);
+    refM2.current?.focus();
+    refM2.current?.select();
+  };
+
+  const handleM2Change = (e) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (!raw) return;
+    const digit = parseInt(raw.slice(-1), 10);
+    updateTime(h1, h2, m1, String(digit), period);
+  };
+
+  const handleKeyDown = (e, prevRef, nextRef) => {
+    if (e.key === 'Backspace') {
+      if (prevRef) {
+        setTimeout(() => {
+          prevRef.current?.focus();
+          prevRef.current?.select();
+        }, 10);
+      }
+    } else if (e.key === 'ArrowRight' && nextRef) {
+      nextRef.current?.focus();
+      nextRef.current?.select();
+    } else if (e.key === 'ArrowLeft' && prevRef) {
+      prevRef.current?.focus();
+      prevRef.current?.select();
+    } else if (e.key.toLowerCase() === 'a') {
+      updateTime(h1, h2, m1, m2, 'AM');
+    } else if (e.key.toLowerCase() === 'p') {
+      updateTime(h1, h2, m1, m2, 'PM');
+    }
+  };
+
+  const boxStyle = {
+    width: '46px',
+    height: '52px',
+    borderRadius: '10px',
+    border: '2px solid #CBD5E1',
+    backgroundColor: '#FFFFFF',
+    fontSize: '22px',
+    fontWeight: '900',
+    color: '#0F172A',
+    textAlign: 'center',
+    outline: 'none',
+    transition: 'all 0.15s ease',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+  };
+
+  const periodBtnStyle = (isActive) => ({
+    width: '52px',
+    height: '52px',
+    borderRadius: '10px',
+    border: isActive ? '2px solid #D97706' : '2px solid #CBD5E1',
+    backgroundColor: isActive ? '#D97706' : '#FFFFFF',
+    color: isActive ? '#FFFFFF' : '#475569',
+    fontSize: '15px',
+    fontWeight: '900',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    boxShadow: isActive ? '0 2px 8px rgba(217,119,6,0.3)' : '0 1px 3px rgba(0,0,0,0.06)'
+  });
+
+  return (
+    <div style={{
+      backgroundColor: '#F8FAFC',
+      padding: '16px 14px',
+      borderRadius: '12px',
+      border: '1.5px solid #E2E8F0',
+      marginBottom: '14px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '12px'
+    }}>
+      <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Expected Start Time (Standard 6-Box)
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: '#FEF3C7', padding: '3px 10px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
+          <Clock size={12} color="#D97706" />
+          <span style={{ fontSize: '12px', fontWeight: '900', color: '#92400E' }}>
+            {value || '09:00 AM'}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        {/* Hours (Boxes 1 & 2) */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <input
+              ref={refH1}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={h1}
+              onChange={handleH1Change}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => handleKeyDown(e, null, refH2)}
+              style={boxStyle}
+            />
+            <input
+              ref={refH2}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={h2}
+              onChange={handleH2Change}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => handleKeyDown(e, refH1, refM1)}
+              style={boxStyle}
+            />
+          </div>
+          <span style={{ fontSize: '10px', fontWeight: '800', color: '#64748B' }}>HOUR (01-12)</span>
+        </div>
+
+        {/* Separator */}
+        <div style={{ fontSize: '26px', fontWeight: '900', color: '#64748B', paddingBottom: '18px' }}>:</div>
+
+        {/* Minutes (Boxes 3 & 4) */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <input
+              ref={refM1}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={m1}
+              onChange={handleM1Change}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => handleKeyDown(e, refH2, refM2)}
+              style={boxStyle}
+            />
+            <input
+              ref={refM2}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={m2}
+              onChange={handleM2Change}
+              onFocus={(e) => e.target.select()}
+              onKeyDown={(e) => handleKeyDown(e, refM1, null)}
+              style={boxStyle}
+            />
+          </div>
+          <span style={{ fontSize: '10px', fontWeight: '800', color: '#64748B' }}>MIN (00-59)</span>
+        </div>
+
+        {/* Spacer */}
+        <div style={{ width: '4px' }} />
+
+        {/* Period (Boxes 5 & 6: AM / PM) */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <button
+              type="button"
+              onClick={() => updateTime(h1, h2, m1, m2, 'AM')}
+              style={periodBtnStyle(period === 'AM')}
+            >
+              AM
+            </button>
+            <button
+              type="button"
+              onClick={() => updateTime(h1, h2, m1, m2, 'PM')}
+              style={periodBtnStyle(period === 'PM')}
+            >
+              PM
+            </button>
+          </div>
+          <span style={{ fontSize: '10px', fontWeight: '800', color: '#64748B' }}>PERIOD</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const DoctorAppointmentsAdmin = () => {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
@@ -66,6 +371,13 @@ const DoctorAppointmentsAdmin = () => {
   const [delayReason, setDelayReason] = useState('');
   const [cancelModalSession, setCancelModalSession] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
+
+  const handleOpenDelayModal = (session) => {
+    setDelayModalSession(session);
+    const defaultDelay = getOffsetTime(session, 30);
+    setDelayExpectedTime(defaultDelay);
+    setDelayReason('');
+  };
 
   // Accordion state for upcoming / history grouped dates
   const [expandedDates, setExpandedDates] = useState({});
@@ -1267,7 +1579,7 @@ const DoctorAppointmentsAdmin = () => {
                           <>
                             <button
                               type="button"
-                              onClick={() => setDelayModalSession(primaryTodaySession)}
+                              onClick={() => handleOpenDelayModal(primaryTodaySession)}
                               disabled={actionLoading}
                               style={{
                                 padding: '6px 12px',
@@ -1329,7 +1641,7 @@ const DoctorAppointmentsAdmin = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
                   {displayedAdminSessions.map(session => {
                     const isScheduled = session.sessionStatus === 'Scheduled';
-                    const isInProgress = session.sessionStatus === 'InProgress';
+                    const isInProgress = session.sessionStatus === 'InProgress' || session.sessionStatus === 'Active';
                     const isDelayed = session.sessionStatus === 'Delayed';
                     const isCompleted = session.sessionStatus === 'Completed';
                     const isCancelled = session.sessionStatus === 'Cancelled';
@@ -1346,10 +1658,10 @@ const DoctorAppointmentsAdmin = () => {
                         <div style={{ fontSize: '11px', color: '#64748B', marginBottom: '8px' }}>
                           Room: <strong>{session.roomNumber || selectedDoctor?.roomNumber || 'Suite 201'}</strong> • Bookings: <strong>{session.currentBookings}/{session.maxPatients || session.maxCapacity || 15}</strong> • Serving: <strong>#{String(session.currentlyServingQueueNumber || 0).padStart(2, '0')}</strong>
                         </div>
-                        {isDelayed && <div style={{ fontSize: '11px', color: '#B45309', marginBottom: '8px', backgroundColor: '#FEF9C3', padding: '4px 8px', borderRadius: '4px' }}>Delay: {session.expectedStartTime ? `Expected at ${session.expectedStartTime}` : ''} ({session.delayReason || 'Doctor running late'})</div>}
+                        {isDelayed && <div style={{ fontSize: '11px', color: '#B45309', marginBottom: '8px', backgroundColor: '#FEF9C3', padding: '4px 8px', borderRadius: '4px' }}>Delay: {session.expectedStartTime ? `Expected at ${formatExpectedTime(session.expectedStartTime)}` : ''} ({session.delayReason || 'Doctor running late'})</div>}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
                           {(isScheduled || isDelayed || session.sessionStatus === 'Expired') && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={12} /> Start</button>}
-                          {!isCompleted && !isCancelled && (<><button type="button" onClick={() => setDelayModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={12} /> Cancel</button></>)}
+                          {!isCompleted && !isCancelled && (<><button type="button" onClick={() => handleOpenDelayModal(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={12} /> Cancel</button></>)}
                         </div>
                       </div>
                     );
@@ -1410,7 +1722,7 @@ const DoctorAppointmentsAdmin = () => {
                             <div style={{ borderTop: '1px solid #E2E8F0', padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: '8px', backgroundColor: '#FFFFFF' }}>
                               {slots.map(session => {
                                 const isScheduled = session.sessionStatus === 'Scheduled';
-                                const isInProgress = session.sessionStatus === 'InProgress';
+                                const isInProgress = session.sessionStatus === 'InProgress' || session.sessionStatus === 'Active';
                                 const isDelayed = session.sessionStatus === 'Delayed';
                                 const isCompleted = session.sessionStatus === 'Completed';
                                 const isCancelled = session.sessionStatus === 'Cancelled';
@@ -1426,11 +1738,11 @@ const DoctorAppointmentsAdmin = () => {
                                       <span style={{ fontSize: '11px', color: '#64748B' }}>
                                         <strong>{session.currentBookings || 0}/{session.maxPatients || session.maxCapacity || 15}</strong> Booked • Room: <strong>{session.roomNumber || selectedDoctor?.roomNumber || 'Suite 201'}</strong>
                                       </span>
-                                      {isDelayed && <span style={{ fontSize: '11px', color: '#B45309', fontStyle: 'italic' }}>⚠ {session.delayReason || 'Delayed'}</span>}
+                                      {isDelayed && <span style={{ fontSize: '11px', color: '#B45309', fontStyle: 'italic' }}>⚠ {session.expectedStartTime ? `Expected ${formatExpectedTime(session.expectedStartTime)}: ` : ''}{session.delayReason || 'Delayed'}</span>}
                                     </div>
                                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                       {(isScheduled || isDelayed || session.sessionStatus === 'Expired') && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={11} /> Start</button>}
-                                      {!isCompleted && !isCancelled && (<><button type="button" onClick={() => setDelayModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={11} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={11} /> Cancel</button></>)}
+                                      {!isCompleted && !isCancelled && (<><button type="button" onClick={() => handleOpenDelayModal(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={11} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={11} /> Cancel</button></>)}
                                     </div>
                                   </div>
                                 );
@@ -2075,58 +2387,161 @@ const DoctorAppointmentsAdmin = () => {
         }}>
           <div style={{
             backgroundColor: '#FFFFFF',
-            borderRadius: '16px',
+            borderRadius: '18px',
             padding: '24px',
-            maxWidth: '420px',
+            maxWidth: '480px',
             width: '100%',
-            position: 'relative'
+            position: 'relative',
+            boxShadow: '0 20px 45px -15px rgba(0,0,0,0.3)',
+            border: '1px solid #E2E8F0'
           }}>
-            <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: '800', color: '#004D40' }}>
-              Mark Session as Delayed
-            </h3>
-            <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#64748B' }}>
-              Session: {delayModalSession.sessionDate} • {delayModalSession.timeFormatted}
-            </p>
-
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
-                EXPECTED START TIME *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 10:45 AM or 11:00"
-                value={delayExpectedTime}
-                onChange={(e) => setDelayExpectedTime(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-              />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <AlertTriangle size={18} />
+                </div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0F172A' }}>
+                  Mark Session as Delayed
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDelayModalSession(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
-                REASON FOR DELAY
+            <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#64748B' }}>
+              Scheduled Session: <strong>{delayModalSession.sessionDate}</strong> • <strong>{delayModalSession.timeRange || delayModalSession.timeFormatted}</strong>
+            </p>
+
+            {/* Standard Quick Delay Offset Blocks */}
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: '800', color: '#475569', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                Quick Delay Presets (From Scheduled Start)
               </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                {[
+                  { label: '+15 Mins', mins: 15 },
+                  { label: '+30 Mins', mins: 30 },
+                  { label: '+45 Mins', mins: 45 },
+                  { label: '+1 Hour', mins: 60 },
+                  { label: '+1.5 Hours', mins: 90 },
+                  { label: '+2 Hours', mins: 120 }
+                ].map(preset => {
+                  const targetTime = getOffsetTime(delayModalSession, preset.mins);
+                  const isSelected = delayExpectedTime === targetTime;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setDelayExpectedTime(targetTime)}
+                      style={{
+                        padding: '7px 6px',
+                        borderRadius: '8px',
+                        border: isSelected ? '1.5px solid #D97706' : '1px solid #CBD5E1',
+                        backgroundColor: isSelected ? '#FEF3C7' : '#FFFFFF',
+                        color: isSelected ? '#92400E' : '#334155',
+                        fontWeight: isSelected ? '800' : '600',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '2px',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? '0 2px 6px rgba(217,119,6,0.2)' : 'none'
+                      }}
+                    >
+                      <span>{preset.label}</span>
+                      <span style={{ fontSize: '10px', color: isSelected ? '#B45309' : '#64748B', fontWeight: '700' }}>{targetTime}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Standard 6-Box Time Input */}
+            <SixBoxTimePicker
+              value={delayExpectedTime}
+              onChange={setDelayExpectedTime}
+            />
+
+            {/* Reason for Delay */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '800', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Reason for Delay (Shown to Patients)
+                </label>
+              </div>
+
+              {/* Quick clinical reasons chips */}
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                {[
+                  'Emergency surgery round in progress',
+                  'Delayed due to urgent hospital transit',
+                  'Prior patient consultation extended',
+                  'Emergency ward patient assessment'
+                ].map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setDelayReason(r)}
+                    style={{
+                      fontSize: '10px',
+                      padding: '3px 8px',
+                      borderRadius: '5px',
+                      border: delayReason === r ? '1px solid #D97706' : '1px solid #E2E8F0',
+                      backgroundColor: delayReason === r ? '#FEF3C7' : '#FFFFFF',
+                      color: delayReason === r ? '#92400E' : '#475569',
+                      cursor: 'pointer',
+                      fontWeight: delayReason === r ? '700' : '500'
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+
               <textarea
                 rows={2}
                 placeholder="e.g. Doctor is completing an emergency surgery round..."
                 value={delayReason}
                 onChange={(e) => setDelayReason(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '12px', boxSizing: 'border-box' }}
               />
             </div>
 
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
               <button
+                type="button"
                 onClick={() => setDelayModalSession(null)}
-                style={{ padding: '8px 14px', borderRadius: '6px', border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', color: '#64748B', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF', color: '#64748B', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleDelaySession}
                 disabled={actionLoading}
-                style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', backgroundColor: '#D97706', color: '#FFFFFF', fontSize: '12px', fontWeight: '700', cursor: 'pointer' }}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#D97706',
+                  color: '#FFFFFF',
+                  fontSize: '12px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(217,119,6,0.3)'
+                }}
               >
-                Confirm Delay & Notify
+                {actionLoading ? 'Updating...' : 'Confirm Delay & Notify Patients'}
               </button>
             </div>
           </div>
