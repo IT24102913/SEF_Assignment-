@@ -1,6 +1,8 @@
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.Staff;
 using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
+using HealthBridge.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -173,6 +175,32 @@ public class StaffController : ControllerBase
                 if (!string.IsNullOrWhiteSpace(dto.AvailableDays)) doctor.AvailableDays = dto.AvailableDays;
                 if (!string.IsNullOrWhiteSpace(dto.AvailableTime)) doctor.AvailableTime = dto.AvailableTime;
                 if (!string.IsNullOrWhiteSpace(dto.PhoneNumber)) doctor.PhoneNumber = dto.PhoneNumber;
+            }
+
+            // Immediately purge future unbooked sessions that don't match the updated roster
+            try
+            {
+                var allowedDays = AppointmentService.ParseDoctorAvailableDays(doctor.AvailableDays);
+                var isGenMed = (doctor.Specialization ?? string.Empty).ToLower().Contains("general") || (doctor.Specialization ?? string.Empty).ToLower().Contains("physician");
+                var allowedTypes = AppointmentService.ParseDoctorSessionTypes(doctor.AvailableTime, isGenMed);
+                var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5).AddMinutes(30));
+
+                var unbookedFuture = await _context.DoctorSessions
+                    .Where(s => s.DoctorId == doctor.Id && s.SessionDate >= today && s.CurrentBookings == 0)
+                    .ToListAsync();
+
+                var toRemove = unbookedFuture
+                    .Where(s => !allowedDays.Contains(s.SessionDate.DayOfWeek) || !allowedTypes.Contains(s.SessionType))
+                    .ToList();
+
+                if (toRemove.Any())
+                {
+                    _context.DoctorSessions.RemoveRange(toRemove);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not purge unbooked sessions for doctor {DoctorId}", doctor.Id);
             }
         }
 

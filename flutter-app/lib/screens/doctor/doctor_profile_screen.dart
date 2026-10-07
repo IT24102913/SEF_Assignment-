@@ -79,14 +79,73 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
     }
   }
 
+  List<int> _parseAllowedDays(String? daysStr) {
+    if (daysStr == null || daysStr.trim().isEmpty) {
+      return [DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday];
+    }
+    final s = daysStr.toLowerCase();
+    final days = <int>{};
+    if (s.contains('mon - fri') || s.contains('mon-fri') || s.contains('weekdays')) {
+      days.addAll([DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday]);
+    }
+    if (s.contains('all') || s.contains('daily') || s.contains('everyday')) {
+      days.addAll([DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday, DateTime.saturday, DateTime.sunday]);
+    }
+    if (s.contains('weekend')) {
+      days.addAll([DateTime.saturday, DateTime.sunday]);
+    }
+    if (s.contains('mon')) days.add(DateTime.monday);
+    if (s.contains('tue')) days.add(DateTime.tuesday);
+    if (s.contains('wed')) days.add(DateTime.wednesday);
+    if (s.contains('thu')) days.add(DateTime.thursday);
+    if (s.contains('fri')) days.add(DateTime.friday);
+    if (s.contains('sat')) days.add(DateTime.saturday);
+    if (s.contains('sun')) days.add(DateTime.sunday);
+    return days.isNotEmpty ? days.toList() : [DateTime.monday, DateTime.wednesday, DateTime.friday];
+  }
+
+  List<String> _parseAllowedSessionTypes(String? timeStr, bool isGenMed) {
+    if (timeStr == null || timeStr.trim().isEmpty) {
+      return isGenMed ? ['morning', 'evening', 'night'] : ['morning', 'evening'];
+    }
+    final s = timeStr.toLowerCase();
+    final types = <String>{};
+    if (s.contains('morning') || s.contains('am') || s.contains('08:') || s.contains('09:') || s.contains('10:') || s.contains('11:')) {
+      types.add('morning');
+    }
+    if (s.contains('evening') || s.contains('pm') || s.contains('16:') || s.contains('17:') || s.contains('04:') || s.contains('05:') || s.contains('06:') || s.contains('07:')) {
+      types.add('evening');
+    }
+    if ((s.contains('night') || s.contains('20:') || s.contains('21:') || s.contains('22:')) && isGenMed) {
+      types.add('night');
+    }
+    return types.isNotEmpty ? types.toList() : ['morning', 'evening'];
+  }
+
   List<String> get _uniqueDates {
     final spec = widget.doctor.specialization.trim().toLowerCase();
     final isGeneralMedicine = spec == 'general medicine' || spec.contains('physician');
-    return _sessions
-        .where((s) => !_isSessionExpired(s) && (isGeneralMedicine || s.sessionType.toLowerCase() != 'night'))
+    final allowedDays = _parseAllowedDays(widget.doctor.availableDays);
+    final allowedTypes = _parseAllowedSessionTypes(widget.doctor.availableTime, isGeneralMedicine);
+
+    final validDates = _sessions
+        .where((s) {
+          if (_isSessionExpired(s)) return false;
+          final type = s.sessionType.toLowerCase();
+          if (type == 'night' && !isGeneralMedicine) return false;
+          if (!allowedTypes.contains(type)) return false;
+          try {
+            final dt = DateTime.parse(s.sessionDate);
+            if (!allowedDays.contains(dt.weekday)) return false;
+          } catch (_) {}
+          return true;
+        })
         .map((s) => s.sessionDate)
         .toSet()
         .toList();
+
+    validDates.sort();
+    return validDates;
   }
 
   /// Specialty-correct visibility: Night option is restricted to General Medicine
@@ -94,10 +153,22 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
   List<DoctorSession> _getFilteredSessionsForDate(String date) {
     final spec = widget.doctor.specialization.trim().toLowerCase();
     final isGeneralMedicine = spec == 'general medicine' || spec.contains('physician');
+    final allowedDays = _parseAllowedDays(widget.doctor.availableDays);
+    final allowedTypes = _parseAllowedSessionTypes(widget.doctor.availableTime, isGeneralMedicine);
+
+    try {
+      final dt = DateTime.parse(date);
+      if (!allowedDays.contains(dt.weekday)) return [];
+    } catch (_) {}
+
     final matching = _sessions.where((s) {
       if (s.sessionDate != date) return false;
       if (_isSessionExpired(s)) return false;
-      if (s.sessionType.toLowerCase() == 'night' && !isGeneralMedicine) {
+      final type = s.sessionType.toLowerCase();
+      if (type == 'night' && !isGeneralMedicine) {
+        return false;
+      }
+      if (!allowedTypes.contains(type)) {
         return false;
       }
       return true;
