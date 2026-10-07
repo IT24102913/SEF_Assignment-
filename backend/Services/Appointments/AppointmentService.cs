@@ -55,6 +55,34 @@ public class AppointmentService : IAppointmentService
                     WHEN ""SessionTime"" < '17:00:00' THEN 'Evening' 
                     ELSE 'Night' 
                 END WHERE ""SessionType"" = 'Morning' AND ""SessionTime"" >= '12:00:00';
+
+                -- Clean up unbooked legacy low-capacity hourly slots (MaxCapacity <= 5)
+                DELETE FROM ""DoctorSessions"" 
+                WHERE ""CurrentBookings"" = 0 
+                  AND ""MaxCapacity"" <= 5;
+
+                -- Remove unbooked Night sessions for doctors who are not General Medicine / Physician
+                DELETE FROM ""DoctorSessions""
+                WHERE ""SessionType"" = 'Night'
+                  AND ""CurrentBookings"" = 0
+                  AND ""DoctorId"" IN (
+                      SELECT ""Id"" FROM ""Doctors""
+                      WHERE LOWER(COALESCE(""Specialization"", '')) NOT LIKE '%general%'
+                        AND LOWER(COALESCE(""Specialization"", '')) NOT LIKE '%physician%'
+                  );
+
+                -- Remove duplicate unbooked sessions for the same doctor, date, and SessionType
+                DELETE FROM ""DoctorSessions""
+                WHERE ""Id"" IN (
+                    SELECT s1.""Id""
+                    FROM ""DoctorSessions"" s1
+                    JOIN ""DoctorSessions"" s2 
+                      ON s1.""DoctorId"" = s2.""DoctorId"" 
+                     AND s1.""SessionDate"" = s2.""SessionDate"" 
+                     AND s1.""SessionType"" = s2.""SessionType""
+                     AND (s1.""MaxCapacity"" < s2.""MaxCapacity"" OR (s1.""MaxCapacity"" = s2.""MaxCapacity"" AND s1.""Id"" > s2.""Id""))
+                    WHERE s1.""CurrentBookings"" = 0
+                );
             ");
             _doctorSessionsSchemaEnsured = true;
         }
@@ -375,7 +403,9 @@ public class AppointmentService : IAppointmentService
                 .ToListAsync();
 
             var existingTypes = new HashSet<(DateOnly Date, SessionType Type)>(
-                existingSessions.Select(s => (s.SessionDate, s.SessionType))
+                existingSessions
+                    .Where(s => s.MaxCapacity >= 15 || s.CurrentBookings > 0)
+                    .Select(s => (s.SessionDate, s.SessionType))
             );
 
             var spec = (doctor.Specialization ?? string.Empty).ToLower();
@@ -444,7 +474,22 @@ public class AppointmentService : IAppointmentService
             .ThenBy(s => s.SessionTime)
             .ToListAsync();
 
-        return list.Select(s =>
+        var doctorSpec = (doctor?.Specialization ?? string.Empty).ToLower();
+        bool docIsGenMed = doctorSpec.Contains("general") || doctorSpec.Contains("physician");
+
+        // Specialty filter: Night sessions are strictly for General Medicine
+        var validSessions = list.Where(s => docIsGenMed || s.SessionType != SessionType.Night);
+
+        // Deduplicate: exactly ONE session per SessionType on each date
+        // Priority: standard OPD capacity (MaxCapacity >= 15), then active bookings, then Id
+        var deduplicatedList = validSessions
+            .GroupBy(s => (s.SessionDate, s.SessionType))
+            .Select(g => g.OrderByDescending(s => s.MaxCapacity).ThenByDescending(s => s.CurrentBookings).First())
+            .OrderBy(s => s.SessionDate)
+            .ThenBy(s => s.SessionTime)
+            .ToList();
+
+        return deduplicatedList.Select(s =>
         {
             var isPast = s.SessionDate < today || (s.SessionDate == today && s.SessionTime <= nowTime);
             var isAvailable = s.IsActive && !isPast && s.CurrentBookings < s.MaxCapacity;
