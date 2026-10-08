@@ -46,20 +46,94 @@ public class SymptomAdviceAgent
             ?? Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
     }
 
-    public async Task<SymptomAdviceResponse> GetAdviceAsync(string symptom, string? patientEmail)
+    private static bool ShouldAskClarifyingQuestions(
+        string symptom,
+        Dictionary<string, string>? priorAnswers)
+    {
+        // If user already answered → do NOT ask again
+        if (priorAnswers != null && priorAnswers.Count > 0)
+            return false;
+        
+        if (string.IsNullOrWhiteSpace(symptom)) return false;
+        var s = symptom.ToLowerInvariant();
+        
+        // NEVER ask for emergencies — respond directly with 1990
+        if (s.Contains("chest pain") ||
+            s.Contains("can't breathe") ||
+            s.Contains("cannot breathe") ||
+            s.Contains("unconscious") ||
+            s.Contains("severe bleeding") ||
+            s.Contains("heart attack") ||
+            s.Contains("stroke") ||
+            s.Contains("suicidal") ||
+            s.Contains("not breathing") ||
+            s.Contains("choking"))
+            return false;
+        
+        // NEVER ask for simple symptoms — respond directly
+        if (s.Contains("headache") ||
+            s.Contains("fever") ||
+            s.Contains("cough") ||
+            s.Contains("cold") ||
+            s.Contains("skin rash") ||
+            s.Contains("stomach ache") ||
+            s.Contains("sore throat") ||
+            s.Contains("nausea") ||
+            s.Contains("vomiting"))
+            return false;
+        
+        // ASK for accidents
+        if (s.Contains("hit me") ||
+            s.Contains("hit by") ||
+            s.Contains("accident") ||
+            s.Contains("fell") ||
+            s.Contains("slip") ||
+            s.Contains("bicycle") ||
+            s.Contains("car hit") ||
+            s.Contains("bike hit") ||
+            s.Contains("crash") ||
+            s.Contains("collision") ||
+            s.Contains("injured"))
+            return true;
+        
+        // ASK for bites/stings
+        if (s.Contains("bite") ||
+            s.Contains("bitten") ||
+            s.Contains("sting") ||
+            s.Contains("stab") ||
+            s.Contains("wound"))
+            return true;
+        
+        // ASK for burns / shock / poisoning
+        if (s.Contains("burn") ||
+            s.Contains("electric shock") ||
+            s.Contains("electrocuted") ||
+            s.Contains("poison") ||
+            s.Contains("swallowed") ||
+            s.Contains("drowning"))
+            return true;
+        
+        return false;
+    }
+
+    public async Task<SymptomAdviceResponse> GetAdviceAsync(
+        string symptom, 
+        string? patientEmail,
+        Dictionary<string, string>? clarifyingAnswers = null)
     {
         symptom = symptom?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(symptom))
             return BuildFallbackResponse(symptom);
 
+        var askClarifying = ShouldAskClarifyingQuestions(symptom, clarifyingAnswers);
         var symptomLower = symptom.ToLowerInvariant();
-        var cacheKey = $"symptom_v1_{symptomLower}";
+        var cacheKey = $"symptom_v4_{symptomLower}";
         
         SymptomAdviceResponse? result = null;
         bool fromCache = false;
 
-        // Check cache
-        if (_cache.TryGetValue(cacheKey, out SymptomAdviceResponse? cached) && cached != null)
+        // Check cache (only if not asking clarifying questions AND no prior answers were supplied)
+        if (!askClarifying && clarifyingAnswers == null && _cache.TryGetValue(cacheKey, out SymptomAdviceResponse? cached) && cached != null)
         {
             _logger.LogInformation("[Pharmacy AI] Cache HIT for {Symptom}", symptom);
             result = cached;
@@ -91,12 +165,24 @@ public class SymptomAdviceAgent
             {
                 try
                 {
-                    var aiResponse = await CallGeminiAsync(apiKey, symptom, productList);
+                    var aiResponse = await CallGeminiAsync(apiKey, symptom, productList, askClarifying, clarifyingAnswers);
                     if (aiResponse != null)
                     {
-                        MapRecommendedProducts(aiResponse, recommendedPool);
+                        if (askClarifying)
+                        {
+                            aiResponse.NeedsClarification = true;
+                            aiResponse.EngineUsed = "Google Gemini LLM (Pharmacy Wellness AI)";
+                            return aiResponse;
+                        }
+
+                        MapRecommendedProducts(aiResponse, recommendedPool, symptom);
                         aiResponse.EngineUsed = "Google Gemini LLM (Pharmacy Wellness AI)";
-                        _cache.Set(cacheKey, aiResponse, TimeSpan.FromHours(6));
+                        
+                        if (clarifyingAnswers == null)
+                        {
+                            _cache.Set(cacheKey, aiResponse, TimeSpan.FromHours(6));
+                        }
+
                         result = aiResponse;
                     }
                 }
@@ -225,7 +311,12 @@ public class SymptomAdviceAgent
         return PillKeywords.Any(k => checkText.Contains(k));
     }
 
-    private async Task<SymptomAdviceResponse?> CallGeminiAsync(string apiKey, string symptom, string productList)
+    private async Task<SymptomAdviceResponse?> CallGeminiAsync(
+        string apiKey, 
+        string symptom, 
+        string productList,
+        bool askClarifying = false,
+        Dictionary<string, string>? clarifyingAnswers = null)
     {
         var configuredModel = _config["Gemini:Model"];
         var modelsToTry = new List<string>();
@@ -235,6 +326,10 @@ public class SymptomAdviceAgent
             if (!modelsToTry.Contains(m)) modelsToTry.Add(m);
         }
 
+        var answersText = clarifyingAnswers != null && clarifyingAnswers.Count > 0
+            ? string.Join("\n", clarifyingAnswers.Select(kv => $"- {kv.Key}: {kv.Value}"))
+            : "";
+
         var prompt = $@"You are a warm, caring Pharmacy Wellness Assistant in Sri Lanka.
 
 PATIENT SYMPTOM: ""{symptom}""
@@ -242,31 +337,121 @@ PATIENT SYMPTOM: ""{symptom}""
 AVAILABLE OTC NON-PILL PRODUCTS:
 {(string.IsNullOrWhiteSpace(productList) ? "(None available)" : productList)}
 
+{(askClarifying ? $@"
+━━━ CLARIFYING QUESTIONS MODE — ACTIVE ━━━
+
+The user's input describes an accident, injury, bite, burn,
+shock, or poisoning. Critical details are missing.
+
+You MUST ask 2-3 clarifying questions SPECIFIC to this
+incident type BEFORE giving final advice.
+
+EXAMPLES (illustrative, NOT templates — do NOT copy these):
+
+- Bicycle/car accident → head hit? bleeding? limb movement?
+- Electric shock → still in contact with source? conscious?
+                    burns visible? heart rhythm issues?
+- Snake bite → what snake? how long ago? swelling? 
+              drooping eyelids? difficulty breathing?
+- Dog bite → pet or stray? skin broken? vaccinated?
+- Burn → what caused it? what size? which body part? 
+         blisters?
+- Poisoning → what substance? how much? when? vomiting?
+- Stab wound → where? bleeding? object still inside?
+- Fall → head hit? can stand? which limb hurts?
+- Drowning → how long underwater? conscious now? 
+             breathing normally?
+
+RULES:
+1. Ask 2-3 questions ONLY.
+2. Questions must be SPECIFIC to the incident.
+3. Do NOT reuse the example questions above.
+4. Write NEW questions that fit THIS incident.
+5. Each question must have 2-4 tappable options.
+6. Do NOT ask generic questions like ""are you okay?""
+7. The answers must materially change your final advice.
+8. Ask in the user's language (Sinhala/Singlish/English).
+
+Return JSON with:
+
+{{
+  ""needsClarification"": true,
+  ""clarifyingQuestions"": [
+    {{
+      ""id"": ""unique_snake_case_id"",
+      ""question"": ""Your specific question"",
+      ""options"": [""Option A"", ""Option B"", ""Option C""]
+    }}
+  ],
+  ""symptomCategory"": ""Injury — Pending Assessment"",
+  ""summary"": ""Let me ask a few quick questions to guide you."",
+  ""homeRemedies"": [],
+  ""recommendedProducts"": [],
+  ""warningSigns"": [],
+  ""consultDoctorIf"": [],
+  ""disclaimer"": """"
+}}
+" : "")}
+
+{(!askClarifying && !string.IsNullOrEmpty(answersText) ? $@"
+━━━ FINAL ADVICE MODE — ANSWERS PROVIDED ━━━
+
+Original symptom: {symptom}
+
+The user answered your clarifying questions:
+{answersText}
+
+Now provide FINAL advice based on these answers.
+
+If the answers indicate an emergency (head hit, can't move, heavy bleeding, breathing issues):
+- Set symptomCategory to include ""Emergency""
+- Summary must urge 1990 / nearest hospital IMMEDIATELY
+- recommendedProducts = []
+- Focus on first aid steps
+
+Otherwise, provide normal structured advice.
+
+Return the FULL JSON structure (all fields populated).
+" : "")}
+
+{(!askClarifying && string.IsNullOrEmpty(answersText) ? $@"
+━━━ NORMAL MODE — DIRECT ADVICE ━━━
+
 TASK:
 1. Symptom category
 2. 4-6 home remedies (priority)
 3. 3-4 warning signs
-4. 2-4 OTC non-pill products from list
+4. 2-4 OTC non-pill products from list (ONLY relevant ones)
 5. 3-4 ""consult doctor if"" conditions
 6. Warm summary
+
+PRODUCT RULES:
+- Only recommend products from the list above.
+- Match the product purpose to the symptom.
+- Do NOT recommend supplements/vitamins/protein unless the
+  symptom is specifically about nutrition, gym, fitness, or
+  protein intake.
+- NEVER recommend for emergency categories.
+- If no product matches, return recommendedProducts = [].
 
 RULES:
 - HOME REMEDIES FIRST
 - NO tablets/capsules/pills
-- Only from list above
-- If needs prescription → say consult doctor
-- Always mention ""if symptoms worsen, see a doctor""
 - Sri Lanka context
 - Warm, human tone
+- Always mention ""if symptoms worsen, see a doctor""
+" : "")}
 
-RETURN JSON:
+RETURN STRICT JSON ONLY:
 {{
   ""symptomCategory"": ""..."",
   ""summary"": ""..."",
-  ""homeRemedies"": [""..."", ""..."", ""..."", ""...""],
-  ""warningSigns"": [""..."", ""..."", ""...""],
+  ""homeRemedies"": [""..."", ""...""],
+  ""warningSigns"": [""..."", ""...""],
   ""recommendedProducts"": [
-    {{""medicineId"": 123, ""whyRecommended"": ""..."", ""howToUse"": ""..."", ""duration"": ""..."", ""productType"": ""Lotion""}}
+    {{""medicineId"": 123, ""whyRecommended"": ""..."", 
+      ""howToUse"": ""..."", ""duration"": ""..."", 
+      ""productType"": ""Lotion""}}
   ],
   ""consultDoctorIf"": [""..."", ""...""]
 }}";
@@ -320,13 +505,49 @@ RETURN JSON:
         return clean;
     }
 
-    private static void MapRecommendedProducts(SymptomAdviceResponse response, List<Medicine> availableProducts)
+    private static void MapRecommendedProducts(
+        SymptomAdviceResponse response, 
+        List<Medicine> availableProducts,
+        string symptom)
     {
+        // Emergency category → clear all products
+        var cat = (response.SymptomCategory ?? "").ToLowerInvariant();
+        if (cat.Contains("emergency") ||
+            cat.Contains("trauma") ||
+            cat.Contains("bite") ||
+            cat.Contains("sting") ||
+            cat.Contains("wound") ||
+            cat.Contains("mental") ||
+            cat.Contains("attack") ||
+            cat.Contains("accident"))
+        {
+            response.RecommendedProducts.Clear();
+            return;
+        }
+
+        // Determine if user actually asked about supplements
+        var s = (symptom ?? "").ToLowerInvariant();
+        bool userAskedSupplements =
+            s.Contains("protein") ||
+            s.Contains("gym") ||
+            s.Contains("fitness") ||
+            s.Contains("vitamin") ||
+            s.Contains("supplement") ||
+            s.Contains("immunity") ||
+            s.Contains("energy");
+
         var enriched = new List<RecommendedProductDto>();
+
         foreach (var rec in response.RecommendedProducts)
         {
             var med = availableProducts.FirstOrDefault(m => m.Id == rec.MedicineId);
             if (med == null) continue;
+
+            var medCat = (med.Category?.Name ?? "").ToLowerInvariant();
+            bool isSupplement = medCat.Contains("vitamin") || medCat.Contains("supplement");
+
+            // Skip supplements unless user asked about them
+            if (isSupplement && !userAskedSupplements) continue;
 
             enriched.Add(new RecommendedProductDto
             {
@@ -342,6 +563,7 @@ RETURN JSON:
                 Duration = rec.Duration
             });
         }
+
         response.RecommendedProducts = enriched;
     }
 

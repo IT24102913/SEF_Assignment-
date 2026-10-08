@@ -7,6 +7,8 @@ public class SymptomAdviceRequest
 {
     public string Symptom { get; set; } = "";
     public string? PatientEmail { get; set; }
+    public string? SessionId { get; set; }
+    public Dictionary<string, string>? ClarifyingAnswers { get; set; }
 }
 
 public class RecommendedProductDto
@@ -23,6 +25,13 @@ public class RecommendedProductDto
     public string Duration { get; set; } = "";
 }
 
+public class ClarifyingQuestionDto
+{
+    public string Id { get; set; } = "";
+    public string Question { get; set; } = "";
+    public List<string> Options { get; set; } = new();
+}
+
 public class SymptomAdviceResponse
 {
     public int? Id { get; set; }  // ← History ID (if saved)
@@ -37,6 +46,9 @@ public class SymptomAdviceResponse
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
     public string EngineUsed { get; set; } = "";
     public bool FromCache { get; set; }
+    public bool NeedsClarification { get; set; } = false;
+    public List<ClarifyingQuestionDto>? ClarifyingQuestions { get; set; }
+    public string? SessionId { get; set; }
 }
 
 public class SymptomHistoryItemDto
@@ -48,3 +60,4 @@ public class SymptomHistoryItemDto
     public DateTime CreatedAt { get; set; }
     public string EngineUsed { get; set; } = "";
 }
+
