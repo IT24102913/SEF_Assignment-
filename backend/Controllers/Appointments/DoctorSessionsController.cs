@@ -161,4 +161,30 @@ public class DoctorSessionsController : ControllerBase
             return StatusCode(500, new { message = "Failed to cancel session." });
         }
     }
+
+    /// <summary>
+    /// Concludes and completes a doctor consultation session.
+    /// </summary>
+    [HttpPost("{id}/complete")]
+    public async Task<IActionResult> CompleteSession(int id)
+    {
+        try
+        {
+            var session = await _appointmentService.CompleteSessionAsync(id);
+            return Ok(session);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to complete session {Id}", id);
+            return StatusCode(500, new { message = "Failed to complete session." });
+        }
+    }
 }

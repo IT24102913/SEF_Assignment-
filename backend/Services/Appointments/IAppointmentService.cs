@@ -27,6 +27,7 @@ public interface IAppointmentService
     Task<DoctorSessionDto> DelaySessionAsync(int sessionId, DateTime expectedStartTime, string? reason);
     Task<AppointmentDto> CallNextPatientAsync(int sessionId);
     Task<DoctorSessionDto> CancelSessionAsync(int sessionId);
+    Task<DoctorSessionDto> CompleteSessionAsync(int sessionId);
 
     // Doctor Recurring Weekly Schedules
     Task<List<DoctorScheduleDto>> GetDoctorSchedulesAsync(int doctorId);

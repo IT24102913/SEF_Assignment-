@@ -4,7 +4,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { getDashboardPath } from '../../../utils/navigation';
 import {
   getAllAppointments, updateAppointmentStatus, deleteAppointment, getAppointmentStats,
-  checkInAppointment, lookupAppointmentByQr, searchAppointmentsForDesk, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession,
+  checkInAppointment, lookupAppointmentByQr, searchAppointmentsForDesk, getDoctors, getDoctorSessions, startSession, delaySession, cancelSession, completeSession,
   forceStatusAppointment
 } from '../../../api/doctorApi';
 import logoImage from '../../../assets/mediz.png';
@@ -82,6 +82,13 @@ const formatExpectedTime = (val) => {
     }
   } catch {}
   return String(val);
+};
+
+const getLocalDateStr = (d = new Date()) => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 };
 
 const SixBoxTimePicker = ({ value, onChange }) => {
@@ -620,6 +627,21 @@ const DoctorAppointmentsAdmin = () => {
     }
   };
 
+  const handleCompleteSession = async (sessionId) => {
+    if (!window.confirm("Are you sure you want to conclude and complete this clinic session?")) return;
+    setActionLoading(true);
+    try {
+      await completeSession(sessionId);
+      showToast('Clinic session concluded and completed successfully!', 'success');
+      fetchSessions(selectedDoctorId);
+      fetchData();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to complete session', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Duplicate active bookings computation
   const getDuplicateKey = (a) => {
     if (!a) return '';
@@ -1105,7 +1127,7 @@ const DoctorAppointmentsAdmin = () => {
           {(() => {
             if (!previewApt) return null;
 
-            const todayDateStr = new Date().toISOString().split('T')[0];
+            const todayDateStr = getLocalDateStr();
             const isWrongDay = previewApt.appointmentDate && previewApt.appointmentDate !== todayDateStr;
             const isAlreadyCheckedIn = Boolean(previewApt.checkedInAt || previewApt.queueStatus === 'Waiting');
             const isCancelled = previewApt.status === 'Cancelled' || previewApt.doctorSession?.sessionStatus === 'Cancelled';
@@ -1365,7 +1387,7 @@ const DoctorAppointmentsAdmin = () => {
 
         {/* ─── Doctor Session Workflow Operations ─── */}
         {(() => {
-          const todayDateStr = new Date().toISOString().split('T')[0];
+          const todayDateStr = getLocalDateStr();
           const selectedDoctor = doctorsList.find(d => d.id === selectedDoctorId) || doctorsList[0];
           
           const adminTodaySessions = doctorSessions.filter(s => s.sessionDate === todayDateStr);
@@ -1575,6 +1597,29 @@ const DoctorAppointmentsAdmin = () => {
                           </button>
                         )}
 
+                        {(primaryTodaySession.sessionStatus === 'InProgress' || primaryTodaySession.sessionStatus === 'Active') && (
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteSession(primaryTodaySession.id)}
+                            disabled={actionLoading}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid #86EFAC',
+                              backgroundColor: '#DCFCE7',
+                              color: '#15803D',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
+                          >
+                            <CheckCircle2 size={13} /> Complete Clinic
+                          </button>
+                        )}
+
                         {primaryTodaySession.sessionStatus !== 'Completed' && primaryTodaySession.sessionStatus !== 'Cancelled' && (
                           <>
                             <button
@@ -1661,6 +1706,7 @@ const DoctorAppointmentsAdmin = () => {
                         {isDelayed && <div style={{ fontSize: '11px', color: '#B45309', marginBottom: '8px', backgroundColor: '#FEF9C3', padding: '4px 8px', borderRadius: '4px' }}>Delay: {session.expectedStartTime ? `Expected at ${formatExpectedTime(session.expectedStartTime)}` : ''} ({session.delayReason || 'Doctor running late'})</div>}
                         <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
                           {(isScheduled || isDelayed || session.sessionStatus === 'Expired') && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={12} /> Start</button>}
+                          {isInProgress && <button type="button" onClick={() => handleCompleteSession(session.id)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #86EFAC', backgroundColor: '#DCFCE7', color: '#15803D', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><CheckCircle2 size={12} /> Complete</button>}
                           {!isCompleted && !isCancelled && (<><button type="button" onClick={() => handleOpenDelayModal(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '5px 10px', borderRadius: '6px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={12} /> Cancel</button></>)}
                         </div>
                       </div>
@@ -1742,6 +1788,7 @@ const DoctorAppointmentsAdmin = () => {
                                     </div>
                                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                       {(isScheduled || isDelayed || session.sessionStatus === 'Expired') && <button type="button" onClick={() => handleStartSession(session.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: 'none', backgroundColor: '#00796B', color: '#FFFFFF', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Play size={11} /> Start</button>}
+                                      {isInProgress && <button type="button" onClick={() => handleCompleteSession(session.id)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #86EFAC', backgroundColor: '#DCFCE7', color: '#15803D', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><CheckCircle2 size={11} /> Complete</button>}
                                       {!isCompleted && !isCancelled && (<><button type="button" onClick={() => handleOpenDelayModal(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #F59E0B', backgroundColor: '#FEF3C7', color: '#B45309', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={11} /> Delay</button><button type="button" onClick={() => setCancelModalSession(session)} disabled={actionLoading} style={{ padding: '4px 10px', borderRadius: '5px', border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#B91C1C', fontSize: '11px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><XCircle size={11} /> Cancel</button></>)}
                                     </div>
                                   </div>
@@ -1906,8 +1953,8 @@ const DoctorAppointmentsAdmin = () => {
               </thead>
               <tbody>
                 {(() => {
-                  const todayStr2 = new Date().toISOString().split('T')[0];
-                  const weekLater = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+                  const todayStr2 = getLocalDateStr();
+                  const weekLater = getLocalDateStr(new Date(Date.now() + 7 * 86400000));
 
                   let filtered = appointments;
 

@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Calendar, Clock, MapPin, User, ShieldCheck, Star,
   Award, ArrowRight, ArrowLeft, CheckCircle2, QrCode, Printer,
   Sparkles, RefreshCw, X, CreditCard, Smartphone, Building2,
   Phone, AlertCircle, ChevronRight, Stethoscope, HeartPulse,
   Brain, Bone, Baby, Activity, Sparkle, Headphones, FileText,
-  Sun, Sunset, Moon
+  Sun, Sunset, Moon, Terminal, Cpu, ChevronDown, ChevronUp,
+  Bot, Shield, Check, ExternalLink
 } from 'lucide-react';
 import {
   getDoctors, getSpecialties, getDoctorSessions, recommendSpecialty,
+  approveRecommendation, rejectRecommendation,
   bookAppointment, payAppointment, getMyAppointments, cancelAppointment,
   rescheduleAppointment
 } from '../../../api/doctorApi';
@@ -64,6 +66,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   const [symptomInput, setSymptomInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState(null);
+  const [showAgentTrace, setShowAgentTrace] = useState(false);
+  const [approvingAiDoc, setApprovingAiDoc] = useState(false);
 
   // Data State
   const [doctors, setDoctors] = useState([]);
@@ -206,26 +210,35 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     fetchDoctorsList();
   }, []);
 
-  // ─── Browser Back Button Support for Multi-Step Wizard ──────────────────
-  // Push a history entry when advancing past step 1 so the browser back
-  // button walks backward through wizard steps instead of leaving the page.
+  // ─── Browser Back & Forward Button Support for Multi-Step Wizard ────────
+  const isPopStateRef = useRef(false);
+
   useEffect(() => {
+    // If the step change was triggered by the user clicking browser Back or Forward, do not push a duplicate history entry
+    if (isPopStateRef.current) {
+      isPopStateRef.current = false;
+      return;
+    }
     if (currentStep > 1) {
       window.history.pushState({ channelingStep: currentStep }, '');
+    } else {
+      window.history.replaceState({ channelingStep: 1 }, '');
     }
   }, [currentStep]);
 
   useEffect(() => {
     const handlePopState = (e) => {
-      // If we're past step 1, go back one step instead of leaving
-      if (currentStep > 1) {
-        e.preventDefault();
-        setCurrentStep(prev => Math.max(1, prev - 1));
+      const targetStep = e.state?.channelingStep;
+      isPopStateRef.current = true;
+      if (typeof targetStep === 'number' && targetStep >= 1 && targetStep <= 6) {
+        setCurrentStep(targetStep);
+      } else {
+        setCurrentStep(1);
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [currentStep]);
+  }, []);
 
 
   const notify = (msg, type = 'success') => {
@@ -345,6 +358,39 @@ const DoctorChannelingSection = ({ user, showToast }) => {
     setSelectedSpecialty(specialtyName);
     fetchDoctorsList({ specialization: specialtyName });
     setCurrentStep(2);
+  };
+
+  const handleApproveAndSelectMatchedDoctor = async (matchedDoc) => {
+    if (aiRecommendations?.workflowId) {
+      setApprovingAiDoc(true);
+      try {
+        await approveRecommendation(
+          aiRecommendations.workflowId,
+          matchedDoc.doctorId,
+          matchedDoc.nextSessionId,
+          `Patient confirmed channeling recommendation for ${matchedDoc.fullName}`
+        );
+        setAiRecommendations(prev => prev ? ({ ...prev, approvalStatus: 'APPROVED' }) : null);
+        notify(`HITL Proposal Approved: Consultant ${matchedDoc.fullName} selected.`, 'success');
+      } catch (err) {
+        console.warn('HITL approval logging failed, proceeding to slot selection:', err);
+      } finally {
+        setApprovingAiDoc(false);
+      }
+    }
+
+    // Direct transition to consultant session booking
+    handleSelectDoctor({
+      id: matchedDoc.doctorId,
+      fullName: matchedDoc.fullName,
+      specialization: matchedDoc.specialization,
+      qualifications: matchedDoc.qualifications,
+      hospitalBranch: matchedDoc.hospitalBranch,
+      roomNumber: matchedDoc.roomNumber,
+      consultationFee: matchedDoc.consultationFee,
+      experienceYears: matchedDoc.experienceYears,
+      rating: matchedDoc.rating
+    });
   };
 
   // ─── Search Handlers ──────────────────────────────────────────────────────
@@ -982,6 +1028,184 @@ const DoctorChannelingSection = ({ user, showToast }) => {
         </div>
       </div>
 
+      {/* ─── Interactive Multi-Step Stepper & Breadcrumb Bar (Steps 1–5) ─── */}
+      {currentStep !== 6 && (
+        <div style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: '12px',
+          padding: '12px 18px',
+          marginBottom: '20px',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+          border: '1px solid #ECEFF1',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          {/* Step Pills */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            flexWrap: 'wrap',
+            flex: 1
+          }}>
+            {[
+              {
+                step: 1,
+                title: '1. Search & Specialty',
+                subtitle: selectedSpecialty !== 'ALL' ? selectedSpecialty : 'Find Consultant',
+                isAccessible: true
+              },
+              {
+                step: 2,
+                title: '2. Select Specialist',
+                subtitle: selectedDoctor ? selectedDoctor.fullName.split(' ').slice(0, 2).join(' ') : (doctors.length > 0 ? `${doctors.length} Available` : 'Consultants List'),
+                isAccessible: Boolean(doctors.length > 0 || selectedDoctor || selectedSpecialty !== 'ALL')
+              },
+              {
+                step: 3,
+                title: '3. Choose Session',
+                subtitle: selectedSession ? `${selectedSessionDate || ''} • ${selectedSession.timeFormatted || selectedSession.sessionType}` : (selectedDoctor ? 'Select Slot' : 'Pending Doctor'),
+                isAccessible: Boolean(selectedDoctor)
+              },
+              {
+                step: 4,
+                title: '4. Patient Details',
+                subtitle: patientDetails.fullName ? patientDetails.fullName.split(' ')[0] : (selectedSession ? 'Enter Info' : 'Pending Session'),
+                isAccessible: Boolean(selectedDoctor && selectedSession)
+              },
+              {
+                step: 5,
+                title: '5. Payment & Confirm',
+                subtitle: confirmedAppointment ? 'Confirmed' : (bookingType === 'Reservation' ? 'Reserve Slot' : 'Pay Online'),
+                isAccessible: Boolean(selectedDoctor && selectedSession && patientDetails.fullName && patientDetails.nic && patientDetails.phone)
+              }
+            ].map((s, idx, arr) => {
+              const isCurrent = currentStep === s.step;
+              const isCompleted = currentStep > s.step;
+
+              return (
+                <React.Fragment key={s.step}>
+                  <button
+                    type="button"
+                    disabled={!s.isAccessible}
+                    onClick={() => {
+                      if (s.isAccessible) setCurrentStep(s.step);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '7px 12px',
+                      borderRadius: '8px',
+                      border: isCurrent ? '1.5px solid #00796B' : '1px solid transparent',
+                      backgroundColor: isCurrent ? '#E0F2F1' : (isCompleted ? '#F0FDF4' : '#F8FAFC'),
+                      color: isCurrent ? '#004D40' : (isCompleted ? '#166534' : (s.isAccessible ? '#475569' : '#94A3B8')),
+                      cursor: s.isAccessible ? 'pointer' : 'not-allowed',
+                      opacity: s.isAccessible ? 1 : 0.55,
+                      transition: 'all 0.15s ease',
+                      textAlign: 'left'
+                    }}
+                    title={s.isAccessible ? `Click to jump to ${s.title}` : 'Complete prior step to unlock'}
+                  >
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '11px',
+                      fontWeight: '800',
+                      backgroundColor: isCurrent ? '#00796B' : (isCompleted ? '#16A34A' : '#CBD5E1'),
+                      color: '#FFFFFF',
+                      flexShrink: 0
+                    }}>
+                      {isCompleted ? <Check size={13} strokeWidth={3} /> : s.step}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: isCurrent ? '800' : '600', lineHeight: 1.2 }}>
+                        {s.title}
+                      </div>
+                      <div style={{ fontSize: '10px', color: isCurrent ? '#00796B' : '#64748B', marginTop: '1px' }}>
+                        {s.subtitle}
+                      </div>
+                    </div>
+                  </button>
+
+                  {idx < arr.length - 1 && (
+                    <ChevronRight size={14} color="#CBD5E1" style={{ flexShrink: 0 }} />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+
+          {/* Quick Back & Forward Buttons on the Stepper Bar */}
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button
+              type="button"
+              disabled={currentStep <= 1}
+              onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: '1px solid #CFD8DC',
+                backgroundColor: currentStep > 1 ? '#FFFFFF' : '#F8FAFC',
+                color: currentStep > 1 ? '#37474F' : '#94A3B8',
+                fontSize: '12px',
+                fontWeight: '700',
+                cursor: currentStep > 1 ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: currentStep > 1 ? 1 : 0.6
+              }}
+              title="Go back to previous step"
+            >
+              <ArrowLeft size={13} /> Back
+            </button>
+
+            <button
+              type="button"
+              disabled={
+                (currentStep === 1 && !selectedDoctor && doctors.length === 0) ||
+                (currentStep === 2 && !selectedDoctor) ||
+                (currentStep === 3 && !selectedSession) ||
+                (currentStep === 4 && (!patientDetails.fullName || !patientDetails.nic || !patientDetails.phone)) ||
+                currentStep >= 5
+              }
+              onClick={() => setCurrentStep(prev => Math.min(5, prev + 1))}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: '#00796B',
+                color: '#FFFFFF',
+                fontSize: '12px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: (
+                  (currentStep === 1 && !selectedDoctor && doctors.length === 0) ||
+                  (currentStep === 2 && !selectedDoctor) ||
+                  (currentStep === 3 && !selectedSession) ||
+                  (currentStep === 4 && (!patientDetails.fullName || !patientDetails.nic || !patientDetails.phone)) ||
+                  currentStep >= 5
+                ) ? 0.45 : 1
+              }}
+              title="Proceed to next step"
+            >
+              Next <ArrowRight size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ─────────────────────────────────────────────────────────────────── */}
       {/* SCREEN 1: DOCTOR SEARCH & BROWSE BY SPECIALTY                       */}
       {/* ─────────────────────────────────────────────────────────────────── */}
@@ -1422,53 +1646,192 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                     );
 
                     if (s === 'RECOMMENDATION_READY') return (
-                      <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px dashed rgba(110,231,183,0.7)' }}>
-                        <div style={{ fontSize: '11px', fontWeight: '700', color: '#059669', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-                          AI Suggested Specialty
-                        </div>
-                        <div
-                          onClick={() => handleApplyAiSpecialty(aiRecommendations.specialty)}
-                          style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '12px',
-                            backgroundColor: 'rgba(255,255,255,0.95)',
-                            border: '2px solid #10B981',
-                            borderRadius: '12px', padding: '10px 16px', cursor: 'pointer',
-                            boxShadow: '0 3px 12px rgba(16,185,129,0.15)',
-                            transition: 'all 0.18s'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.boxShadow = '0 6px 20px rgba(16,185,129,0.28)';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.boxShadow = '0 3px 12px rgba(16,185,129,0.15)';
-                            e.currentTarget.style.transform = 'translateY(0)';
-                          }}
-                        >
-                          <span style={{
-                            background: 'linear-gradient(135deg, #D1FAE5 0%, #A7F3D0 100%)',
-                            color: '#065F46',
-                            fontSize: '11px', fontWeight: '800',
-                            padding: '3px 9px', borderRadius: '6px',
-                            border: '1px solid rgba(16,185,129,0.2)',
-                            whiteSpace: 'nowrap'
+                      <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1.5px dashed rgba(16,185,129,0.5)' }}>
+                        {/* Header Banner & HITL Status */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '5px',
+                              background: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
+                              color: '#065F46', fontSize: '11px', fontWeight: '800',
+                              padding: '4px 10px', borderRadius: '8px',
+                              border: '1px solid rgba(16,185,129,0.3)',
+                              boxShadow: '0 1px 3px rgba(16,185,129,0.1)'
+                            }}>
+                              <Sparkles size={12} color="#059669" />
+                              {aiRecommendations.specialty} • {Math.round((aiRecommendations.confidence ?? 0) * 100)}% Confidence
+                            </span>
+                            <span style={{ fontSize: '11px', color: '#6B7280' }}>
+                              ⏱️ {aiRecommendations.totalDurationMs || 0}ms
+                            </span>
+                          </div>
+
+                          {/* HITL Badge */}
+                          <div style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '5px',
+                            padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
+                            backgroundColor: aiRecommendations.approvalStatus === 'APPROVED' ? '#DEF7EC' : '#FEF3C7',
+                            color: aiRecommendations.approvalStatus === 'APPROVED' ? '#03543F' : '#92400E',
+                            border: `1px solid ${aiRecommendations.approvalStatus === 'APPROVED' ? '#31C48D' : '#F59E0B'}`
                           }}>
-                            {Math.round((aiRecommendations.confidence ?? 0) * 100)}% match
-                          </span>
-                          <div>
-                            <div style={{ fontSize: '14px', fontWeight: '800', color: '#064E3B', letterSpacing: '-0.01em' }}>
-                              {aiRecommendations.specialty}
-                            </div>
-                            {aiRecommendations.reason && (
-                              <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '2px', lineHeight: '1.5' }}>
-                                {aiRecommendations.reason}
-                              </div>
+                            {aiRecommendations.approvalStatus === 'APPROVED' ? (
+                              <>
+                                <CheckCircle2 size={13} color="#057A55" />
+                                <span>Human-in-the-Loop: Approved</span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock size={13} color="#D97706" />
+                                <span>Human-in-the-Loop: Awaiting Selection</span>
+                              </>
                             )}
                           </div>
-                          <ChevronRight size={16} color="#10B981" />
                         </div>
-                        <div style={{ fontSize: '11px', color: '#6B7280', marginTop: '8px' }}>
-                          ✨ AI suggestion only — you always choose your doctor.
+
+                        {/* Clinical Triage Reason */}
+                        {aiRecommendations.reason && (
+                          <div style={{
+                            backgroundColor: 'rgba(255,255,255,0.95)',
+                            padding: '10px 14px', borderRadius: '10px',
+                            border: '1px solid rgba(16,185,129,0.25)',
+                            fontSize: '12px', color: '#064E3B', lineHeight: '1.6',
+                            marginBottom: '14px', boxShadow: '0 1px 4px rgba(0,0,0,0.03)'
+                          }}>
+                            <strong>Clinical Assessment:</strong> {aiRecommendations.reason}
+                          </div>
+                        )}
+
+                        {/* Top Consultant Candidates via DoctorSlotAllocationTool */}
+                        {aiRecommendations.matchedDoctors && aiRecommendations.matchedDoctors.length > 0 && (
+                          <div style={{ marginBottom: '14px' }}>
+                            <div style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              marginBottom: '8px'
+                            }}>
+                              <div style={{ fontSize: '12px', fontWeight: '800', color: '#065F46', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <Cpu size={14} color="#059669" />
+                                <span>Available Consultants (Allocated via Tool)</span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: '#047857', fontWeight: '600' }}>
+                                Earliest open slots queried
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px' }}>
+                              {aiRecommendations.matchedDoctors.map((doc) => (
+                                <div
+                                  key={doc.doctorId}
+                                  style={{
+                                    backgroundColor: '#FFFFFF',
+                                    borderRadius: '12px',
+                                    border: '1.5px solid #A7F3D0',
+                                    padding: '12px 14px',
+                                    boxShadow: '0 2px 8px rgba(16,185,129,0.08)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'space-between',
+                                    transition: 'all 0.2s'
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                                      <div>
+                                        <div style={{ fontSize: '13px', fontWeight: '800', color: '#064E3B' }}>
+                                          {doc.fullName}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#059669', fontWeight: '600' }}>
+                                          {doc.specialization} • {doc.qualifications}
+                                        </div>
+                                      </div>
+                                      <div style={{
+                                        display: 'inline-flex', alignItems: 'center', gap: '3px',
+                                        backgroundColor: '#FEF3C7', padding: '2px 6px', borderRadius: '6px',
+                                        fontSize: '11px', fontWeight: '700', color: '#92400E', flexShrink: 0
+                                      }}>
+                                        <Star size={11} fill="#F59E0B" color="#F59E0B" />
+                                        {doc.rating?.toFixed(1) || '4.8'}
+                                      </div>
+                                    </div>
+
+                                    <div style={{ fontSize: '11px', color: '#4B5563', marginTop: '6px', lineHeight: '1.4' }}>
+                                      📍 {doc.hospitalBranch} ({doc.roomNumber})
+                                    </div>
+
+                                    {doc.nextSessionDate && (
+                                      <div style={{
+                                        marginTop: '8px', padding: '6px 10px',
+                                        backgroundColor: '#F0FDF4', borderRadius: '8px',
+                                        border: '1px solid #BBF7D0', fontSize: '11px', color: '#166534',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                                      }}>
+                                        <span>📅 {doc.nextSessionDate} at {doc.nextSessionTime}</span>
+                                        <span style={{ fontWeight: '700', color: '#15803D' }}>
+                                          {doc.availableSlots} slots left
+                                        </span>
+                                      </div>
+                                    )}
+
+                                    {doc.matchReason && (
+                                      <div style={{ fontSize: '10.5px', color: '#6B7280', marginTop: '6px', fontStyle: 'italic' }}>
+                                        💡 {doc.matchReason}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <div style={{ fontSize: '12px', fontWeight: '800', color: '#065F46' }}>
+                                      LKR {Number(doc.consultationFee).toLocaleString()}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      disabled={approvingAiDoc}
+                                      onClick={() => handleApproveAndSelectMatchedDoctor(doc)}
+                                      style={{
+                                        padding: '7px 14px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        backgroundColor: '#10B981',
+                                        color: '#FFFFFF',
+                                        fontSize: '11.5px',
+                                        fontWeight: '700',
+                                        cursor: approvingAiDoc ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        boxShadow: '0 2px 6px rgba(16,185,129,0.3)',
+                                        transition: 'all 0.15s'
+                                      }}
+                                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#059669'; }}
+                                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#10B981'; }}
+                                    >
+                                      <Check size={13} />
+                                      {approvingAiDoc ? 'Approving...' : 'Select & Book Slot'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Navigation Action */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', marginTop: '12px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyAiSpecialty(aiRecommendations.specialty)}
+                            style={{
+                              padding: '8px 16px', borderRadius: '8px',
+                              border: '1px solid #10B981',
+                              backgroundColor: 'rgba(255,255,255,0.95)',
+                              color: '#065F46', fontSize: '12px', fontWeight: '700',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+                              boxShadow: '0 2px 6px rgba(16,185,129,0.15)',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            <span>Browse All {aiRecommendations.specialty} Doctors</span>
+                            <ChevronRight size={14} color="#059669" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -1898,6 +2261,58 @@ const DoctorChannelingSection = ({ user, showToast }) => {
               ))}
             </div>
           )}
+
+          {/* Bottom Navigation for Step 2 */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '24px',
+            paddingTop: '16px',
+            borderTop: '1px solid #ECEFF1'
+          }}>
+            <button
+              type="button"
+              onClick={() => setCurrentStep(1)}
+              style={{
+                padding: '8px 18px',
+                borderRadius: '8px',
+                border: '1px solid #CFD8DC',
+                backgroundColor: '#FFFFFF',
+                color: '#455A64',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <ArrowLeft size={14} /> Back to Search & Specialties
+            </button>
+            {selectedDoctor && (
+              <button
+                type="button"
+                onClick={() => setCurrentStep(3)}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#00796B',
+                  color: '#FFFFFF',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(0,121,107,0.25)'
+                }}
+              >
+                Continue to Session Picker <ArrowRight size={14} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -2206,6 +2621,58 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* Bottom Navigation for Step 3 */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '20px',
+            paddingTop: '16px',
+            borderTop: '1px solid #ECEFF1'
+          }}>
+            <button
+              type="button"
+              onClick={() => setCurrentStep(2)}
+              style={{
+                padding: '8px 18px',
+                borderRadius: '8px',
+                border: '1px solid #CFD8DC',
+                backgroundColor: '#FFFFFF',
+                color: '#455A64',
+                fontSize: '13px',
+                fontWeight: '700',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <ArrowLeft size={14} /> Back to Specialists
+            </button>
+            {selectedSession && (
+              <button
+                type="button"
+                onClick={() => setCurrentStep(4)}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#00796B',
+                  color: '#FFFFFF',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(0,121,107,0.25)'
+                }}
+              >
+                Proceed to Patient Details <ArrowRight size={14} />
+              </button>
             )}
           </div>
         </div>
@@ -2521,31 +2988,54 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '10px',
                 marginTop: '10px',
                 paddingTop: '16px',
                 borderTop: '1px solid #ECEFF1'
               }}>
-                <button
-                  type="button"
-                  onClick={handleValidateAvailability}
-                  disabled={validatingAvailability}
-                  style={{
-                    padding: '10px 18px',
-                    borderRadius: '8px',
-                    border: '1px solid #00796B',
-                    backgroundColor: '#FFFFFF',
-                    color: '#00796B',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: validatingAvailability ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <RefreshCw size={14} className={validatingAvailability ? 'animate-spin' : ''} />
-                  {validatingAvailability ? 'Checking...' : isSessionValidated ? '✓ Slot Validated' : 'Validate Availability'}
-                </button>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(3)}
+                    style={{
+                      padding: '10px 18px',
+                      borderRadius: '8px',
+                      border: '1px solid #CFD8DC',
+                      backgroundColor: '#FFFFFF',
+                      color: '#455A64',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <ArrowLeft size={14} /> Back to Sessions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleValidateAvailability}
+                    disabled={validatingAvailability}
+                    style={{
+                      padding: '10px 18px',
+                      borderRadius: '8px',
+                      border: '1px solid #00796B',
+                      backgroundColor: '#FFFFFF',
+                      color: '#00796B',
+                      fontSize: '13px',
+                      fontWeight: '700',
+                      cursor: validatingAvailability ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <RefreshCw size={14} className={validatingAvailability ? 'animate-spin' : ''} />
+                    {validatingAvailability ? 'Checking...' : isSessionValidated ? '✓ Slot Validated' : 'Validate Availability'}
+                  </button>
+                </div>
 
                 {bookingType === 'Reservation' ? (
                   <button
@@ -3045,6 +3535,27 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                   </>
                 )}
               </button>
+
+              <div style={{ marginTop: '12px', textAlign: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(4)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#00796B',
+                    fontSize: '12.5px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    textDecoration: 'underline'
+                  }}
+                >
+                  <ArrowLeft size={14} /> Back to Edit Patient Details
+                </button>
+              </div>
 
               {/* Footer Trust Indicator */}
               <div style={{

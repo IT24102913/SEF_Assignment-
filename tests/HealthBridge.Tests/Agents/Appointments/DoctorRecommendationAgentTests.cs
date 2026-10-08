@@ -314,4 +314,123 @@ public class DoctorRecommendationAgentTests
             Assert.True(result.Status == "NEED_MORE_CONTEXT" || result.Status == "INPUT_INVALID" || result.Status == "SAFE_FAILURE");
         }
     }
+
+    // ─── 6. Multi-Agent Orchestration & Execution Plan ─────────────────────────
+
+    [Fact]
+    public async Task RunAsync_GeneratesStructuredExecutionPlan_WithFourStages()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("persistent knee pain and swelling", patientId: 7);
+
+        // Assert
+        Assert.NotNull(result.ExecutionPlan);
+        Assert.Equal(4, result.ExecutionPlan.Count);
+        Assert.Contains("ClinicalSafetyAudit", result.ExecutionPlan[0]);
+        Assert.Contains("SpecialtyTriageAnalysis", result.ExecutionPlan[1]);
+        Assert.Contains("ConsultantSlotAllocation", result.ExecutionPlan[2]);
+        Assert.Contains("ChannelingProposalHITL", result.ExecutionPlan[3]);
+    }
+
+    [Fact]
+    public async Task RunAsync_GeneratesAuditableStepLogs_WithAgentNamesAndTimings()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("skin rash with redness and severe itching", patientId: 8);
+
+        // Assert
+        Assert.NotNull(result.StepLogs);
+        Assert.NotEmpty(result.StepLogs);
+
+        // Verify Safety Agent step
+        var safetyLog = result.StepLogs.FirstOrDefault(l => l.AgentName == "ClinicalSafetyAgent");
+        Assert.NotNull(safetyLog);
+        Assert.Equal("COMPLETED", safetyLog.Status);
+
+        // Verify Triage Agent step
+        var triageLog = result.StepLogs.FirstOrDefault(l => l.AgentName == "ClinicalTriageAgent");
+        Assert.NotNull(triageLog);
+        Assert.Equal("COMPLETED", triageLog.Status);
+
+        // Verify Total latency tracked
+        Assert.True(result.TotalDurationMs >= 0);
+    }
+
+    // ─── 7. Allow-Listed Tool Calling & Slot Allocation ───────────────────────
+
+    [Fact]
+    public async Task RunAsync_WhenRecommendationReady_InvokesDoctorSlotAllocationTool()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("heart palpitations and elevated blood pressure", patientId: 9);
+
+        // Assert
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("PENDING_APPROVAL", result.ApprovalStatus);
+
+        // Verify Tool Call recorded in StepLogs
+        var toolLog = result.StepLogs.FirstOrDefault(l => !string.IsNullOrEmpty(l.ToolCalled));
+        Assert.NotNull(toolLog);
+        Assert.Contains("DoctorSlotAllocationTool", toolLog.ToolCalled);
+    }
+
+    // ─── 8. Human-in-the-Loop (HITL) Approval Workflow ────────────────────────
+
+    [Fact]
+    public async Task ApproveRecommendationAsync_WhenApproved_UpdatesApprovalStatusAndPersistsAudit()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var runResult = await agent.RunAsync("ear pain and sinus blockage", patientId: 15);
+        Assert.Equal("PENDING_APPROVAL", runResult.ApprovalStatus);
+
+        // Act - Simulate Human sign-off / doctor selection
+        var approvedResult = await agent.ApproveRecommendationAsync(
+            runResult.WorkflowId,
+            selectedDoctorId: 101,
+            selectedSessionId: 202);
+
+        // Assert
+        Assert.NotNull(approvedResult);
+        Assert.Equal("APPROVED", approvedResult.ApprovalStatus);
+
+        // Verify database audit record updated
+        var persistedWf = await context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == runResult.WorkflowId);
+        Assert.NotNull(persistedWf);
+        Assert.Equal("APPROVED", persistedWf.ApprovalStatus);
+        Assert.NotNull(persistedWf.ApprovedAt);
+    }
+
+    [Fact]
+    public async Task RejectRecommendationAsync_WhenRejected_UpdatesApprovalStatusToRejected()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var runResult = await agent.RunAsync("ear pain and sinus blockage", patientId: 16);
+
+        // Act - Patient rejects proposal
+        var isRejected = await agent.RejectRecommendationAsync(runResult.WorkflowId, "Patient preferred general physician");
+
+        // Assert
+        Assert.True(isRejected);
+        var persistedWf = await context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == runResult.WorkflowId);
+        Assert.NotNull(persistedWf);
+        Assert.Equal("REJECTED", persistedWf.ApprovalStatus);
+    }
 }
