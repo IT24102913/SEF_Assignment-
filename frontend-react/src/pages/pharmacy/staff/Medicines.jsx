@@ -649,33 +649,32 @@ const Medicines = () => {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Validate file is an image
+        if (!file.type.startsWith('image/')) {
+            alert('Please select a valid image file (JPG, PNG, JPEG, WEBP, GIF)');
+            return;
+        }
+
+        // Size warning for files > 5MB
+        if (file.size > 5 * 1024 * 1024) {
+            const proceed = window.confirm(
+                'This image is larger than 5MB. It may slow down the app. Continue?'
+            );
+            if (!proceed) return;
+        }
+
+        setUploadingImage(true);
         const reader = new FileReader();
         reader.onloadend = () => {
             setFormData(prev => ({ ...prev, imageUrl: reader.result }));
+            setUploadingImage(false);
+            showToastMessage('Main medicine image uploaded!', 'success');
+        };
+        reader.onerror = () => {
+            setUploadingImage(false);
+            showToastMessage('Failed to read image file.', 'error');
         };
         reader.readAsDataURL(file);
-
-        setUploadingImage(true);
-        try {
-            const uploadData = new FormData();
-            uploadData.append('file', file);
-            const res = await api.post('/uploads', uploadData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            if (res.data?.relativePath) {
-                setFormData(prev => ({ ...prev, imageUrl: res.data.relativePath }));
-                showToastMessage('Main medicine image uploaded!', 'success');
-            } else if (res.data?.fileUrl) {
-                // Fallback: extract relative path from absolute URL
-                const relPath = res.data.fileUrl.replace(/^https?:\/\/[^\/]+/, '');
-                setFormData(prev => ({ ...prev, imageUrl: relPath }));
-                showToastMessage('Main medicine image uploaded!', 'success');
-            }
-        } catch (err) {
-            console.warn('Storage upload fallback to preview:', err);
-        } finally {
-            setUploadingImage(false);
-        }
     };
 
     const handleGalleryFileUpload = async (e) => {
@@ -2027,7 +2026,7 @@ const Medicines = () => {
                                                 Browse & Upload Main Image from Device Storage
                                                 <input
                                                     type="file"
-                                                    accept="image/*"
+                                                    accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                                                     onChange={handleImageFileUpload}
                                                     style={{ display: 'none' }}
                                                 />
