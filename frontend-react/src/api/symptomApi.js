@@ -2,12 +2,13 @@ import { api, getErrorMessage } from './authApi';
 
 export const symptomApi = {
     // Get advice for a symptom (POST /api/pharmacy/symptom/advice)
-    getAdvice: async (symptom, patientEmail) => {
+    getAdvice: async (symptom, patientEmail, clarifyingAnswers = null) => {
         try {
-            const response = await api.post('/pharmacy/symptom/advice', {
-                symptom,
-                patientEmail
-            });
+            const payload = { symptom, patientEmail };
+            if (clarifyingAnswers && Object.keys(clarifyingAnswers).length > 0) {
+                payload.clarifyingAnswers = clarifyingAnswers;
+            }
+            const response = await api.post('/pharmacy/symptom/advice', payload);
             return response.data;
         } catch (error) {
             const message = getErrorMessage(error, 'Unable to process symptom request. Please try again.');

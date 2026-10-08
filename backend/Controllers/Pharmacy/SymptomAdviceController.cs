@@ -29,7 +29,7 @@ public class SymptomAdviceController : ControllerBase
 
         try
         {
-            var result = await _agent.GetAdviceAsync(request.Symptom, request.PatientEmail);
+            var result = await _agent.GetAdviceAsync(request.Symptom, request.PatientEmail, request.ClarifyingAnswers);
             return Ok(result);
         }
         catch (Exception ex)

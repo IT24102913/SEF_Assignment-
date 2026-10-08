@@ -74,14 +74,21 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
         }
     };
 
-    const handleSend = async (textToSend) => {
+    const handleSend = async (textToSend, clarifyingAnswers = null) => {
         const query = (textToSend || inputValue).trim();
         if (!query || loading) return;
+
+        let userDisplayText = query;
+        if (clarifyingAnswers && Object.keys(clarifyingAnswers).length > 0) {
+            const parts = Object.entries(clarifyingAnswers)
+                .map(([k, v]) => `${k}: ${v}`);
+            userDisplayText = `Answers → ${parts.join(' | ')}`;
+        }
 
         const userMsg = {
             id: `user-${Date.now()}`,
             sender: 'user',
-            text: query,
+            text: userDisplayText,
             timestamp: new Date()
         };
 
@@ -90,7 +97,11 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
         setLoading(true);
 
         try {
-            const data = await symptomApi.getAdvice(query, user?.email);
+            const data = await symptomApi.getAdvice(
+                query,
+                user?.email,
+                clarifyingAnswers
+            );
             const aiMsg = {
                 id: `ai-${Date.now()}`,
                 sender: 'ai',
@@ -220,6 +231,14 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
                                                     <div style={{ color: '#1E293B', fontSize: '14px', lineHeight: 1.6 }}>
                                                         {msg.content.summary}
                                                     </div>
+                                                ) : msg.content?.needsClarification &&
+                                                    msg.content?.clarifyingQuestions?.length > 0 ? (
+                                                    <ClarifyingQuestionsCard
+                                                        advice={msg.content}
+                                                        onSubmit={(answers) =>
+                                                            handleSend(msg.content.symptom, answers)
+                                                        }
+                                                    />
                                                 ) : (
                                                     /* Structured AI Response View */
                                                     <StructuredAdviceView advice={msg.content} onAddToCart={onAddToCart} />
@@ -493,6 +512,128 @@ const StructuredAdviceView = ({ advice, onAddToCart }) => {
             <div style={styles.disclaimerBox}>
                 {disclaimer || '⚠️ Disclaimer: This advice is for wellness informational purposes only. Consult a physician for severe conditions.'}
             </div>
+        </div>
+    );
+};
+
+const ClarifyingQuestionsCard = ({ advice, onSubmit }) => {
+    const [answers, setAnswers] = React.useState({});
+
+    const questions = advice?.clarifyingQuestions || [];
+    const answeredCount = questions.filter(q => answers[q.id]).length;
+    const allAnswered = questions.length > 0 && answeredCount === questions.length;
+
+    const handleSelect = (questionId, option) => {
+        setAnswers(prev => ({ ...prev, [questionId]: option }));
+    };
+
+    const handleSubmit = () => {
+        if (allAnswered) onSubmit(answers);
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+            {/* 1. 📌 Category badge + summary */}
+            <div>
+                {advice.symptomCategory && (
+                    <div style={styles.sectionCategoryBadge}>
+                        📌 {advice.symptomCategory}
+                    </div>
+                )}
+                <div style={styles.summaryText}>
+                    {advice.summary}
+                </div>
+            </div>
+
+            {/* 2. Progress indicator */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '12px',
+                fontWeight: 700,
+                color: '#64748B'
+            }}>
+                <div style={{
+                    flex: 1,
+                    height: '6px',
+                    borderRadius: '3px',
+                    background: '#E2E8F0',
+                    overflow: 'hidden'
+                }}>
+                    <div style={{
+                        width: `${(answeredCount / questions.length) * 100}%`,
+                        height: '100%',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                        transition: 'width 0.3s ease'
+                    }} />
+                </div>
+                <span>{answeredCount} / {questions.length}</span>
+            </div>
+
+            {/* 3. Questions */}
+            {questions.map((q, idx) => (
+                <div key={q.id} style={styles.questionCard}>
+                    <div style={styles.questionNumber}>
+                        Question {idx + 1}
+                    </div>
+                    <div style={styles.questionText}>
+                        {q.question}
+                    </div>
+                    <div style={styles.optionsRow}>
+                        {q.options.map((opt) => {
+                            const selected = answers[q.id] === opt;
+                            return (
+                                <button
+                                    key={opt}
+                                    type="button"
+                                    style={{
+                                        ...styles.optionBtn,
+                                        ...(selected ? styles.optionBtnSelected : {})
+                                    }}
+                                    onClick={() => handleSelect(q.id, opt)}
+                                >
+                                    <span style={{
+                                        ...styles.optionRadio,
+                                        ...(selected ? styles.optionRadioSelected : {})
+                                    }}>
+                                        {selected ? '✓' : ''}
+                                    </span>
+                                    <span>{opt}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
+
+            {/* 4. Submit */}
+            <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!allAnswered}
+                style={{
+                    ...styles.submitAnswersBtn,
+                    ...(!allAnswered ? styles.submitAnswersBtnDisabled : {})
+                }}
+            >
+                {allAnswered
+                    ? 'Get My Advice →'
+                    : `Answer all ${questions.length} questions to continue`}
+            </button>
+
+            {/* 5. Reassurance note */}
+            {allAnswered && (
+                <div style={{
+                    fontSize: '12px',
+                    color: '#64748B',
+                    textAlign: 'center',
+                    fontStyle: 'italic'
+                }}>
+                    Your answers help us give you the safest guidance.
+                </div>
+            )}
         </div>
     );
 };
@@ -800,54 +941,46 @@ const styles = {
         background: 'none',
         border: 'none',
         fontSize: '13px',
-        fontWeight: 700,
         color: '#2563EB',
+        fontWeight: 700,
+        fontSize: '13px',
         cursor: 'pointer',
-        marginBottom: '14px'
-    },
-    loadingState: {
+        marginBottom: '12px',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: '10px',
-        padding: '40px',
-        color: '#64748B'
+        gap: '6px'
     },
-    emptyHistoryState: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '60px 20px',
-        textAlign: 'center'
-    },
-    // Structured Advice Styles
     sectionCategoryBadge: {
         display: 'inline-block',
-        fontSize: '12px',
+        fontSize: '11px',
         fontWeight: 800,
-        color: '#1E40AF',
-        background: '#DBEAFE',
+        color: '#1D4ED8',
+        background: '#EFF6FF',
         padding: '4px 10px',
         borderRadius: '10px',
-        marginBottom: '8px'
+        marginBottom: '8px',
+        letterSpacing: '0.3px'
     },
     summaryText: {
         fontSize: '14px',
         lineHeight: 1.6,
-        color: '#1E293B'
+        color: '#334155',
+        fontWeight: 500
     },
     sectionCard: {
         background: '#F8FAFC',
-        borderRadius: '14px',
-        padding: '14px 16px',
+        borderRadius: '16px',
+        padding: '16px',
         border: '1px solid #E2E8F0'
     },
     sectionTitle: {
         fontSize: '13px',
         fontWeight: 800,
-        color: '#0F172A',
-        marginBottom: '8px'
+        color: '#1E293B',
+        marginBottom: '10px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px'
     },
     bulletList: {
         margin: 0,
@@ -858,26 +991,27 @@ const styles = {
     },
     bulletItem: {
         fontSize: '13px',
-        lineHeight: 1.5
+        lineHeight: 1.5,
+        color: '#334155'
     },
     restCard: {
         display: 'flex',
         alignItems: 'center',
         gap: '10px',
-        padding: '12px 16px',
         background: '#EFF6FF',
         border: '1px solid #BFDBFE',
         borderRadius: '12px',
+        padding: '12px 16px',
         fontSize: '13px'
     },
     productRow: {
-        padding: '10px 12px',
-        background: '#FFFFFF',
-        borderRadius: '10px',
-        border: '1px solid #E2E8F0',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between'
+        justifyContent: 'space-between',
+        padding: '10px 14px',
+        background: '#FFFFFF',
+        borderRadius: '12px',
+        border: '1px solid #E2E8F0'
     },
     prodName: {
         fontSize: '13px',
@@ -885,78 +1019,186 @@ const styles = {
         color: '#0F172A',
         display: 'flex',
         alignItems: 'center',
-        gap: '6px'
+        gap: '8px'
     },
     otcTag: {
         fontSize: '9px',
         fontWeight: 800,
-        background: '#10B981',
-        color: 'white',
-        padding: '1px 5px',
+        color: '#059669',
+        background: '#D1FAE5',
+        padding: '1px 6px',
         borderRadius: '6px'
     },
     prodReason: {
-        fontSize: '11px',
+        fontSize: '12px',
         color: '#64748B',
         marginTop: '2px'
     },
     prodPrice: {
         fontSize: '11px',
         fontWeight: 700,
-        color: '#059669',
+        color: '#2563EB',
         marginTop: '2px'
     },
     addCartBtn: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
         padding: '6px 12px',
-        background: '#10B981',
+        background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
         color: 'white',
         border: 'none',
         borderRadius: '8px',
         fontSize: '12px',
         fontWeight: 700,
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px'
+        cursor: 'pointer'
     },
     warningBox: {
         background: '#FEF2F2',
-        border: '1px solid #FECACA',
-        borderRadius: '14px',
-        padding: '14px 16px'
+        border: '1px solid #FCA5A5',
+        borderRadius: '16px',
+        padding: '16px'
     },
     warningTitle: {
         fontSize: '13px',
         fontWeight: 800,
         color: '#991B1B',
+        marginBottom: '10px',
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
-        marginBottom: '8px'
+        gap: '6px'
     },
     doctorBox: {
         background: '#EFF6FF',
-        border: '1px solid #BFDBFE',
-        borderRadius: '14px',
-        padding: '14px 16px'
+        border: '1px solid #93C5FD',
+        borderRadius: '16px',
+        padding: '16px'
     },
     doctorTitle: {
         fontSize: '13px',
         fontWeight: 800,
         color: '#1E40AF',
+        marginBottom: '10px',
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
-        marginBottom: '8px'
+        gap: '6px'
     },
     disclaimerBox: {
         fontSize: '11px',
         color: '#64748B',
-        fontStyle: 'italic',
         background: '#F1F5F9',
         padding: '10px 14px',
         borderRadius: '10px',
-        borderLeft: '3px solid #94A3B8'
+        lineHeight: 1.4,
+        fontStyle: 'italic',
+        textAlign: 'center'
+    },
+    loadingState: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 20px',
+        gap: '12px',
+        color: '#64748B',
+        fontSize: '14px',
+        fontWeight: 600
+    },
+    emptyHistoryState: {
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 20px',
+        textAlign: 'center'
+    },
+    questionCard: {
+        background: '#F8FAFC',
+        borderRadius: '14px',
+        padding: '14px 16px',
+        border: '1px solid #E2E8F0'
+    },
+    questionNumber: {
+        fontSize: '10.5px',
+        fontWeight: 800,
+        color: '#2563EB',
+        background: '#EFF6FF',
+        display: 'inline-block',
+        padding: '2px 8px',
+        borderRadius: '8px',
+        marginBottom: '8px',
+        letterSpacing: '0.5px',
+        textTransform: 'uppercase'
+    },
+    questionText: {
+        fontSize: '14px',
+        fontWeight: 700,
+        color: '#0F172A',
+        marginBottom: '12px',
+        lineHeight: 1.5
+    },
+    optionsRow: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px'
+    },
+    optionBtn: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        padding: '11px 14px',
+        background: '#FFFFFF',
+        border: '1.5px solid #CBD5E1',
+        borderRadius: '10px',
+        fontSize: '13px',
+        fontWeight: 600,
+        color: '#334155',
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.15s ease'
+    },
+    optionBtnSelected: {
+        background: '#EFF6FF',
+        borderColor: '#2563EB',
+        color: '#1D4ED8',
+        fontWeight: 700,
+        boxShadow: '0 2px 6px rgba(37, 99, 235, 0.12)'
+    },
+    optionRadio: {
+        width: '18px',
+        height: '18px',
+        borderRadius: '50%',
+        border: '2px solid #CBD5E1',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '11px',
+        fontWeight: 800,
+        color: 'white',
+        flexShrink: 0,
+        transition: 'all 0.15s ease'
+    },
+    optionRadioSelected: {
+        borderColor: '#2563EB',
+        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)'
+    },
+    submitAnswersBtn: {
+        padding: '13px 20px',
+        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+        color: 'white',
+        border: 'none',
+        borderRadius: '12px',
+        fontSize: '14px',
+        fontWeight: 700,
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+        transition: 'all 0.2s ease'
+    },
+    submitAnswersBtnDisabled: {
+        background: '#CBD5E1',
+        boxShadow: 'none',
+        cursor: 'not-allowed',
+        color: '#FFFFFF'
     }
 };
 
