@@ -55,7 +55,11 @@ public static class DbInitializer
                     ""Errors"" text NULL,
                     ""DurationMs"" bigint NOT NULL,
                     ""CreatedAt"" timestamp with time zone NOT NULL
-                );");
+                );
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""ApprovalStatus"" text NOT NULL DEFAULT 'NOT_REQUIRED';
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""ApprovedAt"" timestamp with time zone NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""MatchedDoctorsJson"" text NULL;
+            ");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
             await context.Database.ExecuteSqlRawAsync(@"

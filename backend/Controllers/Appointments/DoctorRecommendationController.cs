@@ -50,4 +50,45 @@ public class DoctorRecommendationController : ControllerBase
         var result = await _agent.RunAsync(request.Symptoms.Trim(), patientId);
         return Ok(result);
     }
+
+    /// <summary>
+    /// POST /api/appointments/recommendations/{workflowId}/approve
+    /// Human-in-the-Loop confirmation: Patient or staff reviews the multi-agent proposal and confirms the doctor/session selection.
+    /// </summary>
+    [HttpPost("recommendations/{workflowId:guid}/approve")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(DoctorRecommendationResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ApproveRecommendation(
+        [FromRoute] Guid workflowId,
+        [FromBody] ApproveRecommendationRequestDto request)
+    {
+        var updated = await _agent.ApproveRecommendationAsync(workflowId, request.SelectedDoctorId, request.SelectedSessionId);
+        if (updated == null)
+            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+
+        _logger.LogInformation("[ApproveRecommendation] Workflow {Id} approved for DoctorId={DocId}", workflowId, request.SelectedDoctorId);
+        return Ok(updated);
+    }
+
+    /// <summary>
+    /// POST /api/appointments/recommendations/{workflowId}/reject
+    /// Human-in-the-Loop rejection: Patient or staff declines the AI proposal.
+    /// </summary>
+    [HttpPost("recommendations/{workflowId:guid}/reject")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RejectRecommendation(
+        [FromRoute] Guid workflowId,
+        [FromBody] RejectRecommendationRequestDto? request)
+    {
+        var ok = await _agent.RejectRecommendationAsync(workflowId, request?.Notes);
+        if (!ok)
+            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+
+        _logger.LogInformation("[RejectRecommendation] Workflow {Id} rejected", workflowId);
+        return Ok(new { success = true, workflowId, status = "REJECTED" });
+    }
 }
+

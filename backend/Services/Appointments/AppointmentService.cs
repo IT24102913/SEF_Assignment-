@@ -644,7 +644,7 @@ public class AppointmentService : IAppointmentService
                 SessionStatus = isPast && s.SessionStatus == SessionStatus.Scheduled ? "Expired" : s.SessionStatus.ToString(),
                 ActualStartTime = s.ActualStartTime,
                 ExpectedStartTime = s.ExpectedStartTime,
-                CurrentlyServingQueueNumber = s.CurrentlyServingQueueNumber,
+                CurrentlyServingQueueNumber = s.SessionStatus == SessionStatus.Completed ? 0 : s.CurrentlyServingQueueNumber,
                 DelayReason = s.DelayReason
             };
         }).ToList();
@@ -1306,19 +1306,107 @@ public class AppointmentService : IAppointmentService
         if (newStatus == AppointmentStatus.InProgress)
         {
             apt.QueueStatus = QueueStatus.InConsultation;
+            if (apt.DoctorSession != null)
+            {
+                apt.DoctorSession.CurrentlyServingQueueNumber = apt.QueueNumber;
+                if (apt.DoctorSession.SessionStatus == SessionStatus.Scheduled || apt.DoctorSession.SessionStatus == SessionStatus.Delayed)
+                {
+                    apt.DoctorSession.SessionStatus = SessionStatus.Active;
+                    apt.DoctorSession.ActualStartTime ??= DateTime.UtcNow;
+                }
+            }
         }
         else if (newStatus == AppointmentStatus.Completed)
         {
             apt.QueueStatus = QueueStatus.Completed;
+            if (apt.DoctorSession != null)
+            {
+                var remainingAppointments = await _context.DoctorAppointments
+                    .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Id != apt.Id &&
+                                a.Status != AppointmentStatus.Cancelled && a.Status != AppointmentStatus.Completed && a.Status != AppointmentStatus.NoShow)
+                    .AnyAsync();
+
+                if (!remainingAppointments)
+                {
+                    apt.DoctorSession.SessionStatus = SessionStatus.Completed;
+                    apt.DoctorSession.CurrentlyServingQueueNumber = 0;
+                }
+                else if (apt.DoctorSession.CurrentlyServingQueueNumber == apt.QueueNumber)
+                {
+                    var nextActive = await _context.DoctorAppointments
+                        .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Id != apt.Id &&
+                                   (a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called))
+                        .OrderBy(a => a.QueueNumber)
+                        .FirstOrDefaultAsync();
+
+                    apt.DoctorSession.CurrentlyServingQueueNumber = nextActive?.QueueNumber ?? 0;
+                }
+            }
         }
         else if (newStatus == AppointmentStatus.NoShow)
         {
             apt.QueueStatus = QueueStatus.NoShow;
+            if (apt.DoctorSession != null)
+            {
+                var remainingAppointments = await _context.DoctorAppointments
+                    .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Id != apt.Id &&
+                                a.Status != AppointmentStatus.Cancelled && a.Status != AppointmentStatus.Completed && a.Status != AppointmentStatus.NoShow)
+                    .AnyAsync();
+
+                if (!remainingAppointments)
+                {
+                    var anyCompleted = await _context.DoctorAppointments
+                        .Where(a => a.DoctorSessionId == apt.DoctorSessionId && (a.Status == AppointmentStatus.Completed || a.Id == apt.Id))
+                        .AnyAsync();
+                    if (anyCompleted)
+                    {
+                        apt.DoctorSession.SessionStatus = SessionStatus.Completed;
+                    }
+                    apt.DoctorSession.CurrentlyServingQueueNumber = 0;
+                }
+                else if (apt.DoctorSession.CurrentlyServingQueueNumber == apt.QueueNumber)
+                {
+                    var nextActive = await _context.DoctorAppointments
+                        .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Id != apt.Id &&
+                                   (a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called))
+                        .OrderBy(a => a.QueueNumber)
+                        .FirstOrDefaultAsync();
+
+                    apt.DoctorSession.CurrentlyServingQueueNumber = nextActive?.QueueNumber ?? 0;
+                }
+            }
         }
         else if (newStatus == AppointmentStatus.Cancelled && apt.DoctorSession != null && apt.DoctorSession.CurrentBookings > 0)
         {
             apt.QueueStatus = QueueStatus.Skipped;
             apt.DoctorSession.CurrentBookings -= 1;
+
+            var remainingAppointments = await _context.DoctorAppointments
+                .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Id != apt.Id &&
+                            a.Status != AppointmentStatus.Cancelled && a.Status != AppointmentStatus.Completed && a.Status != AppointmentStatus.NoShow)
+                .AnyAsync();
+
+            if (!remainingAppointments)
+            {
+                var anyCompleted = await _context.DoctorAppointments
+                    .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Status == AppointmentStatus.Completed)
+                    .AnyAsync();
+                if (anyCompleted)
+                {
+                    apt.DoctorSession.SessionStatus = SessionStatus.Completed;
+                }
+                apt.DoctorSession.CurrentlyServingQueueNumber = 0;
+            }
+            else if (apt.DoctorSession.CurrentlyServingQueueNumber == apt.QueueNumber)
+            {
+                var nextActive = await _context.DoctorAppointments
+                    .Where(a => a.DoctorSessionId == apt.DoctorSessionId && a.Id != apt.Id &&
+                               (a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called))
+                    .OrderBy(a => a.QueueNumber)
+                    .FirstOrDefaultAsync();
+
+                apt.DoctorSession.CurrentlyServingQueueNumber = nextActive?.QueueNumber ?? 0;
+            }
         }
 
         await _context.SaveChangesAsync();
@@ -1638,6 +1726,36 @@ public class AppointmentService : IAppointmentService
             .Where(a => a.DoctorSessionId == sessionId && a.Status != AppointmentStatus.Cancelled)
             .OrderBy(a => a.QueueNumber)
             .ToListAsync();
+
+        if (session.SessionStatus == SessionStatus.Completed)
+        {
+            if (session.CurrentlyServingQueueNumber != 0)
+            {
+                session.CurrentlyServingQueueNumber = 0;
+                await _context.SaveChangesAsync();
+            }
+        }
+        else
+        {
+            var inProgressApt = queueAppointments.FirstOrDefault(a => a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called);
+            if (inProgressApt != null)
+            {
+                if (session.CurrentlyServingQueueNumber != inProgressApt.QueueNumber)
+                {
+                    session.CurrentlyServingQueueNumber = inProgressApt.QueueNumber;
+                    await _context.SaveChangesAsync();
+                }
+            }
+            else if (session.CurrentlyServingQueueNumber.HasValue && session.CurrentlyServingQueueNumber.Value > 0)
+            {
+                var servingApt = queueAppointments.FirstOrDefault(a => a.QueueNumber == session.CurrentlyServingQueueNumber.Value);
+                if (servingApt == null || servingApt.Status == AppointmentStatus.Completed || servingApt.Status == AppointmentStatus.Cancelled || servingApt.Status == AppointmentStatus.NoShow)
+                {
+                    session.CurrentlyServingQueueNumber = 0;
+                    await _context.SaveChangesAsync();
+                }
+            }
+        }
 
         return new DoctorSessionQueueDto
         {
@@ -2042,7 +2160,54 @@ public class AppointmentService : IAppointmentService
             SessionStatus = session.SessionStatus.ToString(),
             ActualStartTime = session.ActualStartTime,
             ExpectedStartTime = session.ExpectedStartTime,
-            CurrentlyServingQueueNumber = session.CurrentlyServingQueueNumber,
+            CurrentlyServingQueueNumber = session.SessionStatus == SessionStatus.Completed ? 0 : session.CurrentlyServingQueueNumber,
+            DelayReason = session.DelayReason
+        };
+    }
+
+    public async Task<DoctorSessionDto> CompleteSessionAsync(int sessionId)
+    {
+        var session = await _context.DoctorSessions
+            .Include(s => s.Doctor)
+            .FirstOrDefaultAsync(s => s.Id == sessionId);
+
+        if (session == null)
+            throw new KeyNotFoundException("Doctor session not found.");
+
+        session.SessionStatus = SessionStatus.Completed;
+        session.CurrentlyServingQueueNumber = 0;
+
+        // Auto-finalize any still InProgress or Called appointments to Completed
+        var activeAppointments = await _context.DoctorAppointments
+            .Where(a => a.DoctorSessionId == sessionId &&
+                       (a.Status == AppointmentStatus.InProgress || a.QueueStatus == QueueStatus.InConsultation || a.QueueStatus == QueueStatus.Called))
+            .ToListAsync();
+
+        foreach (var apt in activeAppointments)
+        {
+            apt.Status = AppointmentStatus.Completed;
+            apt.QueueStatus = QueueStatus.Completed;
+        }
+
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Completed doctor session {SessionId}", sessionId);
+
+        return new DoctorSessionDto
+        {
+            Id = session.Id,
+            DoctorId = session.DoctorId,
+            DoctorName = session.Doctor?.FullName ?? string.Empty,
+            SessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
+            SessionTime = session.SessionTime.ToString("HH:mm"),
+            TimeFormatted = FormatTimeSlot(session.SessionTime),
+            MaxCapacity = session.MaxCapacity,
+            CurrentBookings = session.CurrentBookings,
+            IsAvailable = false,
+            SlotsLeft = 0,
+            SessionStatus = session.SessionStatus.ToString(),
+            ActualStartTime = session.ActualStartTime,
+            ExpectedStartTime = session.ExpectedStartTime,
+            CurrentlyServingQueueNumber = 0,
             DelayReason = session.DelayReason
         };
     }
@@ -2151,7 +2316,7 @@ public class AppointmentService : IAppointmentService
         var recArrivalStr = recommendedArrival.ToString("h:mm tt");
 
         string? servingLabel = null;
-        if (session?.CurrentlyServingQueueNumber != null && session.CurrentlyServingQueueNumber.Value > 0)
+        if (session?.SessionStatus != SessionStatus.Completed && session?.CurrentlyServingQueueNumber != null && session.CurrentlyServingQueueNumber.Value > 0)
         {
             servingLabel = FormatQueueLabel(sessionType, session.CurrentlyServingQueueNumber.Value);
         }
@@ -2183,7 +2348,7 @@ public class AppointmentService : IAppointmentService
             SessionType = sessionType.ToString(),
             EstimatedConsultationTime = estConsultStr,
             RecommendedArrivalTime = recArrivalStr,
-            CurrentlyServingQueueNumber = session?.CurrentlyServingQueueNumber,
+            CurrentlyServingQueueNumber = (session?.SessionStatus == SessionStatus.Completed) ? 0 : session?.CurrentlyServingQueueNumber,
             CurrentlyServingLabel = servingLabel,
             SessionStatus = session?.SessionStatus.ToString() ?? "Scheduled",
             ExpectedStartTime = session?.ExpectedStartTime,
