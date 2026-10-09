@@ -262,6 +262,7 @@ public class SymptomAdviceAgent
                 Symptom = h.Symptom,
                 SymptomCategory = h.SymptomCategory,
                 Summary = h.Summary,
+                ResponseJson = h.ResponseJson,
                 CreatedAt = h.CreatedAt,
                 EngineUsed = h.EngineUsed
             })

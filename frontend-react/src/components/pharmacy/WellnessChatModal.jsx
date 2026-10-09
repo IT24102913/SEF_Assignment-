@@ -15,7 +15,8 @@ import {
     RefreshCw,
     ShieldAlert,
     ExternalLink,
-    Info
+    Info,
+    Plus
 } from 'lucide-react';
 import { symptomApi } from '../../api/symptomApi';
 
@@ -45,6 +46,7 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
     const [historyList, setHistoryList] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [selectedHistoryItem, setSelectedHistoryItem] = useState(null);
+    const [confirmNewChat, setConfirmNewChat] = useState(false);
 
     const messagesEndRef = useRef(null);
 
@@ -63,6 +65,64 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
             fetchHistory();
         }
     }, [isOpen, activeTab]);
+
+    // Restore chat state from sessionStorage on open
+    useEffect(() => {
+        if (!isOpen) return;
+        try {
+            const saved = sessionStorage.getItem('wellness_chat_state');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.messages && Array.isArray(parsed.messages) && parsed.messages.length > 0) {
+                    setMessages(parsed.messages);
+                }
+                if (parsed.activeTab) {
+                    setActiveTab(parsed.activeTab);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to restore chat state:', e);
+        }
+    }, [isOpen]);
+
+    // Persist chat state on change
+    useEffect(() => {
+        if (!isOpen) return;
+        try {
+            sessionStorage.setItem('wellness_chat_state', JSON.stringify({
+                messages,
+                activeTab
+            }));
+        } catch (e) {
+            console.warn('Failed to save chat state:', e);
+        }
+    }, [messages, activeTab, isOpen]);
+
+    const handleNewChat = () => {
+        const hasRealMessages = messages.some(m => !m.content?.isWelcome);
+        if (hasRealMessages && !confirmNewChat) {
+            setConfirmNewChat(true);
+            return;
+        }
+
+        setMessages([
+            {
+                id: 'welcome',
+                sender: 'ai',
+                content: {
+                    summary: "Ayubowan! I am your AI Wellness Assistant. How are you feeling today? Tell me your symptoms, and I'll share home remedies, warning signs, and safe over-the-counter products from our pharmacy.",
+                    isWelcome: true
+                },
+                timestamp: new Date()
+            }
+        ]);
+        setInputValue('');
+        setConfirmNewChat(false);
+
+        try {
+            sessionStorage.removeItem('wellness_chat_state');
+        } catch (_) { }
+    };
 
     const fetchHistory = async () => {
         setHistoryLoading(true);
@@ -206,6 +266,16 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
                         <History size={16} />
                         <span>History</span>
                     </button>
+                    {activeTab === 'chat' && messages.length > 1 && (
+                        <button
+                            onClick={handleNewChat}
+                            style={styles.newChatBtn}
+                            title="Start a new conversation"
+                        >
+                            <Plus size={14} />
+                            <span>New</span>
+                        </button>
+                    )}
                 </div>
 
                 {/* Tab Content Body */}
@@ -385,9 +455,63 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
                                     ))}
                                 </div>
                             )}
+                            {confirmNewChat && (
+                                <div style={styles.confirmOverlay}>
+                                    <div style={styles.confirmCard}>
+                                        <div style={styles.confirmTitle}>
+                                            Start a new chat?
+                                        </div>
+                                        <div style={styles.confirmText}>
+                                            This will clear your current conversation.
+                                            Your History will still be saved.
+                                        </div>
+                                        <div style={styles.confirmButtons}>
+                                            <button
+                                                onClick={() => setConfirmNewChat(false)}
+                                                style={styles.confirmCancelBtn}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={handleNewChat}
+                                                style={styles.confirmOkBtn}
+                                            >
+                                                Yes, clear
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
+                {confirmNewChat && (
+                    <div style={styles.confirmOverlay}>
+                        <div style={styles.confirmCard}>
+                            <div style={styles.confirmTitle}>
+                                Start a new chat?
+                            </div>
+                            <div style={styles.confirmText}>
+                                This will clear your current conversation.
+                                Your History will still be saved.
+                            </div>
+                            <div style={styles.confirmButtons}>
+                                <button
+                                    onClick={() => setConfirmNewChat(false)}
+                                    style={styles.confirmCancelBtn}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleNewChat}
+                                    style={styles.confirmOkBtn}
+                                >
+                                    Yes, clear
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -684,26 +808,105 @@ const ClarifyingQuestionsCard = ({ advice, onSubmit }) => {
 
 const parseHistoryResponse = (item) => {
     if (!item) return null;
+
+    const responseJson = item.responseJson || item.ResponseJson;
+
     let parsed = {};
-    if (item.responseJson) {
+    if (responseJson) {
         try {
-            parsed = JSON.parse(item.responseJson);
-        } catch (_) { }
+            parsed = typeof responseJson === 'string'
+                ? JSON.parse(responseJson)
+                : responseJson;
+        } catch (e) {
+            console.warn('Failed to parse history responseJson:', e);
+        }
     }
+
     return {
-        symptomCategory: item.symptomCategory || parsed.symptomCategory,
-        summary: item.summary || parsed.summary,
-        homeRemedies: parsed.homeRemedies || [],
-        restDuration: parsed.restDuration,
-        recommendedProducts: parsed.recommendedProducts || [],
-        warningSigns: parsed.warningSigns || [],
-        consultDoctorIf: parsed.consultDoctorIf || [],
-        disclaimer: parsed.disclaimer
+        symptomCategory: item.symptomCategory || item.SymptomCategory || parsed.symptomCategory,
+        summary: item.summary || item.Summary || parsed.summary,
+        homeRemedies: parsed.homeRemedies || parsed.HomeRemedies || [],
+        restDuration: parsed.restDuration || parsed.RestDuration,
+        recommendedProducts: parsed.recommendedProducts || parsed.RecommendedProducts || [],
+        warningSigns: parsed.warningSigns || parsed.WarningSigns || [],
+        consultDoctorIf: parsed.consultDoctorIf || parsed.ConsultDoctorIf || [],
+        disclaimer: parsed.disclaimer || parsed.Disclaimer
     };
 };
 
 // Styles
 const styles = {
+    newChatBtn: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '5px',
+        padding: '8px 12px',
+        background: '#EFF6FF',
+        border: '1px solid #BFDBFE',
+        borderRadius: '8px',
+        color: '#1E40AF',
+        fontSize: '12px',
+        fontWeight: 700,
+        cursor: 'pointer',
+        marginLeft: 'auto',
+        marginRight: '8px'
+    },
+    confirmOverlay: {
+        position: 'absolute',
+        inset: 0,
+        background: 'rgba(15, 23, 42, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 100,
+        borderRadius: '24px'
+    },
+    confirmCard: {
+        background: '#FFFFFF',
+        padding: '20px 24px',
+        borderRadius: '16px',
+        maxWidth: '320px',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.15)',
+        border: '1px solid #E2E8F0'
+    },
+    confirmTitle: {
+        fontSize: '16px',
+        fontWeight: 800,
+        color: '#0F172A',
+        marginBottom: '8px'
+    },
+    confirmText: {
+        fontSize: '13px',
+        color: '#64748B',
+        lineHeight: 1.5,
+        marginBottom: '16px'
+    },
+    confirmButtons: {
+        display: 'flex',
+        gap: '10px',
+        justifyContent: 'flex-end'
+    },
+    confirmCancelBtn: {
+        padding: '9px 16px',
+        background: '#FFFFFF',
+        border: '1px solid #CBD5E1',
+        borderRadius: '8px',
+        fontSize: '13px',
+        fontWeight: 600,
+        color: '#475569',
+        cursor: 'pointer'
+    },
+    confirmOkBtn: {
+        padding: '9px 16px',
+        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+        border: 'none',
+        borderRadius: '8px',
+        fontSize: '13px',
+        fontWeight: 700,
+        color: '#FFFFFF',
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)'
+    },
     overlay: {
         position: 'fixed',
         top: 0,
