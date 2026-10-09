@@ -3,7 +3,7 @@ import {
   Search, Calendar, Clock, MapPin, User, ShieldCheck, Star,
   Award, ArrowRight, ArrowLeft, CheckCircle2, QrCode, Printer,
   Sparkles, RefreshCw, X, CreditCard, Smartphone, Building2,
-  Phone, AlertCircle, ChevronRight, Stethoscope, HeartPulse,
+  Phone, AlertCircle, AlertTriangle, ChevronRight, Stethoscope, HeartPulse,
   Brain, Bone, Baby, Activity, Sparkle, Headphones, FileText,
   Sun, Sunset, Moon, Terminal, Cpu, ChevronDown, ChevronUp,
   Bot, Shield, Check, ExternalLink
@@ -1642,6 +1642,25 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         border: '1px solid #CBD5E1', fontSize: '12px', color: '#475569'
                       }}>
                         ℹ️ Please select a specialty manually using the cards below.
+                      </div>
+                    );
+
+                    if (s === 'NO_DOCTORS_AVAILABLE') return (
+                      <div style={{
+                        marginTop: '14px', padding: '12px 14px',
+                        borderRadius: '10px', backgroundColor: '#FFFBEB',
+                        border: '1px solid #FCD34D',
+                        display: 'flex', gap: '10px', alignItems: 'flex-start'
+                      }}>
+                        <AlertTriangle size={18} color="#D97706" style={{ flexShrink: 0, marginTop: '1px' }} />
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: '700', color: '#92400E', marginBottom: '2px' }}>
+                            No Available Doctors for {aiRecommendations.specialty || 'Selected Specialty'}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#B45309', lineHeight: '1.5' }}>
+                            {aiRecommendations.reason || 'No active channeling sessions are currently open. Please check back later or consult General Medicine.'}
+                          </div>
+                        </div>
                       </div>
                     );
 
