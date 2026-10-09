@@ -251,6 +251,31 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         fetchCatalog();
     }, []);
 
+    // Auto-open product detail if ?medicine=ID is in the URL
+    useEffect(() => {
+        if (loading) return;
+        if (!medicines || medicines.length === 0) return;
+
+        const params = new URLSearchParams(window.location.search);
+        const medicineId = params.get('medicine');
+        if (!medicineId) return;
+
+        const med = medicines.find(
+            m => String(m.id) === String(medicineId)
+        );
+
+        if (med && med.stockQuantity > 0) {
+            setSelectedDetailMed(med);
+            setActiveDetailImageIndex(0);
+            setDetailQty(1);
+
+            // Clean the URL so refresh doesn't re-open
+            const url = new URL(window.location.href);
+            url.searchParams.delete('medicine');
+            window.history.replaceState({}, '', url.toString());
+        }
+    }, [loading, medicines]);
+
     const showToastMessage = (message, type = 'success') => {
         setToast({ show: true, message, type });
         setTimeout(() => {
