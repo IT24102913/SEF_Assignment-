@@ -233,6 +233,46 @@ Return EXACT strings. If none, return [].
 - patient_name
 - date_written           (YYYY-MM-DD if possible)
 - drug_names             (array of strings)
+
+                          FOR EACH MEDICINE, output ONE string
+                          in this exact format:
+                          ""DRUGNAME STRENGTH - DOSAGE | FREQUENCY | DURATION""
+
+                          Rules:
+                          • Preserve the drug name and strength
+                            exactly as written
+                          • Expand ALL medical abbreviations with
+                            meaning in parentheses
+                          • Use "" | "" as separator
+                          • If a field is missing, omit that part
+
+                          ABBREVIATION EXPANSION:
+                            OD / qd     = once daily
+                            BD / BID    = twice daily
+                            TDS / TID   = three times daily
+                            QID         = four times daily
+                            QHS         = at bedtime
+                            nocte       = at bedtime
+                            mane        = in the morning
+                            PRN         = as needed
+                            STAT        = immediately
+                            AC          = before meals
+                            PC          = after meals
+                            PO          = by mouth
+                            SL          = sublingual
+                            TOP         = topical
+                            INH         = inhalation
+                            q4h/q6h/q8h = every 4/6/8 hours
+                            x N days    = for N days
+
+                          EXAMPLES:
+                            ""Amoxil 250mg - 1 capsule | TDS (three times daily) | 7 days""
+                            ""Panadol 500mg - 1 tablet | BD (twice daily) | 5 days | Before meals""
+                            ""Cetirizine 10mg - 1 tablet | nocte (at bedtime) | 5 days""
+
+                          WRONG (do NOT do this):
+                            ""Amoxil 250mg""  ← missing dosage
+                            ""Amoxil 250mg - 1 cap TDS x 7 days""  ← unexpanded
 - has_signature          (boolean)
 - has_stamp_or_seal      (boolean)
 
