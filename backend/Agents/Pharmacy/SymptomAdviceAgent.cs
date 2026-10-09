@@ -158,7 +158,7 @@ public class SymptomAdviceAgent
             _logger.LogInformation("[Pharmacy AI] Pool size: {Count}", recommendedPool.Count);
 
             var productList = string.Join("\n", recommendedPool.Select(m =>
-                $"- ID:{m.Id} | {m.Name} | {m.Category?.Name ?? "General"} | Rs.{m.Price} | Stock:{m.StockQuantity}"));
+                $"- ID:{m.Id} | Name: {m.Name} | Category: {m.Category?.Name ?? "General"} | Price: Rs.{m.Price} | Stock: {m.StockQuantity} | Description: {m.Description ?? "(no description)"}"));
 
             var apiKey = GetGeminiApiKey();
             if (!string.IsNullOrWhiteSpace(apiKey))
@@ -425,14 +425,56 @@ TASK:
 5. 3-4 ""consult doctor if"" conditions
 6. Warm summary
 
-PRODUCT RULES:
-- Only recommend products from the list above.
-- Match the product purpose to the symptom.
-- Do NOT recommend supplements/vitamins/protein unless the
-  symptom is specifically about nutrition, gym, fitness, or
-  protein intake.
-- NEVER recommend for emergency categories.
-- If no product matches, return recommendedProducts = [].
+PRODUCT RECOMMENDATION RULES:
+
+Each product has a DESCRIPTION that tells you what it
+treats. You MUST use the description to match the user's
+symptom.
+
+HOW TO MATCH:
+1. Read the user's symptom carefully.
+2. Read each product's DESCRIPTION in the list above.
+3. Recommend ONLY products whose description mentions
+   the user's symptom (or a close synonym).
+
+PREFER ORAL OVER TOPICAL:
+
+When the symptom is INTERNAL (headache, fever, body ache,
+stomach, cough, cold, sore throat):
+→ PREFER oral medicines (tablets, syrups, lozenges)
+→ Only recommend topical balms/creams if NO oral option
+  exists in the inventory
+
+When the symptom is EXTERNAL (skin rash, cut, wound,
+insect bite, muscle/joint injury, sprain):
+→ PREFER topical products (balms, creams, lotions,
+  antiseptics, bandages)
+
+EXAMPLES:
+- ""headache"" → Paracetamol (oral) — NOT Tiger Balm
+- ""fever"" → Paracetamol — NOT Vicks VapoRub
+- ""sore throat"" → Strepsils Lozenges — NOT Vicks
+- ""cough"" → Ascoril Cough Syrup — NOT Vicks
+- ""sprained ankle"" → Volini Gel or Bam Balm + Crepe Bandage
+- ""skin rash"" → Calamine Lotion
+- ""cut on my hand"" → Dettol + Adhesive Plasters
+- ""muscle pain"" → Bam Balm or Tiger Balm
+- ""acidity"" → Omeprazole
+- ""allergy"" → Cetirizine
+
+STRICT RULES:
+1. Only recommend products whose description matches
+   the user's symptom.
+2. Maximum 3 products.
+3. Prefer ORAL for internal symptoms.
+4. For headache/fever/body ache, always prefer Paracetamol
+   over topical balms.
+5. For emergencies (bite, sting, chest pain, stroke,
+   severe bleeding, poisoning, mental health):
+   → Return recommendedProducts = []
+6. Never recommend supplements (Whey Protein, Vitamin C)
+   unless the user is asking about nutrition/fitness.
+7. Use only medicineId values from the inventory list above.
 
 RULES:
 - HOME REMEDIES FIRST
