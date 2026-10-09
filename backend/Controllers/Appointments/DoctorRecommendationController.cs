@@ -1,7 +1,9 @@
 using HealthBridge.Api.Agents.Appointments;
 using HealthBridge.Api.DTOs.Appointments;
+using HealthBridge.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Claims;
 
 namespace HealthBridge.Api.Controllers.Appointments;
@@ -26,15 +28,23 @@ public class DoctorRecommendationController : ControllerBase
     /// POST /api/appointments/recommend-doctor
     /// Accepts a free-text symptom description and returns an AI-powered specialty suggestion.
     /// The patient always makes the final booking choice — the AI never books or auto-selects.
-    /// Requires a valid JWT Bearer token.
+    /// Requires a valid JWT Bearer token with Patient role and subject to per-user rate limiting.
     /// </summary>
     [HttpPost("recommend-doctor")]
-    [AllowAnonymous]
+    [Authorize(Roles = UserRole.Patient)]
+    [EnableRateLimiting("AppointmentRecommendationPolicy")]
     [ProducesResponseType(typeof(DoctorRecommendationResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RecommendDoctor([FromBody] DoctorRecommendationRequestDto request)
     {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!User.IsInRole(UserRole.Patient))
+            return Forbid();
+
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
@@ -53,16 +63,34 @@ public class DoctorRecommendationController : ControllerBase
 
     /// <summary>
     /// POST /api/appointments/recommendations/{workflowId}/approve
-    /// Human-in-the-Loop confirmation: Patient or staff reviews the multi-agent proposal and confirms the doctor/session selection.
+    /// Human-in-the-Loop confirmation: Patient reviews the multi-agent proposal and confirms the doctor/session selection.
+    /// Enforces authentication and caller ownership.
     /// </summary>
     [HttpPost("recommendations/{workflowId:guid}/approve")]
-    [AllowAnonymous]
+    [Authorize]
     [ProducesResponseType(typeof(DoctorRecommendationResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ApproveRecommendation(
         [FromRoute] Guid workflowId,
         [FromBody] ApproveRecommendationRequestDto request)
     {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return Unauthorized(new { message = "Authentication required." });
+
+        int? callerId = null;
+        var nameId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (int.TryParse(nameId, out var uid)) callerId = uid;
+
+        var workflow = await _agent.GetWorkflowAsync(workflowId);
+        if (workflow == null)
+            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+
+        // Ownership check: If workflow belongs to a specific patient, only that patient may approve
+        if (workflow.PatientId.HasValue && workflow.PatientId != callerId)
+            return Forbid();
+
         var updated = await _agent.ApproveRecommendationAsync(workflowId, request.SelectedDoctorId, request.SelectedSessionId);
         if (updated == null)
             return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
@@ -73,16 +101,34 @@ public class DoctorRecommendationController : ControllerBase
 
     /// <summary>
     /// POST /api/appointments/recommendations/{workflowId}/reject
-    /// Human-in-the-Loop rejection: Patient or staff declines the AI proposal.
+    /// Human-in-the-Loop rejection: Patient declines the AI proposal.
+    /// Enforces authentication and caller ownership.
     /// </summary>
     [HttpPost("recommendations/{workflowId:guid}/reject")]
-    [AllowAnonymous]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RejectRecommendation(
         [FromRoute] Guid workflowId,
         [FromBody] RejectRecommendationRequestDto? request)
     {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return Unauthorized(new { message = "Authentication required." });
+
+        int? callerId = null;
+        var nameId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (int.TryParse(nameId, out var uid)) callerId = uid;
+
+        var workflow = await _agent.GetWorkflowAsync(workflowId);
+        if (workflow == null)
+            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+
+        // Ownership check: If workflow belongs to a specific patient, only that patient may reject
+        if (workflow.PatientId.HasValue && workflow.PatientId != callerId)
+            return Forbid();
+
         var ok = await _agent.RejectRecommendationAsync(workflowId, request?.Notes);
         if (!ok)
             return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });

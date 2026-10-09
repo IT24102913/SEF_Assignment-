@@ -300,4 +300,56 @@ public class DoctorsControllerTests
         var deleted = await context.Doctors.FindAsync(doc.Id);
         Assert.Null(deleted);
     }
+
+    // ─── RecommendSpecialty Authorization Tests ───────────────────────────────
+
+    [Fact]
+    public async Task RecommendSpecialty_WhenAnonymous_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var controller = CreateController(context, user: null);
+        var request = new AIRecommendationRequest { Symptoms = "persistent cough" };
+
+        // Act
+        var result = await controller.RecommendSpecialty(request);
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task RecommendSpecialty_WhenWrongRole_ReturnsForbid()
+    {
+        // Arrange: Doctor attempting to call recommendation
+        using var context = CreateInMemoryDbContext();
+        var doctorUser = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, "10"), new Claim(ClaimTypes.Role, UserRole.Doctor) }, "TestAuth"));
+        var controller = CreateController(context, user: doctorUser);
+        var request = new AIRecommendationRequest { Symptoms = "persistent cough" };
+
+        // Act
+        var result = await controller.RecommendSpecialty(request);
+
+        // Assert
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task RecommendSpecialty_WhenPatientRole_ReturnsOk()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var patientUser = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, "10"), new Claim(ClaimTypes.Role, UserRole.Patient) }, "TestAuth"));
+        var controller = CreateController(context, user: patientUser);
+        var request = new AIRecommendationRequest { Symptoms = "persistent knee ache after jogging" };
+
+        // Act
+        var result = await controller.RecommendSpecialty(request);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(okResult.Value);
+    }
 }

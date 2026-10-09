@@ -364,6 +364,11 @@ public class DoctorRecommendationAgent
         return true;
     }
 
+    public async Task<RecommendationWorkflow?> GetWorkflowAsync(Guid workflowId)
+    {
+        return await _context.RecommendationWorkflows.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workflowId);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // Persistence
     // ═══════════════════════════════════════════════════════════════════════════

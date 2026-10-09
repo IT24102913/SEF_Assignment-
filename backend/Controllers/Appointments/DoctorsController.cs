@@ -145,9 +145,16 @@ public class DoctorsController : ControllerBase
     /// Prefer POST /api/appointments/recommend-doctor for new callers.
     /// </summary>
     [HttpPost("recommend-specialty")]
-    [AllowAnonymous]
+    [Authorize(Roles = UserRole.Patient)]
+    [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("AppointmentRecommendationPolicy")]
     public async Task<IActionResult> RecommendSpecialty([FromBody] AIRecommendationRequest request)
     {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return Unauthorized(new { message = "Authentication required." });
+
+        if (!User.IsInRole(UserRole.Patient))
+            return Forbid();
+
         if (string.IsNullOrWhiteSpace(request?.Symptoms))
             return BadRequest(new { message = "Please provide symptom description for analysis." });
 
