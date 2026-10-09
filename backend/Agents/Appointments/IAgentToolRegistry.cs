@@ -15,6 +15,14 @@ public class ToolResult<T>
 }
 
 /// <summary>
+/// Canonical constants for allow-listed agent tools in the appointments subsystem.
+/// </summary>
+public static class AppointmentToolNames
+{
+    public const string QueryAvailableDoctorsAndSlots = "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots";
+}
+
+/// <summary>
 /// Central security registry enforcing allow-listed tool invocation across specialized agents.
 /// Complies with SE3090 Section 9.1: "Agents may use only allow-listed tools. Denied calls must be logged as TOOL_DENIED".
 /// </summary>
@@ -46,8 +54,7 @@ public class AgentToolRegistry : IAgentToolRegistry
         // Slot allocation: ONLY DoctorSlotAllocationTool queries permitted
         RegisterAgent("DoctorSlotAllocationAgent", new[]
         {
-            "DoctorSlotAllocationTool",
-            "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots"
+            AppointmentToolNames.QueryAvailableDoctorsAndSlots
         });
 
         // Validation: ZERO tools permitted (pure deterministic gatekeeping)

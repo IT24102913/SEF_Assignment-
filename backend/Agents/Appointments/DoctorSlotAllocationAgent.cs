@@ -19,7 +19,7 @@ public class DoctorSlotAllocationAgent : IDoctorSlotAllocationAgent
     public string Responsibility => "Queries verified consultants and open clinic slots via allow-listed tool with sanitized inputs.";
     public string InputContract => "(string specialty, string? preferredBranch, int maxResults)";
     public string OutputContract => "Task<ToolResult<List<MatchedDoctorDto>>> (Success, IsAllowed, Status, Error, Data)";
-    public IReadOnlyList<string> AllowedTools => new[] { "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots" };
+    public IReadOnlyList<string> AllowedTools => new[] { AppointmentToolNames.QueryAvailableDoctorsAndSlots };
 
     private readonly IDoctorSlotAllocationTool _tool;
     private readonly IAgentToolRegistry _toolRegistry;
@@ -65,7 +65,7 @@ public class DoctorSlotAllocationAgent : IDoctorSlotAllocationAgent
 
         // 4. Delegate to allow-listed tool through central security registry
         return await _toolRegistry.ExecuteToolAsync(
-            "DoctorSlotAllocationTool",
+            AppointmentToolNames.QueryAvailableDoctorsAndSlots,
             AgentName,
             () => _tool.QueryAvailableDoctorsAndSlotsAsync(normalizedSpecialty, sanitizedBranch, clampedMaxResults));
     }

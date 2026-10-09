@@ -208,6 +208,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     ExecutionPlan = executionPlanSummary,
                     StepLogs = stepLogs,
                     ApprovalStatus = "NOT_REQUIRED",
+                    Retries = retries,
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
@@ -280,6 +281,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     ExecutionPlan = executionPlanSummary,
                     StepLogs = stepLogs,
                     ApprovalStatus = "NOT_REQUIRED",
+                    Retries = retries,
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
@@ -328,16 +330,27 @@ public class DoctorRecommendationAgent : IWorkflowAgent
 
             if (!slotResult.Success || matchedDoctors.Count == 0)
             {
-                step3Plan.Status = slotResult.Status == "TOOL_DENIED" ? "FAILED" : "COMPLETED";
-                step3Plan.OutputSummary = slotResult.Success
-                    ? "No available verified consultants found with open sessions."
-                    : $"Tool failed: {slotResult.Error}";
+                var isDenied = slotResult.Status == "TOOL_DENIED";
+                step3Plan.Status = isDenied ? "FAILED" : "COMPLETED";
+                step3Plan.OutputSummary = isDenied
+                    ? $"Tool security policy denied execution: {slotResult.Error}"
+                    : (slotResult.Success
+                        ? "No available verified consultants found with open sessions."
+                        : $"Tool failed: {slotResult.Error}");
 
-                MarkRemainingStepsSkipped(4, slotResult.Status == "TOOL_DENIED" ? "Tool access denied" : "No doctors available");
+                MarkRemainingStepsSkipped(4, isDenied ? "Tool access denied" : "No doctors available");
 
-                finalStatus = "NO_DOCTORS_AVAILABLE";
+                if (isDenied)
+                {
+                    finalStatus = "SAFE_FAILURE";
+                    reason = "Tool execution was denied by security policy. System transitioned safely to manual workflow.";
+                }
+                else
+                {
+                    finalStatus = "NO_DOCTORS_AVAILABLE";
+                    reason = $"Currently no verified consultants with open channeling slots are available for {finalSpecialty}. Please contact our channeling desk or check back later.";
+                }
                 approvalStatus = "NOT_REQUIRED";
-                reason = $"Currently no verified consultants with open channeling slots are available for {finalSpecialty}. Please contact our channeling desk or check back later.";
 
                 var executionPlanSummary = GetExecutionPlanSummary();
 
@@ -352,6 +365,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     ExecutionPlan = executionPlanSummary,
                     StepLogs = stepLogs,
                     ApprovalStatus = approvalStatus,
+                    Retries = retries,
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
@@ -413,6 +427,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     ExecutionPlan = executionPlanSummary,
                     StepLogs = stepLogs,
                     ApprovalStatus = approvalStatus,
+                    Retries = retries,
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
@@ -448,6 +463,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 ExecutionPlan = finalPlanSummary,
                 StepLogs = stepLogs,
                 ApprovalStatus = approvalStatus,
+                Retries = retries,
                 TotalDurationMs = totalSw.ElapsedMilliseconds
             };
 

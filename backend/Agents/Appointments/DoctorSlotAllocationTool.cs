@@ -24,7 +24,7 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
     private readonly ApplicationDbContext _context;
     private readonly ILogger<DoctorSlotAllocationTool> _logger;
 
-    public string ToolName => "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots";
+    public string ToolName => AppointmentToolNames.QueryAvailableDoctorsAndSlots;
 
     public DoctorSlotAllocationTool(ApplicationDbContext context, ILogger<DoctorSlotAllocationTool> logger)
     {
