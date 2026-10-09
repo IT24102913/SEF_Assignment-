@@ -61,6 +61,121 @@ public class PrescriptionSafetyAgent
         }
     }
 
+    private static List<string> BuildExtractionInfoFlags(AIPpVerificationResponse ai)
+    {
+        var flags = new List<string>();
+        if (ai == null) return flags;
+
+        // 1. Extraction quality
+        if (ai.ExtractionQuality != null)
+        {
+            var tier = ai.ExtractionQuality.Tier;
+            var icon = tier switch
+            {
+                "HIGH" => "✅",
+                "MEDIUM" => "🟡",
+                "LOW" => "🔴",
+                _ => "ℹ️"
+            };
+            flags.Add($"{icon} Extraction Quality: {tier}");
+        }
+
+        // 2. Patient
+        if (ai.Patient != null 
+            && !string.IsNullOrWhiteSpace(ai.Patient.Name))
+        {
+            var details = new List<string>();
+            if (!string.IsNullOrWhiteSpace(ai.Patient.Age))
+                details.Add(ai.Patient.Age);
+            if (!string.IsNullOrWhiteSpace(ai.Patient.Gender))
+                details.Add(ai.Patient.Gender);
+
+            var suffix = details.Count > 0 
+                ? $" ({string.Join(", ", details)})" : "";
+
+            flags.Add($"👤 Patient: {ai.Patient.Name}{suffix}");
+        }
+
+        // 3. Hospital
+        if (ai.Hospital != null 
+            && !string.IsNullOrWhiteSpace(ai.Hospital.Name))
+        {
+            flags.Add($"🏥 Hospital: {ai.Hospital.Name}");
+        }
+
+        // 4. Doctor
+        if (ai.Doctor != null 
+            && !string.IsNullOrWhiteSpace(ai.Doctor.Name))
+        {
+            var lic = !string.IsNullOrWhiteSpace(ai.Doctor.LicenseNumber)
+                ? $" ({ai.Doctor.LicenseNumber})" : "";
+            flags.Add($"👨‍⚕️ Doctor: {ai.Doctor.Name}{lic}");
+        }
+
+        // 5. Prescription date range
+        if (ai.PrescriptionMeta != null 
+            && !string.IsNullOrWhiteSpace(ai.PrescriptionMeta.DateWritten))
+        {
+            var dateInfo = ai.PrescriptionMeta.DateWritten;
+            if (!string.IsNullOrWhiteSpace(ai.PrescriptionMeta.ValidUntil))
+                dateInfo += $" → {ai.PrescriptionMeta.ValidUntil}";
+            flags.Add($"📅 Prescription Date: {dateInfo}");
+        }
+
+        // 6. Medicines with dosages
+        if (ai.Medicines != null && ai.Medicines.Count > 0)
+        {
+            flags.Add($"💊 Extracted Medicines ({ai.Medicines.Count}):");
+            foreach (var med in ai.Medicines)
+            {
+                var medName = string.IsNullOrWhiteSpace(med.OriginalName)
+                    ? "Unknown" : med.OriginalName;
+
+                var normalizedSuffix = "";
+                if (!string.IsNullOrWhiteSpace(med.NormalizedName)
+                    && !med.NormalizedName.Equals(
+                        medName, StringComparison.OrdinalIgnoreCase))
+                {
+                    normalizedSuffix = $" [{med.NormalizedName}]";
+                }
+
+                var details = new List<string>();
+                if (!string.IsNullOrWhiteSpace(med.Dosage))
+                    details.Add(med.Dosage);
+                if (!string.IsNullOrWhiteSpace(med.Frequency))
+                    details.Add(med.Frequency);
+                if (!string.IsNullOrWhiteSpace(med.Duration))
+                    details.Add(med.Duration);
+                if (!string.IsNullOrWhiteSpace(med.Quantity))
+                    details.Add(med.Quantity);
+                if (!string.IsNullOrWhiteSpace(med.Instructions))
+                    details.Add(med.Instructions);
+
+                var detailStr = details.Count > 0
+                    ? " — " + string.Join(" | ", details) : "";
+
+                flags.Add($"   • {medName}{normalizedSuffix}{detailStr}");
+            }
+        }
+
+        // 7. Rx mismatch
+        if (ai.HasPrescriptionItemMismatch
+            && ai.PrescriptionItemMismatches != null
+            && ai.PrescriptionItemMismatches.Count > 0)
+        {
+            flags.Add(
+                "🚫 PRESCRIPTION MISMATCH — Ordered Rx medicines not in prescription:");
+            foreach (var m in ai.PrescriptionItemMismatches)
+            {
+                var reason = string.IsNullOrWhiteSpace(m.Reason)
+                    ? "not found in prescription" : m.Reason;
+                flags.Add($"   • {m.OrderedDrugName} — {reason}");
+            }
+        }
+
+        return flags;
+    }
+
     /// <summary>
     /// Validates an order for prescription safety & anti-abuse concerns.
     /// </summary>
@@ -131,6 +246,13 @@ public class PrescriptionSafetyAgent
                         var visionValidation = _validatorAgent.ValidatePrescriptionAsync(currentRx, "Order Safety Analysis").GetAwaiter().GetResult();
                         if (visionValidation != null)
                         {
+                            // Enrich with extracted prescription data
+                            var extractionInfoFlags = BuildExtractionInfoFlags(visionValidation);
+                            foreach (var flag in extractionInfoFlags)
+                            {
+                                if (!verifiedSignals.Contains(flag))
+                                    verifiedSignals.Add(flag);
+                            }
                             // ─────────────────────────────────────────────
                             // SYSTEM FLAGS: Stage 1 failure detection
                             // ─────────────────────────────────────────────
