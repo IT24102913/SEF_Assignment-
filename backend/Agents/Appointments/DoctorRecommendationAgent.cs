@@ -99,7 +99,7 @@ public class DoctorRecommendationAgent
                 Output = safetyEval.Status switch
                 {
                     "SAFE" => "Safety checks passed: input length valid, no emergency red-flags detected.",
-                    "SAFETY_ESCALATION" => "EMERGENCY DETECTED: Life-threatening symptom pattern matched. Immediate escalation triggered.",
+                    "SAFETY_ESCALATION" => $"EMERGENCY DETECTED [{(safetyEval.RedFlagCode ?? "GENERAL")}]: Life-threatening symptom pattern matched. Immediate escalation triggered.",
                     "INPUT_INVALID" => $"Input invalid: {safetyEval.Reason}",
                     "NEED_MORE_CONTEXT" => $"Input too brief/vague: {safetyEval.Reason}",
                     _ => safetyEval.Reason ?? "Unknown safety status"

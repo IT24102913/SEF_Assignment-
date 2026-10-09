@@ -201,7 +201,7 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
 
     private async Task<GeminiTriageResult?> CallGeminiAsync(string symptoms, string apiKey)
     {
-        var model = _config["Gemini:Model"] ?? "gemini-1.5-flash";
+        var model = _config["Gemini:Model"] ?? "gemini-3.5-flash-lite";
         var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
 
         var allowedListStr = string.Join(", ", AllowedSpecialties.Select(s => $"\"{s}\""));

@@ -171,8 +171,8 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
             {
                 if (pattern.IsMatch(normalized))
                 {
-                    _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Input='{Input}'",
-                        AgentName, code, normalized.Length > 60 ? normalized[..57] + "..." : normalized);
+                    _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Length={Len}",
+                        AgentName, code, normalized.Length);
 
                     return new SafetyEvaluationResult
                     {
@@ -192,7 +192,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         var words = normalized.Split([' ', '\t', '\n', '\r', ',', ';'], StringSplitOptions.RemoveEmptyEntries);
         if (words.Length < 2)
         {
-            _logger.LogInformation("[{Agent}] Input too short (< 2 words): '{Input}'", AgentName, normalized);
+            _logger.LogInformation("[{Agent}] Input too short (< 2 words): Length={Len}", AgentName, normalized.Length);
             return new SafetyEvaluationResult
             {
                 IsSafeToTriage = false,
@@ -204,7 +204,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         var lower = normalized.ToLowerInvariant();
         if (IsGreetingOrNonsense(lower))
         {
-            _logger.LogInformation("[{Agent}] Greeting or nonsense detected: '{Input}'", AgentName, normalized);
+            _logger.LogInformation("[{Agent}] Greeting or nonsense detected: Length={Len}", AgentName, normalized.Length);
             return new SafetyEvaluationResult
             {
                 IsSafeToTriage = false,

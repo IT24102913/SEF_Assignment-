@@ -209,4 +209,24 @@ public class ClinicalSafetyAgentTests
         Assert.Equal("SAFETY_ESCALATION", result.Status);
         Assert.Equal(expectedCode, result.RedFlagCode);
     }
+
+    // ─── 7. Over-Trigger and Negation Evaluation Tests ────────────────────────
+
+    [Theory]
+    [InlineData("nosebleed since morning", "SAFE", null)]
+    [InlineData("bleeding gums when brushing", "SAFE", null)]
+    [InlineData("heavy period bleeding for 3 days", "SAFE", null)]
+    [InlineData("food poisoning symptoms two days", "SAFETY_ESCALATION", RedFlagCodes.Poisoning)]
+    [InlineData("ankle swelling for a week", "SAFE", null)]
+    [InlineData("fainted once last month, mild dizziness now", "SAFETY_ESCALATION", RedFlagCodes.Unconscious)]
+    [InlineData("epilepsy follow-up, last seizure two years ago", "SAFETY_ESCALATION", RedFlagCodes.Seizure)]
+    [InlineData("no chest pain but mild cough", "SAFE", null)]
+    [InlineData("I do not have trouble breathing, just a sore throat", "SAFE", null)]
+    [InlineData("choking sensation when swallowing for weeks", "SAFETY_ESCALATION", RedFlagCodes.Respiratory)]
+    public void EvaluateSafety_OverTriggerAndNegationCases_CurrentBehavior(string input, string expectedStatus, string? expectedCode)
+    {
+        var result = _agent.EvaluateSafety(input);
+        Assert.Equal(expectedStatus, result.Status);
+        Assert.Equal(expectedCode, result.RedFlagCode);
+    }
 }
