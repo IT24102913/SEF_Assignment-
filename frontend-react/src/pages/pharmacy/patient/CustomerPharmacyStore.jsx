@@ -1026,7 +1026,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                         onError={(e) => {
                                             const gallery = getGalleryImages(med);
                                             // Try next image in gallery on failure
-                                            const nextImg = gallery.find(u => u && !u.startsWith('data:') && e.target.src !== u);
+                                            const nextImg = gallery.find(u => u && e.target.src !== u);
                                             const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
                                             if (e.target.src !== fallback) e.target.src = fallback;
                                         }}
