@@ -103,6 +103,14 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   List<CategoryModel> _categories = [];
   bool _isLoading = true;
 
+  int? _pendingHighlightMedicineId;
+  int? _highlightedMedicineId;
+  final ScrollController _gridScrollController = ScrollController();
+
+  static List<MedicineModel>? _cachedMedicines;
+  static List<CategoryModel>? _cachedCategories;
+  static DateTime? _cacheTime;
+
   String _searchQuery = '';
   String _selectedCategoryName = 'ALL';
 
@@ -120,14 +128,109 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   void initState() {
     super.initState();
     _loadPharmacyData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['medicineId'] != null) {
+        _pendingHighlightMedicineId = args['medicineId'] as int;
+        _highlightMedicine(_pendingHighlightMedicineId!);
+      }
+    });
+  }
+
+  void _highlightMedicine(int medicineId) {
+    if (_allMedicines.isEmpty) return;
+    final index = _allMedicines
+        .indexWhere((m) => m.id == medicineId);
+    if (index == -1) return;
+
+    _pendingHighlightMedicineId = null;
+
+    setState(() {
+      _highlightedMedicineId = medicineId;
+    });
+
+    // Scroll to the target product
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (!mounted || !_gridScrollController.hasClients) return;
+      final filteredIndex = _filteredMedicines
+          .indexWhere((m) => m.id == medicineId);
+      if (filteredIndex < 0) return;
+      // Approximate: each grid row ~ 340px height
+      const rowHeight = 340.0;
+      final rowIndex = filteredIndex ~/ 2; // 2 columns
+      final targetOffset = 500.0 + (rowIndex * rowHeight);
+      _gridScrollController.animateTo(
+        targetOffset.clamp(
+          0.0,
+          _gridScrollController.position.maxScrollExtent,
+        ),
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle,
+                color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Found: ${_allMedicines[index].name}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+        backgroundColor: const Color(0xFF00897B),
+      ),
+    );
+
+    // Auto-clear after 4 seconds
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted && _highlightedMedicineId == medicineId) {
+        setState(() {
+          _highlightedMedicineId = null;
+        });
+      }
+    });
   }
 
   Future<void> _loadPharmacyData() async {
+    // ─── Try cache first ───
+    if (_cachedMedicines != null &&
+        _cachedCategories != null &&
+        _cacheTime != null &&
+        DateTime.now().difference(_cacheTime!).inMinutes < 5) {
+      setState(() {
+        _allMedicines = _cachedMedicines!;
+        _categories = _cachedCategories!;
+        _isLoading = false;
+        _applyFilters();
+      });
+
+      if (_pendingHighlightMedicineId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pendingHighlightMedicineId != null) {
+            _highlightMedicine(_pendingHighlightMedicineId!);
+          }
+        });
+      }
+      return;
+    }
+
+    // ─── Cache miss → fetch from API ───
     setState(() => _isLoading = true);
     final medicines = await PharmacyService.getMedicines();
     final categories = await PharmacyService.getCategories();
-    final userEmail = AuthState.email ?? AppSession.loggedInUserEmail ?? '';
-    final blocked = await PharmacyService.isUserBlocked(userEmail);
+    final userEmail =
+        AuthState.email ?? AppSession.loggedInUserEmail ?? '';
+    final blocked =
+        await PharmacyService.isUserBlocked(userEmail);
 
     if (mounted) {
       setState(() {
@@ -137,6 +240,20 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
         _applyFilters();
         _isLoading = false;
       });
+
+      // Save to cache
+      _cachedMedicines = medicines;
+      _cachedCategories = categories;
+      _cacheTime = DateTime.now();
+
+      // Trigger pending highlight if any
+      if (_pendingHighlightMedicineId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pendingHighlightMedicineId != null) {
+            _highlightMedicine(_pendingHighlightMedicineId!);
+          }
+        });
+      }
     }
   }
 
@@ -942,6 +1059,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
               onRefresh: _loadPharmacyData,
               color: const Color(0xFF059669),
               child: CustomScrollView(
+                controller: _gridScrollController,
                 slivers: [
                   // App Bar / Top Navigation
                   SliverToBoxAdapter(
@@ -1237,6 +1355,124 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                         ),
                       ),
                     ),
+                  // ─────────────────────────────────────────────
+                  // Wellness AI Assistant Banner
+                  // ─────────────────────────────────────────────
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pushNamed(context, '/pharmacy-wellness');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFEFF6FF), Color(0xFFDBEAFE)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.auto_awesome,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Flexible(
+                                          child: Text(
+                                            'Wellness Assistant',
+                                            style: TextStyle(
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF1E40AF),
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF2563EB),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'AI',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                              letterSpacing: 0.3,
+                                            ),
+                                            maxLines: 1,
+                                            softWrap: false,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 3),
+                                    const Text(
+                                      'Describe your symptoms — get home remedies, medicines & warnings.',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF1E40AF),
+                                        height: 1.35,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2563EB),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.arrow_forward_ios,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // ─────────────────────────────────────────────
+                  // End Wellness AI Assistant Banner
+                  // ─────────────────────────────────────────────
 
                   // Search Bar
                   SliverToBoxAdapter(
@@ -1359,14 +1595,41 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                 delegate: SliverChildBuilderDelegate(
                                   (context, index) {
                                     final med = _filteredMedicines[index];
-                                    return Opacity(
-                                      opacity: _isBlocked ? 0.45 : 1.0,
-                                      child: AbsorbPointer(
-                                        absorbing: _isBlocked,
-                                        child: ProductCard(
-                                          medicine: med,
-                                          onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
-                                          onOpenDetail: () => _openMedicineDetailModal(med),
+                                    final isHighlighted = _highlightedMedicineId == med.id;
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 350),
+                                      curve: Curves.easeInOut,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: isHighlighted
+                                            ? Border.all(
+                                                color: const Color(0xFFFFC107),
+                                                width: 3.0,
+                                              )
+                                            : Border.all(
+                                                color: Colors.transparent,
+                                                width: 3.0,
+                                              ),
+                                        boxShadow: isHighlighted
+                                            ? [
+                                                BoxShadow(
+                                                  color: const Color(0xFFFFC107).withOpacity(0.45),
+                                                  blurRadius: 16,
+                                                  spreadRadius: 3,
+                                                ),
+                                              ]
+                                            : null,
+                                      ),
+                                      child: Opacity(
+                                        opacity: _isBlocked ? 0.45 : 1.0,
+                                        child: AbsorbPointer(
+                                          absorbing: _isBlocked,
+                                          child: ProductCard(
+                                            medicine: med,
+                                            onAddToCart: (unit) =>
+                                                _addToCart(med, defaultUnitType: unit),
+                                            onOpenDetail: () => _openMedicineDetailModal(med),
+                                          ),
                                         ),
                                       ),
                                     );
