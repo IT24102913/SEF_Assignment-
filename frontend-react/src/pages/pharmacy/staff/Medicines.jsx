@@ -104,7 +104,6 @@ const Medicines = () => {
     const [unitPriceError, setUnitPriceError] = useState('');
     const [customNameError, setCustomNameError] = useState('');
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-    const [uploadingImage, setUploadingImage] = useState(false);
     const [uploadingGallery, setUploadingGallery] = useState(false);
     const [nameError, setNameError] = useState('');
     const [brandError, setBrandError] = useState('');
@@ -409,6 +408,18 @@ const Medicines = () => {
             }
         } catch (e) { }
 
+        // Helper to check if an image URL is valid (not a dead /uploads/ path from a previous deployment)
+        const isValidImage = (url) =>
+            typeof url === 'string' &&
+            url.trim() !== '' &&
+            !url.startsWith('/uploads/');
+
+        // Combine imageUrl + additionalImages, filter out broken ones
+        const combinedImages = [
+            ...(med.imageUrl && isValidImage(med.imageUrl) ? [med.imageUrl] : []),
+            ...(Array.isArray(extraImgs) ? extraImgs.filter(isValidImage) : [])
+        ];
+
         const editSellingUnit = med.sellingUnit || 'PILLS';
         const priceValStr = med.price !== undefined && med.price !== null ? String(med.price) : '';
         const cardPriceValStr = med.cardPrice !== undefined && med.cardPrice !== null ? String(med.cardPrice) : '';
@@ -455,8 +466,8 @@ const Medicines = () => {
             expiryDate: med.expiryDate?.split('T')[0] || '',
             storageCondition: parseStorageConditionForForm(med.storageCondition),
             requiresPrescription: med.requiresPrescription || false,
-            imageUrl: med.imageUrl || '',
-            additionalImages: Array.isArray(extraImgs) ? extraImgs : []
+            imageUrl: '',
+            additionalImages: combinedImages
         });
 
         const existingExpStr = med.expiryDate?.split('T')[0] || '';
@@ -643,38 +654,6 @@ const Medicines = () => {
             dateObj.getMonth() === parsed.getMonth() &&
             dateObj.getFullYear() === parsed.getFullYear()
         );
-    };
-
-    const handleImageFileUpload = async (e) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        // Validate file is an image
-        if (!file.type.startsWith('image/')) {
-            alert('Please select a valid image file (JPG, PNG, JPEG, WEBP, GIF)');
-            return;
-        }
-
-        // Size warning for files > 5MB
-        if (file.size > 5 * 1024 * 1024) {
-            const proceed = window.confirm(
-                'This image is larger than 5MB. It may slow down the app. Continue?'
-            );
-            if (!proceed) return;
-        }
-
-        setUploadingImage(true);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setFormData(prev => ({ ...prev, imageUrl: reader.result }));
-            setUploadingImage(false);
-            showToastMessage('Main medicine image uploaded!', 'success');
-        };
-        reader.onerror = () => {
-            setUploadingImage(false);
-            showToastMessage('Failed to read image file.', 'error');
-        };
-        reader.readAsDataURL(file);
     };
 
     const handleGalleryFileUpload = async (e) => {
@@ -949,6 +928,11 @@ const Medicines = () => {
                 }
             } catch (e) { }
 
+            // The first image in the gallery becomes the main image.
+            const galleryImages = preparedFormData.additionalImages || [];
+            const mainImageUrl = galleryImages.length > 0 ? galleryImages[0] : null;
+            const additionalOnly = galleryImages.slice(1);
+
             const data = {
                 // Core required fields
                 name: preparedFormData.name,
@@ -962,8 +946,8 @@ const Medicines = () => {
                 expiryDate: isoExpiry,
                 storageCondition: storageConditionStr,
                 requiresPrescription: !!preparedFormData.requiresPrescription,
-                imageUrl: preparedFormData.imageUrl || null,
-                additionalImagesJson: JSON.stringify(preparedFormData.additionalImages || []),
+                imageUrl: mainImageUrl,
+                additionalImagesJson: JSON.stringify(additionalOnly),
 
                 // Flexible Selling Unit fields
                 sellingUnit: preparedFormData.sellingUnit,
@@ -2005,64 +1989,10 @@ const Medicines = () => {
 
                                     </div>
 
-                                    {/* Main Product Image Section */}
-                                    <div style={styles.formGroupFull}>
-                                        <label style={styles.formLabel}>MAIN PRODUCT IMAGE (PRIMARY DISPLAY)</label>
-
-                                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '8px' }}>
-                                            <label style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: '8px',
-                                                padding: '10px 18px',
-                                                backgroundColor: '#059669',
-                                                color: '#FFFFFF',
-                                                borderRadius: '8px',
-                                                fontSize: '13px',
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                                boxShadow: '0 2px 4px rgba(5,150,105,0.2)'
-                                            }}>
-                                                Browse & Upload Main Image from Device Storage
-                                                <input
-                                                    type="file"
-                                                    accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-                                                    onChange={handleImageFileUpload}
-                                                    style={{ display: 'none' }}
-                                                />
-                                            </label>
-                                            {uploadingImage && <span style={{ fontSize: '12px', color: '#059669', fontWeight: 600 }}>Uploading image...</span>}
-                                        </div>
-
-                                        {formData.imageUrl && (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', background: '#F8FAFC', padding: '8px 12px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                                                <img src={resolveImageUrl(formData.imageUrl)} alt="Main Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #CBD5E1' }} />
-                                                <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {formData.imageUrl}
-                                                </div>
-                                                <button type="button" onClick={() => setFormData({ ...formData, imageUrl: '' })} style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#DC2626', padding: '4px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>Remove Main</button>
-                                            </div>
-                                        )}
-
-                                        <input
-                                            type="text"
-                                            placeholder="Main image path (use upload button above)"
-                                            value={formData.imageUrl}
-                                            readOnly
-                                            style={{
-                                                ...styles.input,
-                                                backgroundColor: '#F8FAFC',
-                                                cursor: 'not-allowed',
-                                                color: '#64748B'
-                                            }}
-                                        />
-
-                                    </div>
-
-                                    {/* Multi-Image Gallery Support */}
-                                    <div style={{ ...styles.formGroupFull, background: '#F8FAFC', padding: '14px', borderRadius: '12px', border: '1px border #E2E8F0' }}>
-                                        <label style={{ ...styles.formLabel, color: '#0F172A', fontWeight: 800 }}>ADDITIONAL GALLERY IMAGES (MULTI-IMAGE PREVIEW ANGLES)</label>
-                                        <p style={{ fontSize: '12px', color: '#64748B', margin: '0 0 10px 0' }}>Add extra photos (e.g. box packaging, back angle, bamboo/leaf lifestyle) displayed in patient detail gallery modal.</p>
+                                    {/* Multi-Image Product Gallery Support */}
+                                    <div style={{ ...styles.formGroupFull, background: '#F8FAFC', padding: '14px', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                                        <label style={{ ...styles.formLabel, color: '#0F172A', fontWeight: 800 }}>PRODUCT IMAGES (First image = Main display)</label>
+                                        <p style={{ fontSize: '12px', color: '#64748B', margin: '0 0 10px 0' }}>Upload 1 or more photos. The FIRST photo will be used as the main product image. Additional photos appear in the product gallery.</p>
 
                                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '10px' }}>
                                             <label style={{
@@ -2077,7 +2007,7 @@ const Medicines = () => {
                                                 fontWeight: 700,
                                                 cursor: 'pointer',
                                             }}>
-                                                Upload Gallery Photos from Device Storage
+                                                Upload Photos from Device Storage
                                                 <input
                                                     type="file"
                                                     accept="image/*"
@@ -2089,26 +2019,66 @@ const Medicines = () => {
                                             {uploadingGallery && <span style={{ fontSize: '12px', color: '#3B82F6', fontWeight: 600 }}>Adding images...</span>}
                                         </div>
 
+                                        {formData.additionalImages.length > 0 && (
+                                            <div style={{
+                                                marginTop: '10px',
+                                                marginBottom: '10px',
+                                                padding: '10px 12px',
+                                                background: '#FFFBEB',
+                                                border: '1px solid #FCD34D',
+                                                borderRadius: '8px',
+                                                fontSize: '12px',
+                                                color: '#92400E',
+                                                fontWeight: 600
+                                            }}>
+                                                📌 The first image is used as the main product image. Additional images appear in the product gallery.
+                                            </div>
+                                        )}
+
                                         {/* Gallery thumbnails list */}
                                         {formData.additionalImages && formData.additionalImages.length > 0 && (
                                             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
                                                 {formData.additionalImages.map((imgUrl, idx) => (
-                                                    <div key={idx} style={{ position: 'relative', width: '64px', height: '64px', borderRadius: '8px', overflow: 'hidden', border: '2px solid #3B82F6' }}>
-                                                        <img src={resolveImageUrl(imgUrl)} alt={`Angle ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    <div key={idx} style={{
+                                                        position: 'relative',
+                                                        width: '64px',
+                                                        height: '64px',
+                                                        borderRadius: '8px',
+                                                        overflow: 'hidden',
+                                                        border: idx === 0 ? '2px solid #059669' : '1px solid #CBD5E1'
+                                                    }}>
+                                                        <img src={resolveImageUrl(imgUrl)} alt={`Image ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        {idx === 0 && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                bottom: 0,
+                                                                left: 0,
+                                                                right: 0,
+                                                                background: '#059669',
+                                                                color: 'white',
+                                                                fontSize: '9px',
+                                                                fontWeight: 800,
+                                                                textAlign: 'center',
+                                                                padding: '2px 0'
+                                                            }}>
+                                                                MAIN
+                                                            </div>
+                                                        )}
                                                         <button
                                                             type="button"
                                                             onClick={() => removeGalleryImage(idx)}
                                                             style={{
                                                                 position: 'absolute',
-                                                                top: 2,
-                                                                right: 2,
-                                                                background: 'rgba(220, 38, 38, 0.9)',
-                                                                color: '#FFF',
-                                                                border: 'none',
-                                                                borderRadius: '50%',
+                                                                top: '2px',
+                                                                right: '2px',
                                                                 width: '18px',
                                                                 height: '18px',
+                                                                borderRadius: '50%',
+                                                                background: 'rgba(220, 38, 38, 0.9)',
+                                                                color: 'white',
+                                                                border: 'none',
                                                                 fontSize: '11px',
+                                                                fontWeight: 800,
                                                                 cursor: 'pointer',
                                                                 display: 'flex',
                                                                 alignItems: 'center',
