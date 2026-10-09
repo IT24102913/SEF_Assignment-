@@ -127,7 +127,7 @@ public class SymptomAdviceAgent
 
         var askClarifying = ShouldAskClarifyingQuestions(symptom, clarifyingAnswers);
         var symptomLower = symptom.ToLowerInvariant();
-        var cacheKey = $"symptom_v4_{symptomLower}";
+        var cacheKey = $"symptom_v5_{symptomLower}";
         
         SymptomAdviceResponse? result = null;
         bool fromCache = false;
@@ -151,7 +151,7 @@ public class SymptomAdviceAgent
                 .ToListAsync();
 
             var recommendedPool = allMedicines
-                .Where(m => !IsPillForm(m.Name, m.SellingUnit, m.Description))
+                .Where(m => !IsHighlyRestrictedForm(m.Name, m.SellingUnit))
                 .Take(30)
                 .ToList();
 
@@ -311,6 +311,22 @@ public class SymptomAdviceAgent
         return PillKeywords.Any(k => checkText.Contains(k));
     }
 
+    private static readonly string[] HighlyRestrictedKeywords = new[]
+    {
+        "syringe",
+        "injection",
+        "injectable",
+        "vial",
+        "ampoule",
+        "suppositor"
+    };
+
+    private static bool IsHighlyRestrictedForm(string? name, string? sellingUnit)
+    {
+        var combined = $"{name} {sellingUnit}".ToLowerInvariant();
+        return HighlyRestrictedKeywords.Any(k => combined.Contains(k));
+    }
+
     private async Task<SymptomAdviceResponse?> CallGeminiAsync(
         string apiKey, 
         string symptom, 
@@ -334,7 +350,7 @@ public class SymptomAdviceAgent
 
 PATIENT SYMPTOM: ""{symptom}""
 
-AVAILABLE OTC NON-PILL PRODUCTS:
+AVAILABLE OTC PRODUCTS:
 {(string.IsNullOrWhiteSpace(productList) ? "(None available)" : productList)}
 
 {(askClarifying ? $@"
@@ -421,7 +437,7 @@ TASK:
 1. Symptom category
 2. 4-6 home remedies (priority)
 3. 3-4 warning signs
-4. 2-4 OTC non-pill products from list (ONLY relevant ones)
+4. 2-4 OTC products from list (ONLY relevant ones)
 5. 3-4 ""consult doctor if"" conditions
 6. Warm summary
 
@@ -478,7 +494,6 @@ STRICT RULES:
 
 RULES:
 - HOME REMEDIES FIRST
-- NO tablets/capsules/pills
 - Sri Lanka context
 - Warm, human tone
 - Always mention ""if symptoms worsen, see a doctor""
