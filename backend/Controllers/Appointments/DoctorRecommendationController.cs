@@ -62,9 +62,34 @@ public class DoctorRecommendationController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/appointments/recommendations/{workflowId:guid}
+    /// Retrieves workflow state with fail-closed ownership check.
+    /// </summary>
+    [HttpGet("recommendations/{workflowId:guid}")]
+    [Authorize]
+    [ProducesResponseType(typeof(RecommendationWorkflow), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRecommendationWorkflow([FromRoute] Guid workflowId)
+    {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return Unauthorized(new { message = "Authentication required." });
+
+        var workflow = await _agent.GetWorkflowAsync(workflowId);
+        if (workflow == null)
+            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+
+        var accessError = ValidateWorkflowAccess(workflow);
+        if (accessError != null) return accessError;
+
+        return Ok(workflow);
+    }
+
+    /// <summary>
     /// POST /api/appointments/recommendations/{workflowId}/approve
-    /// Human-in-the-Loop confirmation: Patient reviews the multi-agent proposal and confirms the doctor/session selection.
-    /// Enforces authentication and caller ownership.
+    /// Human-in-the-Loop confirmation: Patient confirms the doctor/session selection.
+    /// Enforces authentication and fail-closed caller ownership.
     /// </summary>
     [HttpPost("recommendations/{workflowId:guid}/approve")]
     [Authorize]
@@ -79,17 +104,12 @@ public class DoctorRecommendationController : ControllerBase
         if (!User.Identity?.IsAuthenticated ?? true)
             return Unauthorized(new { message = "Authentication required." });
 
-        int? callerId = null;
-        var nameId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (int.TryParse(nameId, out var uid)) callerId = uid;
-
         var workflow = await _agent.GetWorkflowAsync(workflowId);
         if (workflow == null)
             return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
 
-        // Ownership check: If workflow belongs to a specific patient, only that patient may approve
-        if (workflow.PatientId.HasValue && workflow.PatientId != callerId)
-            return Forbid();
+        var accessError = ValidateWorkflowAccess(workflow);
+        if (accessError != null) return accessError;
 
         var updated = await _agent.ApproveRecommendationAsync(workflowId, request.SelectedDoctorId, request.SelectedSessionId);
         if (updated == null)
@@ -102,7 +122,7 @@ public class DoctorRecommendationController : ControllerBase
     /// <summary>
     /// POST /api/appointments/recommendations/{workflowId}/reject
     /// Human-in-the-Loop rejection: Patient declines the AI proposal.
-    /// Enforces authentication and caller ownership.
+    /// Enforces authentication and fail-closed caller ownership.
     /// </summary>
     [HttpPost("recommendations/{workflowId:guid}/reject")]
     [Authorize]
@@ -117,17 +137,12 @@ public class DoctorRecommendationController : ControllerBase
         if (!User.Identity?.IsAuthenticated ?? true)
             return Unauthorized(new { message = "Authentication required." });
 
-        int? callerId = null;
-        var nameId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (int.TryParse(nameId, out var uid)) callerId = uid;
-
         var workflow = await _agent.GetWorkflowAsync(workflowId);
         if (workflow == null)
             return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
 
-        // Ownership check: If workflow belongs to a specific patient, only that patient may reject
-        if (workflow.PatientId.HasValue && workflow.PatientId != callerId)
-            return Forbid();
+        var accessError = ValidateWorkflowAccess(workflow);
+        if (accessError != null) return accessError;
 
         var ok = await _agent.RejectRecommendationAsync(workflowId, request?.Notes);
         if (!ok)
@@ -135,6 +150,46 @@ public class DoctorRecommendationController : ControllerBase
 
         _logger.LogInformation("[RejectRecommendation] Workflow {Id} rejected", workflowId);
         return Ok(new { success = true, workflowId, status = "REJECTED" });
+    }
+
+    /// <summary>
+    /// Fail-closed workflow authorization:
+    /// - Unauthenticated -> 401 Unauthorized
+    /// - Missing claim -> 401 Unauthorized
+    /// - Non-numeric/malformed claim -> 403 Forbidden
+    /// - Null PatientId -> only Admin allowed, non-admin -> 403 Forbidden
+    /// - Non-null PatientId -> caller MUST be in Patient role and match PatientId.
+    ///   Roles other than Patient (Doctor, non-matching Patient, Admin on patient workflow) -> 403 Forbidden
+    /// </summary>
+    private IActionResult? ValidateWorkflowAccess(RecommendationWorkflow workflow)
+    {
+        if (!User.Identity?.IsAuthenticated ?? true)
+            return Unauthorized(new { message = "Authentication required." });
+
+        var nameId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(nameId))
+            return Unauthorized(new { message = "Missing user identity claim." });
+
+        if (!int.TryParse(nameId, out var callerId))
+            return Forbid();
+
+        var isAdmin = User.IsInRole(UserRole.Admin);
+        var isPatient = User.IsInRole(UserRole.Patient);
+
+        // If workflow has no associated patient, ONLY Admin may act on it
+        if (!workflow.PatientId.HasValue)
+        {
+            if (!isAdmin)
+                return Forbid();
+            return null; // Admin allowed on ownerless workflow
+        }
+
+        // Workflow belongs to a patient:
+        // Prior to Phase 4 staff-review flow, patient's workflow may ONLY be approved by that specific patient.
+        if (!isPatient || workflow.PatientId.Value != callerId)
+            return Forbid();
+
+        return null;
     }
 }
 
