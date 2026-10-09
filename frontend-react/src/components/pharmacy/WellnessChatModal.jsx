@@ -13,7 +13,9 @@ import {
     Trash2,
     ChevronRight,
     RefreshCw,
-    ShieldAlert
+    ShieldAlert,
+    ExternalLink,
+    Info
 } from 'lucide-react';
 import { symptomApi } from '../../api/symptomApi';
 
@@ -241,7 +243,7 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
                                                     />
                                                 ) : (
                                                     /* Structured AI Response View */
-                                                    <StructuredAdviceView advice={msg.content} onAddToCart={onAddToCart} />
+                                                    <StructuredAdviceView advice={msg.content} onAddToCart={onAddToCart} onClose={onClose} />
                                                 )}
                                             </div>
                                         )}
@@ -326,6 +328,7 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
                                         <StructuredAdviceView
                                             advice={parseHistoryResponse(selectedHistoryItem)}
                                             onAddToCart={onAddToCart}
+                                            onClose={onClose}
                                         />
                                     </div>
                                 </div>
@@ -391,7 +394,7 @@ const WellnessChatModal = ({ isOpen, onClose, user, onAddToCart }) => {
 };
 
 // Component: Structured AI Response View (STRICT ORDER)
-const StructuredAdviceView = ({ advice, onAddToCart }) => {
+const StructuredAdviceView = ({ advice, onAddToCart, onClose }) => {
     if (!advice) return null;
 
     const {
@@ -454,9 +457,29 @@ const StructuredAdviceView = ({ advice, onAddToCart }) => {
                         {recommendedProducts.map((prod, idx) => (
                             <div key={idx} style={styles.productRow}>
                                 <div style={{ flex: 1 }}>
-                                    <div style={styles.prodName}>
+                                    <div
+                                        style={{
+                                            ...styles.prodName,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            transition: 'opacity 0.15s'
+                                        }}
+                                        onClick={() => {
+                                            if (onClose) onClose();
+                                            setTimeout(() => {
+                                                window.location.href =
+                                                    `/patient/dashboard?tab=pharmacy&medicine=${prod.medicineId}`;
+                                            }, 200);
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.75'}
+                                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                                        title="View full product details in store"
+                                    >
                                         {prod.name}
                                         <span style={styles.otcTag}>OTC</span>
+                                        <ExternalLink size={12} color="#2563EB" />
                                     </div>
                                     <div style={styles.prodReason}>{prod.reason}</div>
                                     <div style={styles.prodPrice}>
@@ -474,6 +497,27 @@ const StructuredAdviceView = ({ advice, onAddToCart }) => {
                                 )}
                             </div>
                         ))}
+                    </div>
+
+                    <div style={{
+                        marginTop: '10px',
+                        padding: '8px 12px',
+                        background: '#EFF6FF',
+                        border: '1px dashed #93C5FD',
+                        borderRadius: '10px',
+                        fontSize: '11.5px',
+                        color: '#1E40AF',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        lineHeight: 1.5
+                    }}>
+                        <Info size={13} style={{ flexShrink: 0 }} />
+                        <span>
+                            Tap any medicine name to view full details, dosage,
+                            and warnings in the store.
+                        </span>
                     </div>
                 </div>
             )}
