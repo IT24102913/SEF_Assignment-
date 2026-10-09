@@ -87,6 +87,8 @@ public class AgentStepLogDto
     public string? RedFlagCode { get; set; }
     public string? MatchedCategory { get; set; }
     public string? ContractSummary { get; set; }
+    public string? TriageSource { get; set; }
+    public string? FallbackReason { get; set; }
     public long DurationMs { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

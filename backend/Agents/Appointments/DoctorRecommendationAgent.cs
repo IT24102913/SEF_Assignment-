@@ -233,24 +233,30 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             step2Sw.Stop();
             step2Plan.DurationMs = step2Sw.ElapsedMilliseconds;
 
+            retries += triageResult.Retries;
+
             stepLogs.Add(new AgentStepLogDto
             {
                 AgentName = _triageAgent.AgentName,
                 Action = "ClinicalTriageAnalysis",
                 StepName = step2Plan.StepName,
+                ContractSummary = step2Plan.ContractSummary,
+                TriageSource = triageResult.TriageSource,
+                FallbackReason = triageResult.FallbackReason,
                 Input = symptoms.Length > 80 ? symptoms[..77] + "..." : symptoms,
                 Output = triageResult.Status switch
                 {
-                    "RECOMMENDATION_READY" => $"Suggested Specialty: {triageResult.Specialty} (Confidence: {triageResult.Confidence:P0}, Engine: {(triageResult.UsedFallbackEngine ? "DeterministicFallback" : "GeminiLLM")})",
+                    "RECOMMENDATION_READY" => $"Suggested Specialty: {triageResult.Specialty} (Confidence: {triageResult.Confidence:P0}, Source: {triageResult.TriageSource})",
                     "NEED_MORE_CONTEXT" => $"Triage requires more context. Questions: {string.Join(" | ", triageResult.FollowUpQuestions)}",
                     "SAFE_FAILURE" => $"Triage safe failure: {triageResult.Reason}",
+                    "INPUT_INVALID" => $"Input invalid: {triageResult.Reason}",
                     _ => triageResult.Reason ?? "Unknown triage status"
                 },
                 DurationMs = step2Sw.ElapsedMilliseconds,
                 Status = triageResult.Status == "RECOMMENDATION_READY" ? "COMPLETED" : "BLOCKED"
             });
 
-            statusPath.Add($"TriageAnalysis:{triageResult.Status}");
+            statusPath.Add($"TriageAnalysis:{triageResult.TriageSource}_{triageResult.Status}{(triageResult.FallbackReason != null ? $"_{triageResult.FallbackReason}" : "")}");
 
             if (triageResult.Status != "RECOMMENDATION_READY")
             {
