@@ -716,8 +716,7 @@ public static class DbInitializer
         }
 
         // 8. Seed Doctor Sessions (Real OPD Clinic Blocks: Morning, Evening, Night)
-        // Date range: from today for the next 14 days
-        if (!await context.DoctorSessions.AnyAsync())
+        // Rolling schedule: ensures each doctor always has upcoming bookable sessions for the next 14 days
         {
             var allDoctors = await context.Doctors.ToListAsync();
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -725,38 +724,50 @@ public static class DbInitializer
 
             foreach (var doc in allDoctors)
             {
-                var spec = (doc.Specialization ?? string.Empty).ToLower();
-                bool isGenMed = spec.Contains("general") || spec.Contains("physician");
-
-                // General Medicine gets Morning, Evening, Night. All others get Morning, Evening.
-                var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>
+                var upcomingCount = await context.DoctorSessions.CountAsync(s => s.DoctorId == doc.Id && s.SessionDate >= today);
+                if (upcomingCount < 7)
                 {
-                    (SessionType.Morning, new TimeOnly(8, 30), 25),
-                    (SessionType.Evening, new TimeOnly(16, 30), 25)
-                };
+                    var spec = (doc.Specialization ?? string.Empty).ToLower();
+                    bool isGenMed = spec.Contains("general") || spec.Contains("physician");
 
-                if (isGenMed)
-                {
-                    sessionConfigs.Add((SessionType.Night, new TimeOnly(20, 0), 15));
-                }
-
-                for (int i = 0; i < 14; i++)
-                {
-                    var sessionDate = today.AddDays(i);
-
-                    foreach (var cfg in sessionConfigs)
+                    // General Medicine gets Morning, Evening, Night. All others get Morning, Evening.
+                    var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>
                     {
-                        sessionsToSeed.Add(new DoctorSession
+                        (SessionType.Morning, new TimeOnly(8, 30), 25),
+                        (SessionType.Evening, new TimeOnly(16, 30), 25)
+                    };
+
+                    if (isGenMed)
+                    {
+                        sessionConfigs.Add((SessionType.Night, new TimeOnly(20, 0), 15));
+                    }
+
+                    for (int i = 0; i < 14; i++)
+                    {
+                        var sessionDate = today.AddDays(i);
+
+                        foreach (var cfg in sessionConfigs)
                         {
-                            DoctorId = doc.Id,
-                            SessionDate = sessionDate,
-                            SessionTime = cfg.Time,
-                            SessionType = cfg.Type,
-                            MaxCapacity = cfg.Capacity,
-                            CurrentBookings = 0,
-                            IsActive = true,
-                            SessionStatus = SessionStatus.Scheduled
-                        });
+                            var exists = await context.DoctorSessions.AnyAsync(s =>
+                                s.DoctorId == doc.Id &&
+                                s.SessionDate == sessionDate &&
+                                s.SessionTime == cfg.Time);
+
+                            if (!exists)
+                            {
+                                sessionsToSeed.Add(new DoctorSession
+                                {
+                                    DoctorId = doc.Id,
+                                    SessionDate = sessionDate,
+                                    SessionTime = cfg.Time,
+                                    SessionType = cfg.Type,
+                                    MaxCapacity = cfg.Capacity,
+                                    CurrentBookings = 0,
+                                    IsActive = true,
+                                    SessionStatus = SessionStatus.Scheduled
+                                });
+                            }
+                        }
                     }
                 }
             }

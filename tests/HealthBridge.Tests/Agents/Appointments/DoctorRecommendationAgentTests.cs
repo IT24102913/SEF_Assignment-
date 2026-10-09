@@ -759,4 +759,44 @@ public class DoctorRecommendationAgentTests
         // Verify non-zero Stopwatch duration tracked
         Assert.All(result.StepLogs, log => Assert.True(log.DurationMs >= 0));
     }
+
+    [Fact]
+    public async Task DbInitializer_SeedsRollingUpcomingSessions_ForAllEightSpecialties()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: "DbInitTest_" + Guid.NewGuid())
+            .Options;
+        using var context = new ApplicationDbContext(options);
+
+        // Run full DbInitializer
+        await DbInitializer.SeedAsync(context);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Assert all 8 canonical specialties have verified consultants with upcoming bookable sessions
+        foreach (var specialty in CanonicalSpecialties.AllowedSpecialties)
+        {
+            var doctors = await context.Doctors
+                .Where(d => d.Specialization.ToLower() == specialty.ToLower() && d.IsAvailable && d.IsVerifiedConsultant)
+                .ToListAsync();
+
+            Assert.True(doctors.Count > 0, $"Expected at least 1 verified consultant for {specialty}");
+
+            var doctorIds = doctors.Select(d => d.Id).ToList();
+            var sessions = await context.DoctorSessions
+                .Where(s => doctorIds.Contains(s.DoctorId) && s.SessionDate >= today && s.CurrentBookings < s.MaxCapacity)
+                .ToListAsync();
+
+            Assert.True(sessions.Count > 0, $"Expected upcoming bookable sessions for {specialty}");
+        }
+
+        // Now run the agent against this freshly initialized context for a normal complaint
+        var agent = CreateAgent(context);
+        var result = await agent.RunAsync("persistent knee joint pain and swelling", patientId: 88);
+
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("Orthopaedics", result.Specialty);
+        Assert.NotEmpty(result.MatchedDoctors);
+        Assert.Equal("PENDING_APPROVAL", result.ApprovalStatus);
+    }
 }
