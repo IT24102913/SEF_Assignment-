@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using HealthBridge.Api.DTOs.Pharmacy;
@@ -8,7 +9,7 @@ namespace HealthBridge.Api.Agents;
 /// <summary>
 /// PrescriptionValidatorAgent — Hybrid 3-Stage Pharmacy Prescription Analyzer
 ///
-/// Uses Google Gemini 3.8 Flash for vision and reasoning.
+/// Uses Google Gemini Flash fallback cascade for vision and reasoning.
 ///
 /// ARCHITECTURE:
 ///   Stage 1 — Extraction: Image → Facts (JSON)
@@ -27,8 +28,14 @@ public class PrescriptionValidatorAgent
     private readonly ILogger<PrescriptionValidatorAgent> _logger;
     private readonly HttpClient _httpClient;
 
-    // Model used for all calls — single model, no fallback loop
-    private const string ModelName = "gemini-3.8-flash";
+    // Multimodal Vision AI Model Cascade — tries each model in order
+    private static readonly string[] ModelFallbackCascade = new[]
+    {
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest"
+    };
     private const string GeminiBaseUrl =
         "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -175,13 +182,8 @@ public class PrescriptionValidatorAgent
         };
 
         var result = await CallGeminiAsync(requestBody, "Stage 1", sw);
-        if (result == null)
-        {
-            _logger.LogWarning("[Stage 1] Initial Gemini call returned null. Retrying in 1000ms...");
-            await Task.Delay(1000);
-            result = await CallGeminiAsync(requestBody, "Stage 1 (Retry 1)", sw);
-        }
-
+        // Note: CallGeminiAsync already tries all fallback models internally.
+        // If it returns null, all models failed — no point retrying the same cascade.
         return result;
     }
 
@@ -776,7 +778,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
             // Metadata
             ProcessingStage = "stage3_complete",
             ProcessingTimeMs = elapsedMs,
-            AiModelUsed = ModelName,
+            AiModelUsed = ModelFallbackCascade[0],
 
             // Developer-facing
             Notes = $"AI SUGGESTION [{safety.Verdict}]: {safety.Reasoning}",
@@ -911,69 +913,91 @@ REQUESTED ITEM: ""{requestedTestName}""";
         Stopwatch sw)
     {
         var apiKey = _config["Gemini:ApiKey"];
-        var model = _config["Gemini:Model"] ?? ModelName;
-
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             _logger.LogError("[{Stage}] Gemini API key is missing.", stage);
             return null;
         }
 
-        var endpoint = $"{GeminiBaseUrl}/{model}:generateContent?key={apiKey}";
         var json = JsonSerializer.Serialize(requestBody);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        string responseBody = "";
-
-        try
+        foreach (var model in ModelFallbackCascade)
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var response = await _httpClient.PostAsync(endpoint, content, cts.Token);
-            responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+            var endpoint = $"{GeminiBaseUrl}/{model}:generateContent?key={apiKey}";
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            string responseBody = "";
 
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                _logger.LogError(
-                    "[{Stage}] Gemini API error ({Status}): {Body}",
-                    stage, response.StatusCode, responseBody);
-                return null;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                var response = await _httpClient.PostAsync(endpoint, content, cts.Token);
+                responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+
+                // Retryable failures — try next model
+                if (response.StatusCode == HttpStatusCode.ServiceUnavailable ||
+                    response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    _logger.LogWarning(
+                        "[{Stage}] Model {Model} returned {Status}, trying next model",
+                        stage, model, (int)response.StatusCode);
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "[{Stage}] Model {Model} returned {Status}: {Body}",
+                        stage, model, response.StatusCode,
+                        responseBody.Length > 200
+                            ? responseBody.Substring(0, 200) : responseBody);
+                    continue;
+                }
+
+                // Success — parse
+                var geminiResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
+                var textContent = geminiResponse
+                    .GetProperty("candidates")[0]
+                    .GetProperty("content")
+                    .GetProperty("parts")[0]
+                    .GetProperty("text")
+                    .GetString() ?? "";
+
+                var cleaned = CleanJsonText(textContent);
+                if (string.IsNullOrWhiteSpace(cleaned))
+                {
+                    _logger.LogWarning(
+                        "[{Stage}] Model {Model} returned empty text, trying next",
+                        stage, model);
+                    continue;
+                }
+
+                using var doc = JsonDocument.Parse(cleaned);
+                _logger.LogInformation(
+                    "[{Stage}] Model {Model} succeeded in {ElapsedMs}ms",
+                    stage, model, sw.ElapsedMilliseconds);
+                return doc.RootElement.Clone();
             }
-
-            var geminiResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
-            var textContent = geminiResponse
-                .GetProperty("candidates")[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString() ?? "";
-
-            var cleaned = CleanJsonText(textContent);
-
-            if (string.IsNullOrWhiteSpace(cleaned))
+            catch (JsonException jex)
             {
-                _logger.LogWarning("[{Stage}] Gemini returned empty response.", stage);
-                return null;
+                var preview = responseBody.Length > 500
+                    ? responseBody.Substring(0, 500) + "..." : responseBody;
+                _logger.LogError(jex,
+                    "[{Stage}] Model {Model} JSON parsing exception. Preview: {Preview}",
+                    stage, model, preview);
+                continue;
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[{Stage}] Model {Model} failed: {Message}, trying next",
+                    stage, model, ex.Message);
+                continue;
+            }
+        }
 
-            using var doc = JsonDocument.Parse(cleaned);
-            _logger.LogInformation(
-                "[{Stage}] Completed in {ElapsedMs}ms",
-                stage, sw.ElapsedMilliseconds);
-
-            return doc.RootElement.Clone();
-        }
-        catch (JsonException jex)
-        {
-            var preview = responseBody.Length > 500 ? responseBody.Substring(0, 500) + "..." : responseBody;
-            _logger.LogError(jex, "[{Stage}] JSON parsing exception calling Gemini. Response preview (first 500 chars): {Preview}", stage, preview);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            var preview = responseBody.Length > 500 ? responseBody.Substring(0, 500) + "..." : responseBody;
-            _logger.LogError(ex, "[{Stage}] Exception calling Gemini. Response preview (first 500 chars): {Preview}", stage, preview);
-            return null;
-        }
+        _logger.LogError(
+            "[{Stage}] All fallback models failed. Manual review required.", stage);
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1108,7 +1132,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
             Notes = notes,
             ProcessingStage = "fallback",
             ProcessingTimeMs = elapsedMs,
-            AiModelUsed = ModelName,
+            AiModelUsed = ModelFallbackCascade[0],
             AuditLog = $"Fallback at {DateTime.UtcNow:O} by PrescriptionValidatorAgent"
         };
     }
