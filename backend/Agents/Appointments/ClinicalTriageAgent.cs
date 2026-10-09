@@ -65,6 +65,7 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
         ]),
         ("Neurology", [
             (new Regex(@"\b(headache|migraine|head\s*pain|throbbing\s*head)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
+            (new Regex(@"\b(severe\s*headache|headache\s*(with|and)\s*nausea|throbbing\s*headache)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             (new Regex(@"\b(dizziness|vertigo|balance|lightheaded|spinning)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.8),
             (new Regex(@"\b(numb(ness)?|tingling|pins\s*and\s*needles|burning\s*sensation)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.8),
             (new Regex(@"\b(tremor|shaking|trembling|involuntary\s*movement)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
@@ -77,6 +78,7 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
         ("Orthopaedics", [
             (new Regex(@"\b(bone|joint|fracture|break|broken|sprain|strain|dislocation)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.2),
             (new Regex(@"\b(knee|hip|shoulder|elbow|wrist|ankle|foot|toe|finger)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.5),
+            (new Regex(@"\b(knee\s*pain|joint\s*pain|pain\s*(?:in\s*)?(?:knee|hip|shoulder|back|leg)|pain\s*when\s*walking)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             (new Regex(@"\b(back\s*pain|lower\s*back|spine|spinal|disc|herniat|sciatica)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(arthritis|gout|rheumat|inflamed\s*joint|stiff\s*(joint|knee|hip))\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(muscle\s*pain|myalgia|ligament|tendon|tendinitis|rotator\s*cuff)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.8),
@@ -85,16 +87,17 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
         ]),
         ("Paediatrics", [
             (new Regex(@"\b(child|infant|baby|toddler|newborn|kid|boy|girl)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
-            (new Regex(@"\b(paediatric|pediatric|my\s*(son|daughter|child))\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
+            (new Regex(@"\b(paediatric|pediatric|my\s*(?:son|daughter|child|[0-9]+\s*years?\s*old))\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
+            (new Regex(@"\b([0-9]+\s*years?\s*old)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             (new Regex(@"\b(years?\s*old)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.0),
-            (new Regex(@"\b([0-9]+\s*month|[0-9]+\s*year)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 0.8),
+            (new Regex(@"\b([0-9]+\s*month|[0-9]+\s*year)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.2),
             (new Regex(@"\b(vaccination|immunization|growth|development|feeding)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(teething|nappy|colic|jaundice\s*(in\s*baby)|neonatal)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
         ]),
         ("Gynaecology", [
             (new Regex(@"\b(pregnancy|pregnant|trimester|antenatal|postnatal|labour|delivery)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             // Explicit menstrual context required so generic "period of 3 days" does not trigger Gynaecology
-            (new Regex(@"\b((?:menstrual|monthly|irregular|missed|late|heavy|painful)\s+period|period\s+(?:cramps?|blood|bleeding|pain|delay|cycle)|menstrual|menstruation|pms)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
+            (new Regex(@"\b((?:menstrual|monthly|irregular|missed|late|heavy|painful)\s+periods?|periods?\s+(?:cramps?|blood|bleeding|pain|delay|cycle|issues?)|menstrual|menstruation|pms)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             (new Regex(@"\b(pcos|polycystic|endometriosis|fibroids?|ovarian\s*cyst)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             (new Regex(@"\b(vaginal|uterus|uterine|cervix|cervical|ovary|ovarian)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(gynaecolog|gynecolog|obstetr|fertility|contraception|iud|pap\s*smear)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
@@ -284,14 +287,23 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
         // Clean URL — API key passed via x-goog-api-key header only (never in URL or query params)
         var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
         var timeoutSeconds = _config.GetValue<int>("Gemini:TimeoutSeconds", 8);
+        var totalBudgetSeconds = _config.GetValue<int>("Gemini:TotalBudgetSeconds", 12);
+        var maxRetries = _config.GetValue<int>("Gemini:MaxRetries", 2);
 
-        const int maxRetries = 2; // Up to 3 attempts total
+        var overallDeadline = DateTime.UtcNow.AddSeconds(totalBudgetSeconds);
         int retriesAttempted = 0;
         string? lastFailureReason = null;
         string? validationFeedback = null;
 
         for (int attempt = 0; attempt <= maxRetries; attempt++)
         {
+            var remaining = overallDeadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                lastFailureReason = "TIMEOUT";
+                break;
+            }
+
             if (attempt > 0)
             {
                 retriesAttempted++;
@@ -299,7 +311,8 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
 
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
+                var attemptTimeoutSeconds = Math.Min(timeoutSeconds, Math.Max(1, (int)remaining.TotalSeconds));
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(attemptTimeoutSeconds));
 
                 var allowedListStr = string.Join(", ", AllowedSpecialties.Select(s => $"\"{s}\""));
                 var promptBuilder = new StringBuilder();
@@ -379,8 +392,12 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
 
                 if (response.StatusCode == (System.Net.HttpStatusCode)429)
                 {
-                    lastFailureReason = "HTTP_429";
-                    continue; // Retry
+                    // HTTP 429 Rate Limit — do not retry, go straight to fallback
+                    return new GeminiCallResult
+                    {
+                        FailureReason = "HTTP_429",
+                        Retries = retriesAttempted
+                    };
                 }
 
                 if ((int)response.StatusCode >= 500)

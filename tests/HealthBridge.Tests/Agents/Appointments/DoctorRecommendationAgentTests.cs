@@ -646,7 +646,7 @@ public class DoctorRecommendationAgentTests
         var result = await agent.RunAsync("persistent dry cough and fever", patientId: 22);
 
         // Assert
-        Assert.Equal("NO_DOCTORS_AVAILABLE", result.Status);
+        Assert.Equal("SAFE_FAILURE", result.Status);
         Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
 
         // Verify TOOL_DENIED recorded in StepLogs
@@ -843,5 +843,103 @@ public class DoctorRecommendationAgentTests
         Assert.False(triageToolCall.IsAllowed);
         Assert.Equal("TOOL_DENIED", triageToolCall.Status);
         Assert.Contains("not authorized", triageToolCall.Error);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenToolCallDeniedByRegistry_StepLogRecordsToolDenied_AndCoordinatorTransitionsToSafeFailure()
+    {
+        using var context = CreateInMemoryDbContext();
+        var registry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        // Explicitly revoke tools for DoctorSlotAllocationAgent to simulate denied invocation
+        registry.RegisterAgent("DoctorSlotAllocationAgent", Array.Empty<string>());
+
+        var agent = CreateAgent(context, toolRegistry: registry);
+
+        var result = await agent.RunAsync("persistent knee swelling and joint stiffness", patientId: 90);
+
+        Assert.Equal("SAFE_FAILURE", result.Status);
+        Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
+        Assert.Contains("denied", result.Reason, StringComparison.OrdinalIgnoreCase);
+
+        // Assert step log records TOOL_DENIED
+        var slotStep = result.StepLogs.FirstOrDefault(l => l.Action == "DoctorSlotAllocation");
+        Assert.NotNull(slotStep);
+        Assert.Equal("TOOL_DENIED", slotStep.Status);
+        Assert.Equal(AppointmentToolNames.QueryAvailableDoctorsAndSlots, slotStep.ToolCalled);
+    }
+
+    [Fact]
+    public async Task RunAsync_PersistsRetriesAndTriageFields_CanBeReadBackFromDatabase()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("dry skin rash and itchy hives", patientId: 91);
+
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.NotEqual(Guid.Empty, result.WorkflowId);
+
+        // Read directly back from the DB context
+        var savedWf = await context.RecommendationWorkflows.FindAsync(result.WorkflowId);
+        Assert.NotNull(savedWf);
+
+        // 1. Assert Retries is stored on the RecommendationWorkflow entity row
+        Assert.Equal(result.Retries, savedWf.Retries);
+
+        // 2. Assert StatusPath contains triage source and status
+        Assert.Contains("TriageAnalysis:FALLBACK_KEYWORD_RECOMMENDATION_READY", savedWf.StatusPath);
+
+        // 3. Assert StepResultsJson contains serialized triage fields (TriageSource, FallbackReason)
+        Assert.Contains("\"TriageSource\":\"FALLBACK_KEYWORD\"", savedWf.StepResultsJson);
+        Assert.Contains("\"FallbackReason\":\"NO_API_KEY\"", savedWf.StepResultsJson);
+
+        // 4. Deserialize StepResultsJson and assert typed fields
+        var stepLogs = System.Text.Json.JsonSerializer.Deserialize<List<AgentStepLogDto>>(
+            savedWf.StepResultsJson,
+            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        Assert.NotNull(stepLogs);
+
+        var triageLog = stepLogs.FirstOrDefault(l => l.Action == "ClinicalTriageAnalysis");
+        Assert.NotNull(triageLog);
+        Assert.Equal("FALLBACK_KEYWORD", triageLog.TriageSource);
+        Assert.Equal("NO_API_KEY", triageLog.FallbackReason);
+    }
+
+    [Fact]
+    public async Task RunAsync_DemoMatrix_VerifiesPhrasesInBothGeminiAndFallbackModes()
+    {
+        var testPhrases = new[]
+        {
+            "severe headache and nausea for two days",
+            "persistent knee pain when walking",
+            "itchy red rash on my arms",
+            "my 5 year old has fever and cough",
+            "irregular periods for three months",
+            "ear pain and blocked nose",
+            "palpitations and high blood pressure",
+            "chest pain and breathlessness", // Escalates via safety
+            "fever for a period of 3 days",
+            "stomach pain and vomiting"
+        };
+
+        using var context = CreateInMemoryDbContext();
+        var agentFallback = CreateAgent(context); // Fallback mode (no API key)
+
+        foreach (var phrase in testPhrases)
+        {
+            var result = await agentFallback.RunAsync(phrase, patientId: 92);
+            if (phrase.Contains("breathlessness"))
+            {
+                // Safety emergency
+                Assert.Equal("SAFETY_ESCALATION", result.Status);
+            }
+            else
+            {
+                Assert.True(result.Status == "RECOMMENDATION_READY",
+                    $"Phrase '{phrase}' returned Status '{result.Status}' with Reason '{result.Reason}'.");
+                Assert.NotNull(result.Specialty);
+                Assert.True(result.Confidence > 0.60);
+            }
+        }
     }
 }

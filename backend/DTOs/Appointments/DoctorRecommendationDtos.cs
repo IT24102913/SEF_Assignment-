@@ -52,6 +52,9 @@ public class DoctorRecommendationResponseDto
     /// <summary>Human-in-the-Loop status: PENDING_APPROVAL | APPROVED | REJECTED | NOT_REQUIRED.</summary>
     public string ApprovalStatus { get; set; } = "NOT_REQUIRED";
 
+    /// <summary>Total retry attempts executed across agents (e.g. Gemini LLM retries).</summary>
+    public int Retries { get; set; }
+
     /// <summary>Total workflow execution latency in milliseconds.</summary>
     public long TotalDurationMs { get; set; }
 }

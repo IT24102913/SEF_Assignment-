@@ -228,7 +228,7 @@ public class ClinicalTriageAgentTests
     // ─── 4. HTTP 429 Rate Limit ─────────────────────────────────────────────────
 
     [Fact]
-    public async Task TriageSymptomsAsync_WhenGeminiReturns429_RetriesBoundedAndFallsBackWithHttp429()
+    public async Task TriageSymptomsAsync_WhenGeminiReturns429_FastFailsWithoutRetryAndFallsBackWithHttp429()
     {
         int callCount = 0;
         var (agent, _) = CreateAgent(handlerFunc: _ =>
@@ -239,12 +239,40 @@ public class ClinicalTriageAgentTests
 
         var result = await agent.TriageSymptomsAsync("Persistent joint pain and swollen knee joints.");
 
-        Assert.Equal(3, callCount);
-        Assert.Equal(2, result.Retries);
+        // Fast-fail: HTTP 429 does not burn retries; goes straight to fallback
+        Assert.Equal(1, callCount);
+        Assert.Equal(0, result.Retries);
         Assert.True(result.UsedFallbackEngine);
         Assert.Equal("FALLBACK_KEYWORD", result.TriageSource);
         Assert.Equal("HTTP_429", result.FallbackReason);
         Assert.Equal("Orthopaedics", result.Specialty);
+    }
+
+    [Fact]
+    public async Task TriageSymptomsAsync_WhenTotalBudgetExpires_HaltsRetriesAndFallsBackWithTimeout()
+    {
+        int callCount = 0;
+        var (agent, _) = CreateAgent(
+            configValues: new Dictionary<string, string?>
+            {
+                ["Gemini:TimeoutSeconds"] = "2",
+                ["Gemini:TotalBudgetSeconds"] = "1", // Budget shorter than retry duration
+                ["Gemini:MaxRetries"] = "5"
+            },
+            handlerFunc: async _ =>
+            {
+                callCount++;
+                await Task.Delay(1500); // Exceeds 1s budget
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+            });
+
+        var result = await agent.TriageSymptomsAsync("Persistent joint pain and swollen knee joints.");
+
+        // Budget expired after 1st attempt; loop breaks without running all 5 retries
+        Assert.True(callCount <= 2);
+        Assert.True(result.UsedFallbackEngine);
+        Assert.Equal("FALLBACK_KEYWORD", result.TriageSource);
+        Assert.Equal("TIMEOUT", result.FallbackReason);
     }
 
     // ─── 5. HTTP 500 Server Error ───────────────────────────────────────────────
@@ -412,7 +440,7 @@ public class ClinicalTriageAgentTests
         });
 
         // General Medicine (fever: 2.0) + Neurology (headache: 2.0) -> tied scores (margin = 0.0 < 0.8)
-        var result = await agent.TriageSymptomsAsync("Suffering from severe headache and high fever.");
+        var result = await agent.TriageSymptomsAsync("Mild headache and persistent fever.");
 
         Assert.True(result.UsedFallbackEngine);
         Assert.Equal("NEED_MORE_CONTEXT", result.Status);
