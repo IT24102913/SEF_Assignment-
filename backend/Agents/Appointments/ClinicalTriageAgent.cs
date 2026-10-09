@@ -35,7 +35,10 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
     private readonly HttpClient _httpClient;
 
     public string AgentName => "ClinicalTriageAgent";
-    public string Role => "Clinical specialty routing and confidence estimation using medical LLM with rule-based fallback.";
+    public string Responsibility => "Clinical specialty routing and confidence estimation using medical LLM with rule-based fallback.";
+    public string InputContract => "string symptoms (pre-screened safe symptom text)";
+    public string OutputContract => "Task<TriageAnalysisResult> (Status, Specialty, Confidence, Reason, FollowUpQuestions, UsedFallbackEngine)";
+    public IReadOnlyList<string> AllowedTools => Array.Empty<string>(); // Least privilege: pure NLP / weighted routing logic
 
     private static readonly string[] AllowedSpecialties = CanonicalSpecialties.AllowedSpecialties;
 

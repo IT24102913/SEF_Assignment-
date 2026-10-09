@@ -16,7 +16,10 @@ public interface IDoctorSlotAllocationAgent : IWorkflowAgent
 public class DoctorSlotAllocationAgent : IDoctorSlotAllocationAgent
 {
     public string AgentName => "DoctorSlotAllocationAgent";
-    public string Role => "Query active consultant schedules and rank available channeling slots via allow-listed tool.";
+    public string Responsibility => "Queries verified consultants and open clinic slots via allow-listed tool with sanitized inputs.";
+    public string InputContract => "(string specialty, string? preferredBranch, int maxResults)";
+    public string OutputContract => "Task<ToolResult<List<MatchedDoctorDto>>> (Success, IsAllowed, Status, Error, Data)";
+    public IReadOnlyList<string> AllowedTools => new[] { "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots" };
 
     private readonly IDoctorSlotAllocationTool _tool;
     private readonly IAgentToolRegistry _toolRegistry;

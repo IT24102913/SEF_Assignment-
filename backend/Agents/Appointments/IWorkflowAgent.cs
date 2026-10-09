@@ -1,13 +1,17 @@
 namespace HealthBridge.Api.Agents.Appointments;
 
 /// <summary>
-/// Common contract implemented by all specialized agents in the Doctor Recommendation multi-agent subsystem.
-/// Identifies agent name, role, and responsibility.
+/// Formal contract implemented by all specialized agents in the Doctor Recommendation multi-agent pipeline.
+/// Defines identity, clinical responsibility, input/output contracts, and allow-listed tools.
+/// Complies with SE3090 Section 9.1: least privilege and role-specific contracts.
 /// </summary>
 public interface IWorkflowAgent
 {
     string AgentName { get; }
-    string Role { get; }
+    string Responsibility { get; }
+    string InputContract { get; }
+    string OutputContract { get; }
+    IReadOnlyList<string> AllowedTools { get; }
 }
 
 /// <summary>
@@ -27,7 +31,9 @@ public class PlanStep
     public string StepName { get; set; } = string.Empty;
     public string AssignedAgent { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? ContractSummary { get; set; }
     public string Status { get; set; } = "PENDING"; // PENDING | RUNNING | COMPLETED | BLOCKED | SKIPPED | FAILED
     public long DurationMs { get; set; }
     public string? OutputSummary { get; set; }
 }
+

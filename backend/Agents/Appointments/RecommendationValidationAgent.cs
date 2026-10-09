@@ -28,7 +28,10 @@ public interface IRecommendationValidationAgent : IWorkflowAgent
 public class RecommendationValidationAgent : IRecommendationValidationAgent
 {
     public string AgentName => "RecommendationValidationAgent";
-    public string Role => "Deterministic gatekeeper validating clinical specialty alignment, doctor eligibility, and slot integrity.";
+    public string Responsibility => "Deterministic validation of canonical specialty, confidence thresholds, and verified bookable consultant status.";
+    public string InputContract => "(string? specialty, double confidence, List<MatchedDoctorDto> matchedDoctors)";
+    public string OutputContract => "RecommendationValidationResult (IsValid, Status, Reason)";
+    public IReadOnlyList<string> AllowedTools => Array.Empty<string>(); // Least privilege: pure deterministic validation logic
 
     public RecommendationValidationResult Validate(
         string? specialty,

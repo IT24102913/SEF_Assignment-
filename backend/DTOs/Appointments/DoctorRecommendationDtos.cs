@@ -86,6 +86,7 @@ public class AgentStepLogDto
     public string? ToolCalled { get; set; }
     public string? RedFlagCode { get; set; }
     public string? MatchedCategory { get; set; }
+    public string? ContractSummary { get; set; }
     public long DurationMs { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

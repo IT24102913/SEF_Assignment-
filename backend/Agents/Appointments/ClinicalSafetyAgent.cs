@@ -44,7 +44,10 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
     private readonly ILogger<ClinicalSafetyAgent> _logger;
 
     public string AgentName => "ClinicalSafetyAgent";
-    public string Role => "Deterministic emergency red-flag audit and input validity gating before clinical triage.";
+    public string Responsibility => "Deterministic emergency red-flag audit and input validity gating before clinical triage.";
+    public string InputContract => "string symptoms (raw patient symptom text)";
+    public string OutputContract => "SafetyEvaluationResult (IsSafeToTriage, Status, RedFlagCode, Reason, SafetyMessage, FollowUpQuestions)";
+    public IReadOnlyList<string> AllowedTools => Array.Empty<string>(); // Least privilege: pure deterministic clinical safety logic
 
     private static readonly HashSet<string> GreetingOnlyWords =
     [

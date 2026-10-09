@@ -20,39 +20,62 @@ public class ToolResult<T>
 /// </summary>
 public interface IAgentToolRegistry
 {
-    void RegisterTool(string toolName, string allowedAgentName);
+    void RegisterAgent(string agentName, IEnumerable<string> allowedTools);
+    bool IsAgentRegistered(string agentName);
+    IReadOnlyList<string> GetAllowedTools(string agentName);
     bool IsToolAllowed(string toolName, string callingAgentName);
     Task<ToolResult<T>> ExecuteToolAsync<T>(string toolName, string callingAgentName, Func<Task<T>> toolCall);
 }
 
 public class AgentToolRegistry : IAgentToolRegistry
 {
-    private readonly Dictionary<string, HashSet<string>> _toolPermissions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<string>> _agentAllowedTools = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<AgentToolRegistry> _logger;
 
     public AgentToolRegistry(ILogger<AgentToolRegistry> logger)
     {
         _logger = logger;
 
-        // Default allow-list: DoctorSlotAllocationAgent is the ONLY agent permitted to invoke DoctorSlotAllocationTool
-        RegisterTool("DoctorSlotAllocationTool", "DoctorSlotAllocationAgent");
+        // Explicit least-privilege tool allow-list registrations:
+        // Safety: ZERO tools permitted (pure clinical safety logic)
+        RegisterAgent("ClinicalSafetyAgent", Array.Empty<string>());
+
+        // Triage: ZERO tools permitted (pure NLP & specialty routing)
+        RegisterAgent("ClinicalTriageAgent", Array.Empty<string>());
+
+        // Slot allocation: ONLY DoctorSlotAllocationTool queries permitted
+        RegisterAgent("DoctorSlotAllocationAgent", new[]
+        {
+            "DoctorSlotAllocationTool",
+            "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots"
+        });
+
+        // Validation: ZERO tools permitted (pure deterministic gatekeeping)
+        RegisterAgent("RecommendationValidationAgent", Array.Empty<string>());
+
+        // Coordinator: ZERO tools directly permitted (delegates via specialized agents)
+        RegisterAgent("DoctorRecommendationAgent", Array.Empty<string>());
     }
 
-    public void RegisterTool(string toolName, string allowedAgentName)
+    public void RegisterAgent(string agentName, IEnumerable<string> allowedTools)
     {
-        if (!_toolPermissions.TryGetValue(toolName, out var allowedSet))
-        {
-            allowedSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _toolPermissions[toolName] = allowedSet;
-        }
-        allowedSet.Add(allowedAgentName);
+        _agentAllowedTools[agentName] = new HashSet<string>(allowedTools, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public bool IsAgentRegistered(string agentName) => _agentAllowedTools.ContainsKey(agentName);
+
+    public IReadOnlyList<string> GetAllowedTools(string agentName)
+    {
+        return _agentAllowedTools.TryGetValue(agentName, out var tools)
+            ? tools.ToList()
+            : Array.Empty<string>();
     }
 
     public bool IsToolAllowed(string toolName, string callingAgentName)
     {
-        if (_toolPermissions.TryGetValue(toolName, out var allowedAgents))
+        if (_agentAllowedTools.TryGetValue(callingAgentName, out var allowedTools))
         {
-            return allowedAgents.Contains(callingAgentName);
+            return allowedTools.Contains(toolName);
         }
         return false;
     }

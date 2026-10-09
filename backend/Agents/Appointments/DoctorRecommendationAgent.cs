@@ -27,7 +27,10 @@ namespace HealthBridge.Api.Agents.Appointments;
 public class DoctorRecommendationAgent : IWorkflowAgent
 {
     public string AgentName => "DoctorRecommendationAgent";
-    public string Role => "Coordinator agent orchestrating multi-agent clinical workflow, plan generation, and human-in-the-loop state transitions.";
+    public string Responsibility => "Coordinator agent orchestrating multi-agent clinical workflow, plan generation, and human-in-the-loop state transitions.";
+    public string InputContract => "(string rawSymptoms, int? patientId)";
+    public string OutputContract => "Task<DoctorRecommendationResponseDto> (WorkflowId, Status, Specialty, MatchedDoctors, ExecutionPlan, StepLogs, ApprovalStatus)";
+    public IReadOnlyList<string> AllowedTools => Array.Empty<string>(); // Delegates tool calls to specialized agents
 
     private readonly ApplicationDbContext _context;
     private readonly IClinicalSafetyAgent _safetyAgent;
@@ -70,10 +73,38 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             Objective = "Triage patient symptoms, recommend clinical specialty, and allocate top verified consultants via allow-listed tool.",
             Steps = new List<PlanStep>
             {
-                new() { StepNumber = 1, StepName = "ClinicalSafetyAudit", AssignedAgent = _safetyAgent.AgentName, Description = "Verify input gating, rule out emergency red-flags (1990/119/1926 escalation)" },
-                new() { StepNumber = 2, StepName = "ClinicalTriageAnalysis", AssignedAgent = _triageAgent.AgentName, Description = "Map patient symptoms to canonical clinical specialty (Gemini LLM / Weighted Engine)" },
-                new() { StepNumber = 3, StepName = "DoctorSlotAllocation", AssignedAgent = _slotAllocationAgent.AgentName, Description = "Execute allow-listed DoctorSlotAllocationTool to query verified consultants and open bookable slots" },
-                new() { StepNumber = 4, StepName = "RecommendationValidation", AssignedAgent = _validationAgent.AgentName, Description = "Perform deterministic schema, specialty alignment, and bookable slot validation before proposal" }
+                new()
+                {
+                    StepNumber = 1,
+                    StepName = "ClinicalSafetyAudit",
+                    AssignedAgent = _safetyAgent.AgentName,
+                    Description = "Verify input gating, rule out emergency red-flags (1990/119/1926 escalation)",
+                    ContractSummary = $"Responsibility: {_safetyAgent.Responsibility} | AllowedTools: [{string.Join(", ", _safetyAgent.AllowedTools)}]"
+                },
+                new()
+                {
+                    StepNumber = 2,
+                    StepName = "ClinicalTriageAnalysis",
+                    AssignedAgent = _triageAgent.AgentName,
+                    Description = "Map patient symptoms to canonical clinical specialty (Gemini LLM / Weighted Engine)",
+                    ContractSummary = $"Responsibility: {_triageAgent.Responsibility} | AllowedTools: [{string.Join(", ", _triageAgent.AllowedTools)}]"
+                },
+                new()
+                {
+                    StepNumber = 3,
+                    StepName = "DoctorSlotAllocation",
+                    AssignedAgent = _slotAllocationAgent.AgentName,
+                    Description = "Execute allow-listed DoctorSlotAllocationTool to query verified consultants and open bookable slots",
+                    ContractSummary = $"Responsibility: {_slotAllocationAgent.Responsibility} | AllowedTools: [{string.Join(", ", _slotAllocationAgent.AllowedTools)}]"
+                },
+                new()
+                {
+                    StepNumber = 4,
+                    StepName = "RecommendationValidation",
+                    AssignedAgent = _validationAgent.AgentName,
+                    Description = "Perform deterministic schema, specialty alignment, and bookable slot validation before proposal",
+                    ContractSummary = $"Responsibility: {_validationAgent.Responsibility} | AllowedTools: [{string.Join(", ", _validationAgent.AllowedTools)}]"
+                }
             }
         };
 

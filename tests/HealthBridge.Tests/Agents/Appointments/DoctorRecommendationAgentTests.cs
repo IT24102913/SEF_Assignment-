@@ -715,7 +715,8 @@ public class DoctorRecommendationAgentTests
         using var context = CreateInMemoryDbContext();
         var mockValidationAgent = new Mock<IRecommendationValidationAgent>();
         mockValidationAgent.Setup(v => v.AgentName).Returns("RecommendationValidationAgent");
-        mockValidationAgent.Setup(v => v.Role).Returns("Mock Validation Agent");
+        mockValidationAgent.Setup(v => v.Responsibility).Returns("Mock Validation Agent");
+        mockValidationAgent.Setup(v => v.AllowedTools).Returns(Array.Empty<string>());
         mockValidationAgent.Setup(v => v.Validate(It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<List<MatchedDoctorDto>>()))
             .Returns(new RecommendationValidationResult
             {
@@ -798,5 +799,49 @@ public class DoctorRecommendationAgentTests
         Assert.Equal("Orthopaedics", result.Specialty);
         Assert.NotEmpty(result.MatchedDoctors);
         Assert.Equal("PENDING_APPROVAL", result.ApprovalStatus);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenCompleted_EveryStepNamesRegisteredAgent_AndRegistryDeniesToolsToSafetyAndTriage()
+    {
+        using var context = CreateInMemoryDbContext();
+        var registry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var agent = CreateAgent(context, toolRegistry: registry);
+
+        var result = await agent.RunAsync("persistent knee swelling and joint stiffness", patientId: 89);
+
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+
+        // 1. Assert every step in the completed workflow names an agent that is registered in IAgentToolRegistry
+        foreach (var log in result.StepLogs)
+        {
+            Assert.True(registry.IsAgentRegistered(log.AgentName),
+                $"Agent '{log.AgentName}' executing step '{log.Action}' must be registered in IAgentToolRegistry.");
+        }
+
+        // 2. Assert that ClinicalSafetyAgent and ClinicalTriageAgent have EMPTY allowed tool lists
+        Assert.Empty(registry.GetAllowedTools("ClinicalSafetyAgent"));
+        Assert.Empty(registry.GetAllowedTools("ClinicalTriageAgent"));
+
+        // 3. Assert that the registry strictly denies tool execution from Safety or Triage
+        var safetyToolCall = await registry.ExecuteToolAsync<string>(
+            "DoctorSlotAllocationTool",
+            "ClinicalSafetyAgent",
+            () => Task.FromResult("secret_data"));
+
+        Assert.False(safetyToolCall.Success);
+        Assert.False(safetyToolCall.IsAllowed);
+        Assert.Equal("TOOL_DENIED", safetyToolCall.Status);
+        Assert.Contains("not authorized", safetyToolCall.Error);
+
+        var triageToolCall = await registry.ExecuteToolAsync<string>(
+            "DoctorSlotAllocationTool",
+            "ClinicalTriageAgent",
+            () => Task.FromResult("secret_data"));
+
+        Assert.False(triageToolCall.Success);
+        Assert.False(triageToolCall.IsAllowed);
+        Assert.Equal("TOOL_DENIED", triageToolCall.Status);
+        Assert.Contains("not authorized", triageToolCall.Error);
     }
 }
