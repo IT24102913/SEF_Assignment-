@@ -2010,15 +2010,12 @@ class ProductCard extends StatelessWidget {
                   opacity: isOutOfStock ? 0.6 : 1.0,
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                    child: medicine.imageUrl != null && medicine.imageUrl!.startsWith('http')
-                        ? Image.network(
-                            medicine.imageUrl!,
-                            height: 120,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _buildImagePlaceholder(),
-                          )
-                        : _buildImagePlaceholder(),
+                    child: _buildSmartImage(
+                      medicine.galleryImages.isNotEmpty
+                          ? medicine.galleryImages.first
+                          : '',
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 // Out-of-stock overlay badge
@@ -2077,23 +2074,21 @@ class ProductCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Brand / Category Tag
                     Text(
                       medicine.categoryName.toUpperCase(),
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      medicine.name,
+                      style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                     ),
                     const SizedBox(height: 2),
+
+                    // Title
                     Text(
-                      medicine.description,
+                      medicine.name,
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), height: 1.2),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                     ),
                     const Spacer(),
 
@@ -2191,6 +2186,41 @@ class ProductCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSmartImage(String rawUrl, {BoxFit fit = BoxFit.cover, double height = 120, double width = double.infinity}) {
+    final cleanUrl = MedicineModel.resolveImageUrl(rawUrl).trim();
+    if (cleanUrl.isEmpty) {
+      return _buildImagePlaceholder();
+    }
+    if (cleanUrl.startsWith('data:image/') && cleanUrl.contains(';base64,')) {
+      try {
+        final base64Str = cleanUrl.split(';base64,').last;
+        final bytes = base64Decode(base64Str);
+        return Image.memory(
+          bytes,
+          height: height,
+          width: width,
+          fit: fit,
+          errorBuilder: (c, e, s) => _buildImagePlaceholder(),
+        );
+      } catch (_) {
+        return _buildImagePlaceholder();
+      }
+    }
+    return Image.network(
+      cleanUrl,
+      height: height,
+      width: width,
+      fit: fit,
+      errorBuilder: (c, e, s) => Image.network(
+        'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop',
+        height: height,
+        width: width,
+        fit: fit,
+        errorBuilder: (c2, e2, s2) => _buildImagePlaceholder(),
       ),
     );
   }

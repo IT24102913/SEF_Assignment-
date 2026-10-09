@@ -87,8 +87,10 @@ class MedicineModel {
   List<String> get galleryImages {
     final List<String> imgs = [];
 
-    // 1. Main imageUrl always comes FIRST (resolved)
-    if (imageUrl != null && imageUrl!.trim().isNotEmpty) {
+    // 1. Main imageUrl comes FIRST (only if valid — skip dead /uploads/ paths that don't exist on the server)
+    if (imageUrl != null &&
+        imageUrl!.trim().isNotEmpty &&
+        !imageUrl!.startsWith('/uploads/')) {
       final resolved = resolveImageUrl(imageUrl);
       if (resolved.isNotEmpty) imgs.add(resolved);
     }
