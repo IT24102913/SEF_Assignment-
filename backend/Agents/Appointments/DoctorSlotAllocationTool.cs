@@ -46,34 +46,25 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var normSpecialty = specialty.Trim().ToLowerInvariant();
 
-        // 1. Fetch matching doctors in this specialty
+        // 1. Fetch matching doctors in this exact specialty:
+        // Filter strictly by: IsAvailable == true, IsVerifiedConsultant == true, exact case-insensitive specialization match
         var query = _context.Doctors.AsNoTracking()
-            .Where(d => d.Specialization.ToLower() == normSpecialty || d.Specialization.ToLower().Contains(normSpecialty));
+            .Where(d => d.IsAvailable && d.IsVerifiedConsultant && d.Specialization.ToLower() == normSpecialty);
 
         if (!string.IsNullOrWhiteSpace(preferredBranch))
         {
             var branchNorm = preferredBranch.Trim().ToLowerInvariant();
-            query = query.Where(d => d.HospitalBranch != null && d.HospitalBranch.ToLower().Contains(branchNorm));
+            query = query.Where(d => d.HospitalBranch != null && d.HospitalBranch.ToLower() == branchNorm);
         }
 
-        var doctors = await query
+        var candidateDoctors = await query
             .OrderByDescending(d => d.Rating)
             .ThenByDescending(d => d.ExperienceYears)
-            .Take(10)
             .ToListAsync();
-
-        if (doctors.Count == 0)
-        {
-            // Fallback: match any doctor with relaxed specialization
-            doctors = await _context.Doctors.AsNoTracking()
-                .OrderByDescending(d => d.Rating)
-                .Take(maxResults)
-                .ToListAsync();
-        }
 
         var matchedResults = new List<MatchedDoctorDto>();
 
-        foreach (var doc in doctors)
+        foreach (var doc in candidateDoctors)
         {
             // Query nearest upcoming session with available capacity
             var session = await _context.DoctorSessions.AsNoTracking()
@@ -86,14 +77,15 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
                 .ThenBy(s => s.SessionTime)
                 .FirstOrDefaultAsync();
 
-            var availableSlots = session != null ? (session.MaxCapacity - session.CurrentBookings) : 0;
-            var sessionTimeFormatted = session != null
-                ? DateTime.Today.Add(session.SessionTime.ToTimeSpan()).ToString("hh:mm tt")
-                : null;
+            // Exclude doctors with no bookable session (only bookable consultants are returned)
+            if (session == null)
+            {
+                continue;
+            }
 
-            var matchReason = session != null
-                ? $"Top-rated consultant ({doc.Rating:0.0}★, {doc.ExperienceYears} yrs exp). Earliest slot on {session.SessionDate:yyyy-MM-dd} at {sessionTimeFormatted} ({availableSlots} slots left)."
-                : $"Consultant in {doc.Specialization} ({doc.Rating:0.0}★, {doc.ExperienceYears} yrs exp) at {doc.HospitalBranch ?? "Health Bridge Hospital"}.";
+            var availableSlots = session.MaxCapacity - session.CurrentBookings;
+            var sessionTimeFormatted = DateTime.Today.Add(session.SessionTime.ToTimeSpan()).ToString("hh:mm tt");
+            var matchReason = $"Verified consultant ({doc.Rating:0.0}★, {doc.ExperienceYears} yrs exp). Earliest bookable session on {session.SessionDate:yyyy-MM-dd} at {sessionTimeFormatted} ({availableSlots} slots left).";
 
             matchedResults.Add(new MatchedDoctorDto
             {
@@ -107,8 +99,8 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
                 ExperienceYears = doc.ExperienceYears,
                 Rating = doc.Rating,
                 MatchReason = matchReason,
-                NextSessionId = session?.Id,
-                NextSessionDate = session?.SessionDate.ToString("yyyy-MM-dd"),
+                NextSessionId = session.Id,
+                NextSessionDate = session.SessionDate.ToString("yyyy-MM-dd"),
                 NextSessionTime = sessionTimeFormatted,
                 AvailableSlots = availableSlots
             });

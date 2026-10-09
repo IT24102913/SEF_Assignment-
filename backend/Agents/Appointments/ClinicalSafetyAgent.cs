@@ -11,9 +11,8 @@ namespace HealthBridge.Api.Agents.Appointments;
 ///   - Executes FIRST before any length or vagueness checks to prioritize patient safety
 ///   - Immediately escalates emergency complaints to Sri Lankan national helplines (1990 / 119 / 1926)
 /// </summary>
-public interface IClinicalSafetyAgent
+public interface IClinicalSafetyAgent : IWorkflowAgent
 {
-    string AgentName { get; }
     SafetyEvaluationResult EvaluateSafety(string symptoms);
 }
 
@@ -45,6 +44,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
     private readonly ILogger<ClinicalSafetyAgent> _logger;
 
     public string AgentName => "ClinicalSafetyAgent";
+    public string Role => "Deterministic emergency red-flag audit and input validity gating before clinical triage.";
 
     private static readonly HashSet<string> GreetingOnlyWords =
     [

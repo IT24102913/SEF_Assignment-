@@ -131,10 +131,13 @@ builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IDoctorEmailService, DoctorEmailService>();
 builder.Services.AddScoped<IPharmacyEmailService, PharmacyEmailService>();
-// ✅ Register Doctor Recommendation Multi-Agent System (Coordinator, Safety, Triage, and Allow-Listed Tool)
+// ✅ Register Doctor Recommendation Multi-Agent System (Coordinator, Safety, Triage, Tool Registry, Slot Allocation, Validation)
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IAgentToolRegistry, HealthBridge.Api.Agents.Appointments.AgentToolRegistry>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IClinicalSafetyAgent, HealthBridge.Api.Agents.Appointments.ClinicalSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IClinicalTriageAgent, HealthBridge.Api.Agents.Appointments.ClinicalTriageAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IDoctorSlotAllocationTool, HealthBridge.Api.Agents.Appointments.DoctorSlotAllocationTool>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IDoctorSlotAllocationAgent, HealthBridge.Api.Agents.Appointments.DoctorSlotAllocationAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IRecommendationValidationAgent, HealthBridge.Api.Agents.Appointments.RecommendationValidationAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
 // ✅ Register Vision AI Agents — PrescriptionValidatorAgent MUST be registered BEFORE PrescriptionSafetyAgent
 // so it is correctly injected into PrescriptionSafetyAgent's constructor (not resolved as null)

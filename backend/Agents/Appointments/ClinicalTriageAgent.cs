@@ -13,9 +13,8 @@ namespace HealthBridge.Api.Agents.Appointments;
 /// (Cardiology, Neurology, Orthopaedics, Paediatrics, Gynaecology, Dermatology, ENT, General Medicine).
 /// Uses schema-constrained Gemini LLM with an automatic deterministic weighted scoring fallback.
 /// </summary>
-public interface IClinicalTriageAgent
+public interface IClinicalTriageAgent : IWorkflowAgent
 {
-    string AgentName { get; }
     Task<TriageAnalysisResult> TriageSymptomsAsync(string symptoms);
 }
 
@@ -36,12 +35,9 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
     private readonly HttpClient _httpClient;
 
     public string AgentName => "ClinicalTriageAgent";
+    public string Role => "Clinical specialty routing and confidence estimation using medical LLM with rule-based fallback.";
 
-    private static readonly string[] AllowedSpecialties =
-    [
-        "Cardiology", "Neurology", "Orthopaedics", "Paediatrics",
-        "Gynaecology", "Dermatology", "ENT", "General Medicine"
-    ];
+    private static readonly string[] AllowedSpecialties = CanonicalSpecialties.AllowedSpecialties;
 
     private static readonly (string Specialty, (Regex Pattern, double Weight)[] Terms)[] ScoredSpecialties =
     [

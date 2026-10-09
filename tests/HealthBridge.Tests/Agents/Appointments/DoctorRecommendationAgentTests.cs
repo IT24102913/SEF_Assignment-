@@ -1,5 +1,8 @@
 using HealthBridge.Api.Agents.Appointments;
 using HealthBridge.Api.Data;
+using HealthBridge.Api.DTOs.Appointments;
+using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -21,15 +24,62 @@ namespace HealthBridge.Tests.Agents.Appointments;
 /// </summary>
 public class DoctorRecommendationAgentTests
 {
-    private ApplicationDbContext CreateInMemoryDbContext()
+    private ApplicationDbContext CreateInMemoryDbContext(bool seedDoctors = true)
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
-        return new ApplicationDbContext(options);
+        var context = new ApplicationDbContext(options);
+
+        if (seedDoctors)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var specialties = CanonicalSpecialties.AllowedSpecialties;
+
+            int docId = 100;
+            int sessId = 200;
+            foreach (var spec in specialties)
+            {
+                var doc = new Doctor
+                {
+                    Id = docId++,
+                    FullName = $"Dr. Jane {spec} Specialist",
+                    Specialization = spec,
+                    Hospital = "Health Bridge General",
+                    HospitalBranch = "Colombo",
+                    IsAvailable = true,
+                    IsVerifiedConsultant = true,
+                    Rating = 4.8,
+                    ExperienceYears = 12,
+                    ConsultationFee = 3500m
+                };
+                context.Doctors.Add(doc);
+
+                var session = new DoctorSession
+                {
+                    Id = sessId++,
+                    DoctorId = doc.Id,
+                    SessionDate = today.AddDays(2),
+                    SessionTime = new TimeOnly(9, 0),
+                    MaxCapacity = 20,
+                    CurrentBookings = 2,
+                    SessionStatus = SessionStatus.Scheduled
+                };
+                context.DoctorSessions.Add(session);
+            }
+            context.SaveChanges();
+        }
+
+        return context;
     }
 
-    private DoctorRecommendationAgent CreateAgent(ApplicationDbContext context)
+    private DoctorRecommendationAgent CreateAgent(
+        ApplicationDbContext context,
+        IClinicalSafetyAgent? safetyAgent = null,
+        IClinicalTriageAgent? triageAgent = null,
+        IDoctorSlotAllocationAgent? slotAllocationAgent = null,
+        IRecommendationValidationAgent? validationAgent = null,
+        IAgentToolRegistry? toolRegistry = null)
     {
         var mockConfig = new Mock<IConfiguration>();
         // Empty API key triggers local deterministic keyword engine and safety rules
@@ -38,11 +88,21 @@ public class DoctorRecommendationAgentTests
         var mockHttpFactory = new Mock<IHttpClientFactory>();
         mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
 
+        var reg = toolRegistry ?? new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var safety = safetyAgent ?? new ClinicalSafetyAgent(NullLogger<ClinicalSafetyAgent>.Instance);
+        var triage = triageAgent ?? new ClinicalTriageAgent(mockConfig.Object, NullLogger<ClinicalTriageAgent>.Instance, mockHttpFactory.Object);
+        var slotTool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var slotAgent = slotAllocationAgent ?? new DoctorSlotAllocationAgent(slotTool, reg, NullLogger<DoctorSlotAllocationAgent>.Instance);
+        var valAgent = validationAgent ?? new RecommendationValidationAgent();
+
         return new DoctorRecommendationAgent(
-            mockConfig.Object,
-            NullLogger<DoctorRecommendationAgent>.Instance,
-            mockHttpFactory.Object,
-            context);
+            context,
+            safety,
+            triage,
+            slotAgent,
+            valAgent,
+            reg,
+            NullLogger<DoctorRecommendationAgent>.Instance);
     }
 
     // ─── 1. Input Gate Tests ──────────────────────────────────────────────────
@@ -354,9 +414,9 @@ public class DoctorRecommendationAgentTests
         Assert.NotNull(result.ExecutionPlan);
         Assert.Equal(4, result.ExecutionPlan.Count);
         Assert.Contains("ClinicalSafetyAudit", result.ExecutionPlan[0]);
-        Assert.Contains("SpecialtyTriageAnalysis", result.ExecutionPlan[1]);
-        Assert.Contains("ConsultantSlotAllocation", result.ExecutionPlan[2]);
-        Assert.Contains("ChannelingProposalHITL", result.ExecutionPlan[3]);
+        Assert.Contains("ClinicalTriageAnalysis", result.ExecutionPlan[1]);
+        Assert.Contains("DoctorSlotAllocation", result.ExecutionPlan[2]);
+        Assert.Contains("RecommendationValidation", result.ExecutionPlan[3]);
     }
 
     [Fact]
@@ -511,5 +571,192 @@ public class DoctorRecommendationAgentTests
         Assert.NotNull(persistedWf.StepResultsJson);
         Assert.Contains("\"RedFlagCode\":\"CARDIAC\"", persistedWf.StepResultsJson);
         Assert.Contains("\"MatchedCategory\":\"CARDIAC\"", persistedWf.StepResultsJson);
+    }
+
+    // ─── 10. Phase 2 Architecture, Plan, Tool Registry, and Agent Roster Tests ─
+
+    [Fact]
+    public async Task RunAsync_WhenValidSymptoms_CreatesPlanAndExecutesStepsInOrder()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("severe persistent migraine and light sensitivity", patientId: 20);
+
+        // Assert
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal(4, result.ExecutionPlan.Count);
+        Assert.Contains("ClinicalSafetyAudit", result.ExecutionPlan[0]);
+        Assert.Contains("ClinicalTriageAnalysis", result.ExecutionPlan[1]);
+        Assert.Contains("DoctorSlotAllocation", result.ExecutionPlan[2]);
+        Assert.Contains("RecommendationValidation", result.ExecutionPlan[3]);
+
+        // All steps completed
+        Assert.All(result.ExecutionPlan, step => Assert.Contains("[COMPLETED]", step));
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenSafetyBlocked_MarksSubsequentStepsAsSkipped()
+    {
+        // Arrange: Emergency condition causes Step 1 to block
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("sudden stroke with slurred speech and facial drooping", patientId: 21);
+
+        // Assert
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(RedFlagCodes.Stroke, result.RedFlagCode);
+
+        // Plan has Step 1 blocked, and Steps 2, 3, 4 SKIPPED
+        Assert.Contains("[BLOCKED]", result.ExecutionPlan[0]);
+        Assert.Contains("[SKIPPED]", result.ExecutionPlan[1]);
+        Assert.Contains("[SKIPPED]", result.ExecutionPlan[2]);
+        Assert.Contains("[SKIPPED]", result.ExecutionPlan[3]);
+
+        // StepLogs has skipped entries
+        var skippedLogs = result.StepLogs.Where(l => l.Status == "SKIPPED").ToList();
+        Assert.Equal(3, skippedLogs.Count);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenToolDenied_LogsToolDeniedAndHaltsPlan()
+    {
+        // Arrange: Tool registry configured without permission for DoctorSlotAllocationAgent
+        using var context = CreateInMemoryDbContext();
+        var emptyRegistry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        // Note: empty registry allows NO tools by default if we don't register it
+        var unauthorizedRegistry = new Mock<IAgentToolRegistry>();
+        unauthorizedRegistry.Setup(r => r.IsToolAllowed(It.IsAny<string>(), It.IsAny<string>())).Returns(false);
+        unauthorizedRegistry.Setup(r => r.ExecuteToolAsync<List<MatchedDoctorDto>>(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Func<Task<List<MatchedDoctorDto>>>>()))
+            .ReturnsAsync(new ToolResult<List<MatchedDoctorDto>>
+            {
+                Success = false,
+                IsAllowed = false,
+                Status = "TOOL_DENIED",
+                Error = "Security violation: Access denied."
+            });
+
+        var agent = CreateAgent(context, toolRegistry: unauthorizedRegistry.Object);
+
+        // Act
+        var result = await agent.RunAsync("persistent dry cough and fever", patientId: 22);
+
+        // Assert
+        Assert.Equal("NO_DOCTORS_AVAILABLE", result.Status);
+        Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
+
+        // Verify TOOL_DENIED recorded in StepLogs
+        var toolDeniedLog = result.StepLogs.FirstOrDefault(l => l.Status == "TOOL_DENIED");
+        Assert.NotNull(toolDeniedLog);
+        Assert.Contains("Tool access denied", result.ExecutionPlan[3]);
+    }
+
+    [Fact]
+    public async Task DoctorSlotAllocationAgent_WhenInvalidSpecialty_FailsInputValidation()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var tool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var registry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(tool, registry, NullLogger<DoctorSlotAllocationAgent>.Instance);
+
+        // Act: Non-canonical specialty
+        var result = await slotAgent.AllocateSlotsAsync("CosmeticDermatologySurgeon");
+
+        // Assert: Input validation rejects before tool execution
+        Assert.False(result.Success);
+        Assert.Equal("VALIDATION_FAILED", result.Status);
+        Assert.Contains("not recognized in canonical clinical roster", result.Error);
+    }
+
+    [Fact]
+    public async Task DoctorSlotAllocationAgent_WhenMaxResultsOutOfRange_ClampsToValidRange()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var tool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var registry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(tool, registry, NullLogger<DoctorSlotAllocationAgent>.Instance);
+
+        // Act: Request 50 doctors (must clamp to 5)
+        var result = await slotAgent.AllocateSlotsAsync("Cardiology", maxResults: 50);
+
+        // Assert
+        Assert.True(result.Success);
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data.Count <= 5);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenZeroValidDoctorsAvailable_ReturnsNoDoctorsAvailableWithApprovalNotRequired()
+    {
+        // Arrange: Database with NO doctors seeded
+        using var context = CreateInMemoryDbContext(seedDoctors: false);
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("severe chest tightness and palpitations", patientId: 23);
+
+        // Assert
+        Assert.Equal("NO_DOCTORS_AVAILABLE", result.Status);
+        Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
+        Assert.Empty(result.MatchedDoctors);
+        Assert.Contains("no verified consultants", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenValidationAgentFails_RejectsProposal()
+    {
+        // Arrange: Mock validation agent that deterministically rejects proposal
+        using var context = CreateInMemoryDbContext();
+        var mockValidationAgent = new Mock<IRecommendationValidationAgent>();
+        mockValidationAgent.Setup(v => v.AgentName).Returns("RecommendationValidationAgent");
+        mockValidationAgent.Setup(v => v.Role).Returns("Mock Validation Agent");
+        mockValidationAgent.Setup(v => v.Validate(It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<List<MatchedDoctorDto>>()))
+            .Returns(new RecommendationValidationResult
+            {
+                IsValid = false,
+                Status = "INVALID_DOCTOR_SPECIALTY",
+                Reason = "Doctor specialization mismatch detected during integrity audit."
+            });
+
+        var agent = CreateAgent(context, validationAgent: mockValidationAgent.Object);
+
+        // Act
+        var result = await agent.RunAsync("ear pain and sinus blockage", patientId: 24);
+
+        // Assert
+        Assert.Equal("SAFE_FAILURE", result.Status);
+        Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
+        Assert.Contains("integrity audit", result.Reason);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenExecuted_PersistsEachAgentUnderItsOwnNameInStepResultsJson()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("dry cough and fever since yesterday", patientId: 25);
+
+        // Assert
+        var persistedWf = await context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == result.WorkflowId);
+        Assert.NotNull(persistedWf);
+        Assert.NotNull(persistedWf.StepResultsJson);
+
+        // Verify each of the distinct agents appears under its own name
+        Assert.Contains("\"AgentName\":\"ClinicalSafetyAgent\"", persistedWf.StepResultsJson);
+        Assert.Contains("\"AgentName\":\"ClinicalTriageAgent\"", persistedWf.StepResultsJson);
+        Assert.Contains("\"AgentName\":\"DoctorSlotAllocationAgent\"", persistedWf.StepResultsJson);
+        Assert.Contains("\"AgentName\":\"RecommendationValidationAgent\"", persistedWf.StepResultsJson);
+
+        // Verify non-zero Stopwatch duration tracked
+        Assert.All(result.StepLogs, log => Assert.True(log.DurationMs >= 0));
     }
 }

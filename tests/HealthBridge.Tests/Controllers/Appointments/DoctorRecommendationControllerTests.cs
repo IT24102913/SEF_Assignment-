@@ -3,6 +3,7 @@ using HealthBridge.Api.Controllers.Appointments;
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.Appointments;
 using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,39 @@ public class DoctorRecommendationControllerTests
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
             .Options;
-        return new ApplicationDbContext(options);
+        var context = new ApplicationDbContext(options);
+
+        // Seed a verified consultant with open session so recommendation pipeline succeeds
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var doc = new Doctor
+        {
+            Id = 501,
+            FullName = "Dr. Test Ortho Consultant",
+            Specialization = "Orthopaedics",
+            Hospital = "Health Bridge Colombo",
+            HospitalBranch = "Colombo",
+            IsAvailable = true,
+            IsVerifiedConsultant = true,
+            Rating = 4.9,
+            ExperienceYears = 15,
+            ConsultationFee = 3500m
+        };
+        context.Doctors.Add(doc);
+
+        var session = new DoctorSession
+        {
+            Id = 601,
+            DoctorId = doc.Id,
+            SessionDate = today.AddDays(1),
+            SessionTime = new TimeOnly(10, 0),
+            MaxCapacity = 15,
+            CurrentBookings = 1,
+            SessionStatus = SessionStatus.Scheduled
+        };
+        context.DoctorSessions.Add(session);
+        context.SaveChanges();
+
+        return context;
     }
 
     private DoctorRecommendationController CreateController(
@@ -29,14 +62,25 @@ public class DoctorRecommendationControllerTests
         ClaimsPrincipal? user = null)
     {
         var mockConfig = new Mock<IConfiguration>();
+        mockConfig.Setup(c => c["Gemini:ApiKey"]).Returns(string.Empty);
         var mockHttpFactory = new Mock<IHttpClientFactory>();
         mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
 
+        var reg = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var safety = new ClinicalSafetyAgent(NullLogger<ClinicalSafetyAgent>.Instance);
+        var triage = new ClinicalTriageAgent(mockConfig.Object, NullLogger<ClinicalTriageAgent>.Instance, mockHttpFactory.Object);
+        var slotTool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(slotTool, reg, NullLogger<DoctorSlotAllocationAgent>.Instance);
+        var valAgent = new RecommendationValidationAgent();
+
         var agent = new DoctorRecommendationAgent(
-            mockConfig.Object,
-            NullLogger<DoctorRecommendationAgent>.Instance,
-            mockHttpFactory.Object,
-            context);
+            context,
+            safety,
+            triage,
+            slotAgent,
+            valAgent,
+            reg,
+            NullLogger<DoctorRecommendationAgent>.Instance);
 
         var controller = new DoctorRecommendationController(
             agent,

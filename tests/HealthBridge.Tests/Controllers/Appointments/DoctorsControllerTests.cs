@@ -33,14 +33,25 @@ public class DoctorsControllerTests
         var service = mockService ?? new Mock<IAppointmentService>();
 
         var mockConfig = new Mock<IConfiguration>();
+        mockConfig.Setup(c => c["Gemini:ApiKey"]).Returns(string.Empty);
         var mockHttpFactory = new Mock<IHttpClientFactory>();
         mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
 
+        var reg = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var safety = new ClinicalSafetyAgent(NullLogger<ClinicalSafetyAgent>.Instance);
+        var triage = new ClinicalTriageAgent(mockConfig.Object, NullLogger<ClinicalTriageAgent>.Instance, mockHttpFactory.Object);
+        var slotTool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(slotTool, reg, NullLogger<DoctorSlotAllocationAgent>.Instance);
+        var valAgent = new RecommendationValidationAgent();
+
         var agent = new DoctorRecommendationAgent(
-            mockConfig.Object,
-            NullLogger<DoctorRecommendationAgent>.Instance,
-            mockHttpFactory.Object,
-            context);
+            context,
+            safety,
+            triage,
+            slotAgent,
+            valAgent,
+            reg,
+            NullLogger<DoctorRecommendationAgent>.Instance);
 
         var controller = new DoctorsController(
             service.Object,
