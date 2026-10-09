@@ -67,7 +67,7 @@ public class PrescriptionSafetyAgent
         if (ai == null) return flags;
 
         // 1. Extraction quality
-        if (ai.ExtractionQuality != null)
+        if (ai.ExtractionQuality != null && !string.IsNullOrWhiteSpace(ai.ExtractionQuality.Tier))
         {
             var tier = ai.ExtractionQuality.Tier;
             var icon = tier switch
@@ -81,44 +81,32 @@ public class PrescriptionSafetyAgent
         }
 
         // 2. Patient
-        if (ai.Patient != null 
-            && !string.IsNullOrWhiteSpace(ai.Patient.Name))
+        var patientName = ai.Patient?.Name ?? ai.PatientName;
+        if (!string.IsNullOrWhiteSpace(patientName))
         {
-            var details = new List<string>();
-            if (!string.IsNullOrWhiteSpace(ai.Patient.Age))
-                details.Add(ai.Patient.Age);
-            if (!string.IsNullOrWhiteSpace(ai.Patient.Gender))
-                details.Add(ai.Patient.Gender);
-
-            var suffix = details.Count > 0 
-                ? $" ({string.Join(", ", details)})" : "";
-
-            flags.Add($"👤 Patient: {ai.Patient.Name}{suffix}");
+            flags.Add($"👤 Patient: {patientName}");
         }
 
-        // 3. Hospital
-        if (ai.Hospital != null 
-            && !string.IsNullOrWhiteSpace(ai.Hospital.Name))
+        // 3. Hospital / Clinic
+        var clinicName = ai.Hospital?.Name ?? ai.ClinicName;
+        if (!string.IsNullOrWhiteSpace(clinicName))
         {
-            flags.Add($"🏥 Hospital: {ai.Hospital.Name}");
+            flags.Add($"🏥 Hospital: {clinicName}");
         }
 
         // 4. Doctor
-        if (ai.Doctor != null 
-            && !string.IsNullOrWhiteSpace(ai.Doctor.Name))
+        var doctorName = ai.Doctor?.Name ?? ai.DoctorName;
+        if (!string.IsNullOrWhiteSpace(doctorName))
         {
-            var lic = !string.IsNullOrWhiteSpace(ai.Doctor.LicenseNumber)
-                ? $" ({ai.Doctor.LicenseNumber})" : "";
-            flags.Add($"👨‍⚕️ Doctor: {ai.Doctor.Name}{lic}");
+            var lic = !string.IsNullOrWhiteSpace(ai.DoctorLicenseNumber)
+                ? $" ({ai.DoctorLicenseNumber})" : "";
+            flags.Add($"👨‍⚕️ Doctor: {doctorName}{lic}");
         }
 
         // 5. Prescription date range
-        if (ai.PrescriptionMeta != null 
-            && !string.IsNullOrWhiteSpace(ai.PrescriptionMeta.DateWritten))
+        var dateInfo = ai.PrescriptionMeta?.DateWritten ?? ai.DateWritten ?? ai.PrescriptionDate;
+        if (!string.IsNullOrWhiteSpace(dateInfo))
         {
-            var dateInfo = ai.PrescriptionMeta.DateWritten;
-            if (!string.IsNullOrWhiteSpace(ai.PrescriptionMeta.ValidUntil))
-                dateInfo += $" → {ai.PrescriptionMeta.ValidUntil}";
             flags.Add($"📅 Prescription Date: {dateInfo}");
         }
 
@@ -128,48 +116,19 @@ public class PrescriptionSafetyAgent
             flags.Add($"💊 Extracted Medicines ({ai.Medicines.Count}):");
             foreach (var med in ai.Medicines)
             {
-                var medName = string.IsNullOrWhiteSpace(med.OriginalName)
-                    ? "Unknown" : med.OriginalName;
-
-                var normalizedSuffix = "";
-                if (!string.IsNullOrWhiteSpace(med.NormalizedName)
-                    && !med.NormalizedName.Equals(
-                        medName, StringComparison.OrdinalIgnoreCase))
-                {
-                    normalizedSuffix = $" [{med.NormalizedName}]";
-                }
+                var medName = string.IsNullOrWhiteSpace(med.Name)
+                    ? "Unknown" : med.Name;
 
                 var details = new List<string>();
                 if (!string.IsNullOrWhiteSpace(med.Dosage))
                     details.Add(med.Dosage);
                 if (!string.IsNullOrWhiteSpace(med.Frequency))
                     details.Add(med.Frequency);
-                if (!string.IsNullOrWhiteSpace(med.Duration))
-                    details.Add(med.Duration);
-                if (!string.IsNullOrWhiteSpace(med.Quantity))
-                    details.Add(med.Quantity);
-                if (!string.IsNullOrWhiteSpace(med.Instructions))
-                    details.Add(med.Instructions);
 
                 var detailStr = details.Count > 0
                     ? " — " + string.Join(" | ", details) : "";
 
-                flags.Add($"   • {medName}{normalizedSuffix}{detailStr}");
-            }
-        }
-
-        // 7. Rx mismatch
-        if (ai.HasPrescriptionItemMismatch
-            && ai.PrescriptionItemMismatches != null
-            && ai.PrescriptionItemMismatches.Count > 0)
-        {
-            flags.Add(
-                "🚫 PRESCRIPTION MISMATCH — Ordered Rx medicines not in prescription:");
-            foreach (var m in ai.PrescriptionItemMismatches)
-            {
-                var reason = string.IsNullOrWhiteSpace(m.Reason)
-                    ? "not found in prescription" : m.Reason;
-                flags.Add($"   • {m.OrderedDrugName} — {reason}");
+                flags.Add($"   • {medName}{detailStr}");
             }
         }
 
