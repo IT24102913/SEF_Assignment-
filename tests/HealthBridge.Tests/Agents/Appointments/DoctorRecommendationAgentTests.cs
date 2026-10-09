@@ -456,4 +456,60 @@ public class DoctorRecommendationAgentTests
         Assert.NotNull(persistedWf);
         Assert.Equal("REJECTED", persistedWf.ApprovalStatus);
     }
+
+    // ─── 9. Section C Follow-Up Triage & Observability Proof Tests ────────────
+
+    [Fact]
+    public async Task RunAsync_WhenFoodPoisoningSymptomsTwoDays_TriagesToGeneralMedicine()
+    {
+        // Arrange: "food poisoning" is not acute chemical ingestion; must triage to General Medicine
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("food poisoning symptoms two days", patientId: 10);
+
+        // Assert
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Null(result.RedFlagCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenChokingSensationWhenSwallowingForWeeks_TriagesToENT()
+    {
+        // Arrange: "choking sensation for weeks" is non-acute globus/dysphagia; must triage to ENT
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync("choking sensation when swallowing for weeks", patientId: 11);
+
+        // Assert
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("ENT", result.Specialty);
+        Assert.Null(result.RedFlagCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenEmergencyEscalation_PersistsRedFlagCodeInStepResultsJson()
+    {
+        // Arrange: Observability proof that StepResultsJson persisted on workflow row contains RedFlagCode
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act: Emergency cardiac event
+        var result = await agent.RunAsync("crushing chest pain and can't breathe", patientId: 12);
+
+        // Assert Response
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(RedFlagCodes.Cardiac, result.RedFlagCode);
+
+        // Assert Database Persistence: StepResultsJson contains RedFlagCode and MatchedCategory
+        var persistedWf = await context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == result.WorkflowId);
+        Assert.NotNull(persistedWf);
+        Assert.NotNull(persistedWf.StepResultsJson);
+        Assert.Contains("\"RedFlagCode\":\"CARDIAC\"", persistedWf.StepResultsJson);
+        Assert.Contains("\"MatchedCategory\":\"CARDIAC\"", persistedWf.StepResultsJson);
+    }
 }

@@ -104,6 +104,8 @@ public class DoctorRecommendationAgent
                     "NEED_MORE_CONTEXT" => $"Input too brief/vague: {safetyEval.Reason}",
                     _ => safetyEval.Reason ?? "Unknown safety status"
                 },
+                RedFlagCode = safetyEval.RedFlagCode,
+                MatchedCategory = safetyEval.RedFlagCode,
                 DurationMs = step1Sw.ElapsedMilliseconds,
                 Status = safetyEval.Status == "SAFE" ? "COMPLETED" : "BLOCKED"
             });

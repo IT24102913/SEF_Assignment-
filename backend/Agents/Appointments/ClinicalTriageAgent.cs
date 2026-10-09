@@ -109,9 +109,10 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
             (new Regex(@"\b(hoarse|hoarseness|voice\s*(change|loss)|vocal\s*cord|larynx)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(snoring|sleep\s*apnea|apnoea|adenoid|polyp)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(ent|otolaryngol|audiolog)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
-            (new Regex(@"\b(swallowing\s*(difficulty|problem)|dysphagia)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.8),
+            (new Regex(@"\b(swallowing\s*(difficulty|problem)|dysphagia|choking\s*sensation|globus)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
         ]),
         ("General Medicine", [
+            (new Regex(@"\b(food\s*poisoning|gastroenteritis|stomach\s*bug)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
             (new Regex(@"\b(fever|temperature|pyrexia|high\s*temp|chills|rigors?)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(cold|flu|influenza|covid|viral|infection|bacteria)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(cough|coughing|phlegm|mucus|sputum|whooping)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 1.8),

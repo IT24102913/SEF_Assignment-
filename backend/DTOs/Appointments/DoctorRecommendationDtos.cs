@@ -84,6 +84,8 @@ public class AgentStepLogDto
     public string Status { get; set; } = "COMPLETED"; // COMPLETED | WAITING_FOR_APPROVAL | BLOCKED | ESCALATED | INSUFFICIENT_CONTEXT
     public bool Success { get; set; } = true;
     public string? ToolCalled { get; set; }
+    public string? RedFlagCode { get; set; }
+    public string? MatchedCategory { get; set; }
     public long DurationMs { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

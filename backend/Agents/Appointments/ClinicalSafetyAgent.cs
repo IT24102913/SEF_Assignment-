@@ -69,28 +69,28 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         // 1. CARDIAC
         (
             RedFlagCodes.Cardiac,
-            new Regex(@"\b(heart\s*attack|cardiac\s*arrest|crushing\s*chest\s*pain)\b|\bleft\s*arm\s*pain\b.{0,60}\bchest\b|\bchest\b.{0,60}\bleft\s*arm\s*pain\b|\bchest\s*(pain|tight\w*|pressure)\b.{0,80}\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b|\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b.{0,80}\bchest\s*(pain|tight\w*|pressure)\b",
+            new Regex(@"\b(heart\s*attack|cardiac\s*arrest|crushing\s*chest\s*pain|no\s*pulse|pulseless)\b|\bleft\s*arm\s*pain\b.{0,60}\bchest\b|\bchest\b.{0,60}\bleft\s*arm\s*pain\b|\bchest\s*(pain|tight\w*|pressure)\b.{0,80}\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b|\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b.{0,80}\bchest\s*(pain|tight\w*|pressure)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Possible acute cardiac event (heart attack / cardiac arrest). Time is critical — call emergency services (1990 Suwa Seriya Ambulance / 119) or attend the nearest Emergency Room immediately."
         ),
         // 2. STROKE
         (
             RedFlagCodes.Stroke,
-            new Regex(@"\b(stroke|facial\s*droop\w*|slurred\s*speech|face\s*(droop\w*|numb\w*)|can'?t\s*speak|sudden\s*weakness|arm\s*weak\w*|sudden\s*confusion)\b",
+            new Regex(@"\b(stroke|facial\s*droop\w*|slurred\s*speech|face\s*(?:is\s*)?(droop\w*|numb\w*)|can'?t\s*speak|sudden\s*weakness|arm\s*(?:is\s*)?weak\w*|sudden\s*confusion)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Symptoms suggest a possible acute stroke. Time is brain — call emergency services (1990 Suwa Seriya Ambulance / 119) immediately."
         ),
         // 3. UNCONSCIOUS
         (
             RedFlagCodes.Unconscious,
-            new Regex(@"\b(unconscious\w*|loss\s*of\s*consciousness|passed\s*out|unresponsive\w*|blackout|fainted|fainting|collapsed)\b",
+            new Regex(@"\b(unconscious\w*|loss\s*of\s*consciousness|passed\s*out|unresponsive\w*|not\s*responding|blackout|fainted|fainting|collapsed)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Loss of consciousness or unresponsiveness requires urgent medical attention. Call emergency services (1990 / 119) or go to the nearest Emergency Department now."
         ),
         // 4. BLEEDING
         (
             RedFlagCodes.Bleeding,
-            new Regex(@"\b(severe\s*bleed\w*|bleed\w*\s*heavily|blood\s*everywhere|arterial\s*bleed\w*|uncontrolled\s*bleed\w*|coughing\s*up\s*blood|vomiting\s*blood)\b",
+            new Regex(@"\b(severe\s*bleed\w*|bleed\w*\s*heavily|blood\s*everywhere|arterial\s*bleed\w*|uncontrolled\s*bleed\w*|(cough\w*|vomit\w*|spit\w*|spitting)\s*(up\s*)?blood)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Severe or uncontrolled bleeding requires immediate medical intervention. Apply direct pressure and call emergency services (1990 / 119) immediately."
         ),
@@ -122,14 +122,44 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Acute respiratory arrest or choking. Call emergency services (1990 / 119) immediately for urgent paramedic assistance."
         ),
-        // 9. POISONING
+        // 9. POISONING (Excludes food poisoning/foodborne illness which is triaged to General Medicine)
         (
             RedFlagCodes.Poisoning,
-            new Regex(@"\b(overdos\w*|poison\w*|ingested\s*(chemical|toxin|pesticide)|swallowed\s*(bleach|poison|battery))\b",
+            new Regex(@"\b(overdos\w*|(?<!food\s+|foodborne\s+)poison\w*|ingested\s*(chemical|toxin|pesticide)|swallowed\s*(bleach|poison|battery)|rat\s*poison|pesticide\s*poison\w*)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Suspected acute poisoning or drug overdose. Call the National Poison Information Centre or 1990 / 119 immediately. Do not induce vomiting unless advised by medical staff."
         )
     ];
+
+    // Negative states that represent the emergency condition itself — NEVER suppressed by negation
+    private static readonly Regex NegativeStatePattern = new(
+        @"\b(not\s*breathing|stopped\s*breathing|cannot\s*breathe|can'?t\s*breathe|not\s*responding|unresponsive\w*|no\s*pulse|pulseless|can'?t\s*speak|cannot\s*speak|can'?t\s*swallow|cannot\s*swallow)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Clause boundary separator (splits at conjunctions, transitions, and punctuation)
+    private static readonly Regex ClauseSeparator = new(
+        @"\b(?:but|however|though|although|except|and\s+now)\b|[,;.:]",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Negation words that cancel preceding symptom nouns in the same clause
+    private static readonly Regex NegationPrefixPattern = new(
+        @"\b(no|not|without|denies|denying|ruled\s*out)\s+(?:\w+\s+){0,3}",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Past / Chronic qualifiers
+    private static readonly Regex HistoricalQualifierPattern = new(
+        @"\b(years?\s*ago|months?\s*ago|weeks?\s*ago|last\s*(?:year|month)|history\s*of|prior|previous|past|follow-?up|post-stroke\s*follow-?up)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Chronic sensation (e.g. globus sensation for weeks)
+    private static readonly Regex ChronicSensationPattern = new(
+        @"\bchoking\s*sensation\b.{0,30}\b(for\s*weeks|for\s*months|chronic)\b|\b(for\s*weeks|for\s*months|chronic)\b.{0,30}\bchoking\s*sensation\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    // Acute event recurrence indicators that OVERRIDE historical suppression
+    private static readonly Regex AcuteRecurrencePattern = new(
+        @"\b(had\s*one\s*(?:today|again|just\s*now|tonight|this\s*morning)|another\s*(?:one\s*)?(?:today|again|just\s*now|tonight|this\s*morning)|(?:seizure|faint\w*|stroke|attack)\s*(?:today|again|just\s*now|tonight|this\s*morning)|\b\d+\s*minutes?\s*ago\b|\b\d+\s*hours?\s*ago\b)\b",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public ClinicalSafetyAgent(ILogger<ClinicalSafetyAgent> logger)
     {
@@ -162,27 +192,17 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
 
         // ───────────────────────────────────────────────────────────────────────
         // STEP 1: RED-FLAG EMERGENCY CHECK (RUNS FIRST ON NORMALIZED INPUT)
-        // A single-word input like "stroke", "seizure", or "unconscious" MUST
-        // trigger an immediate emergency escalation without being blocked by length gates.
+        // Evaluates clause-scoped negation, historical/chronic suppression, and acute overrides.
         // ───────────────────────────────────────────────────────────────────────
         if (!string.IsNullOrEmpty(normalized))
         {
-            foreach (var (code, pattern, message) in RedFlagRules)
+            var emergencyResult = EvaluateEmergencyPatterns(normalized);
+            if (emergencyResult != null)
             {
-                if (pattern.IsMatch(normalized))
-                {
-                    _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Length={Len}",
-                        AgentName, code, normalized.Length);
+                _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Length={Len}",
+                    AgentName, emergencyResult.RedFlagCode, normalized.Length);
 
-                    return new SafetyEvaluationResult
-                    {
-                        IsSafeToTriage = false,
-                        Status = "SAFETY_ESCALATION",
-                        RedFlagCode = code,
-                        SafetyMessage = message,
-                        Reason = "Immediate emergency medical attention required."
-                    };
-                }
+                return emergencyResult;
             }
         }
 
@@ -231,6 +251,80 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
             Status = "SAFE",
             Reason = "No emergency red flags identified. Clinical triage may proceed."
         };
+    }
+
+    private static SafetyEvaluationResult? EvaluateEmergencyPatterns(string normalized)
+    {
+        // 1. Chronic globus sensation check (choking sensation for weeks -> non-emergency ENT/GI)
+        bool hasChronicChokingSensation = ChronicSensationPattern.IsMatch(normalized);
+
+        // 2. Split input into clauses at conjunctions and punctuation to evaluate clause-scoped negation
+        var clauses = ClauseSeparator.Split(normalized);
+
+        foreach (var (code, pattern, message) in RedFlagRules)
+        {
+            // Respiratory chronic sensation exception
+            if (code == RedFlagCodes.Respiratory && hasChronicChokingSensation)
+            {
+                var withoutChronic = ChronicSensationPattern.Replace(normalized, "");
+                if (!pattern.IsMatch(withoutChronic))
+                {
+                    continue;
+                }
+            }
+
+            foreach (var clause in clauses)
+            {
+                var trimmedClause = clause.Trim();
+                if (string.IsNullOrEmpty(trimmedClause)) continue;
+
+                var match = pattern.Match(trimmedClause);
+                if (!match.Success) continue;
+
+                // Rule 2.a: Negation NEVER applies to patterns that are themselves negative states
+                bool isNegativeState = NegativeStatePattern.IsMatch(match.Value);
+                if (!isNegativeState)
+                {
+                    // For symptom nouns, check if preceded by negation in this clause
+                    var prefixText = trimmedClause[..match.Index];
+                    if (NegationPrefixPattern.IsMatch(prefixText))
+                    {
+                        // Negated in this clause -> skip this match
+                        continue;
+                    }
+                }
+
+                // Rule 2.b: Historical/chronic suppression
+                // NEVER suppress SELF_HARM or ANAPHYLAXIS
+                if (code != RedFlagCodes.SelfHarm && code != RedFlagCodes.Anaphylaxis)
+                {
+                    bool isHistoricalQualified = HistoricalQualifierPattern.IsMatch(trimmedClause);
+
+                    if (isHistoricalQualified)
+                    {
+                        // Check if whole input contains an acute recurrence/event marker
+                        bool hasAcuteRecurrence = AcuteRecurrencePattern.IsMatch(normalized);
+                        if (!hasAcuteRecurrence)
+                        {
+                            // Historical event with no acute marker/recurrence -> suppress emergency
+                            continue;
+                        }
+                    }
+                }
+
+                // Un-negated, acute emergency detected
+                return new SafetyEvaluationResult
+                {
+                    IsSafeToTriage = false,
+                    Status = "SAFETY_ESCALATION",
+                    RedFlagCode = code,
+                    SafetyMessage = message,
+                    Reason = "Immediate emergency medical attention required."
+                };
+            }
+        }
+
+        return null;
     }
 
     private static bool IsGreetingOrNonsense(string lower)

@@ -216,17 +216,40 @@ public class ClinicalSafetyAgentTests
     [InlineData("nosebleed since morning", "SAFE", null)]
     [InlineData("bleeding gums when brushing", "SAFE", null)]
     [InlineData("heavy period bleeding for 3 days", "SAFE", null)]
-    [InlineData("food poisoning symptoms two days", "SAFETY_ESCALATION", RedFlagCodes.Poisoning)]
+    [InlineData("food poisoning symptoms two days", "SAFE", null)]
     [InlineData("ankle swelling for a week", "SAFE", null)]
-    [InlineData("fainted once last month, mild dizziness now", "SAFETY_ESCALATION", RedFlagCodes.Unconscious)]
-    [InlineData("epilepsy follow-up, last seizure two years ago", "SAFETY_ESCALATION", RedFlagCodes.Seizure)]
+    [InlineData("fainted once last month, mild dizziness now", "SAFE", null)]
+    [InlineData("epilepsy follow-up, last seizure two years ago", "SAFE", null)]
     [InlineData("no chest pain but mild cough", "SAFE", null)]
     [InlineData("I do not have trouble breathing, just a sore throat", "SAFE", null)]
-    [InlineData("choking sensation when swallowing for weeks", "SAFETY_ESCALATION", RedFlagCodes.Respiratory)]
-    public void EvaluateSafety_OverTriggerAndNegationCases_CurrentBehavior(string input, string expectedStatus, string? expectedCode)
+    [InlineData("choking sensation when swallowing for weeks", "SAFE", null)]
+    public void EvaluateSafety_OverTriggerAndNegationCases_TargetExpectations(string input, string expectedStatus, string? expectedCode)
     {
         var result = _agent.EvaluateSafety(input);
         Assert.Equal(expectedStatus, result.Status);
+        Assert.Equal(expectedCode, result.RedFlagCode);
+    }
+
+    // ─── 8. Must Still Escalate Emergency Cases ───────────────────────────────
+
+    [Theory]
+    [InlineData("not breathing", RedFlagCodes.Respiratory)]
+    [InlineData("my father is not breathing", RedFlagCodes.Respiratory)]
+    [InlineData("he is not responding", RedFlagCodes.Unconscious)]
+    [InlineData("can't breathe", RedFlagCodes.Respiratory)]
+    [InlineData("no pulse", RedFlagCodes.Cardiac)]
+    [InlineData("chest pain and can't breathe, no fever", RedFlagCodes.Cardiac)]
+    [InlineData("history of seizures, had one today", RedFlagCodes.Seizure)]
+    [InlineData("seizure two years ago and another one just now", RedFlagCodes.Seizure)]
+    [InlineData("fainted 10 minutes ago", RedFlagCodes.Unconscious)]
+    [InlineData("I had a stroke last year and now my face is drooping", RedFlagCodes.Stroke)]
+    [InlineData("no chest pain, but crushing chest pain now", RedFlagCodes.Cardiac)]
+    [InlineData("coughing blood", RedFlagCodes.Bleeding)]
+    [InlineData("I attempted suicide last year", RedFlagCodes.SelfHarm)]
+    public void EvaluateSafety_MustStillEscalateCases(string input, string expectedCode)
+    {
+        var result = _agent.EvaluateSafety(input);
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
         Assert.Equal(expectedCode, result.RedFlagCode);
     }
 }
