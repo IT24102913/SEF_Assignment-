@@ -270,9 +270,9 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 
 // Auto-ensure DB schema updates & index creation
@@ -403,3 +403,5 @@ public static partial class ProgramHelper
         return raw;
     }
 }
+
+public partial class Program { }
