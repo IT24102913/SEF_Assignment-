@@ -4,11 +4,12 @@ using System.Text.RegularExpressions;
 namespace HealthBridge.Api.Agents.Appointments;
 
 /// <summary>
-/// ClinicalSafetyAgent — Specialized Agent for Patient Safety & Red-Flag Escalation.
-/// Complies with SE3090 Section 9.1: "Validation or Safety Agent with identifiable responsibility".
-/// 
-/// Runs deterministic, pure C# checks with ZERO LLM dependency to guarantee zero hallucinations
-/// and immediate life-saving escalations for emergency medical complaints.
+/// ClinicalSafetyAgent — Specialized Deterministic Agent for Patient Safety & Red-Flag Escalation.
+/// Complies with SE3090 Section 9.1:
+///   - Validation / Safety Agent with identifiable responsibility
+///   - Pure C# execution with ZERO LLM dependency (zero hallucinations, zero network latency)
+///   - Executes FIRST before any length or vagueness checks to prioritize patient safety
+///   - Immediately escalates emergency complaints to Sri Lankan national helplines (1990 / 119 / 1926)
 /// </summary>
 public interface IClinicalSafetyAgent
 {
@@ -16,10 +17,24 @@ public interface IClinicalSafetyAgent
     SafetyEvaluationResult EvaluateSafety(string symptoms);
 }
 
+public static class RedFlagCodes
+{
+    public const string Cardiac = "CARDIAC";
+    public const string Stroke = "STROKE";
+    public const string Unconscious = "UNCONSCIOUS";
+    public const string Bleeding = "BLEEDING";
+    public const string Anaphylaxis = "ANAPHYLAXIS";
+    public const string SelfHarm = "SELF_HARM";
+    public const string Seizure = "SEIZURE";
+    public const string Respiratory = "RESPIRATORY";
+    public const string Poisoning = "POISONING";
+}
+
 public class SafetyEvaluationResult
 {
     public bool IsSafeToTriage { get; set; }
     public string Status { get; set; } = "SAFE"; // SAFE | INPUT_INVALID | NEED_MORE_CONTEXT | SAFETY_ESCALATION
+    public string? RedFlagCode { get; set; }
     public string? Reason { get; set; }
     public string? SafetyMessage { get; set; }
     public List<string> FollowUpQuestions { get; set; } = new();
@@ -33,49 +48,14 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
 
     private static readonly HashSet<string> GreetingOnlyWords =
     [
-        "hi", "hello", "hey", "howdy", "hiya", "greetings", "good morning",
-        "good afternoon", "good evening", "happy", "fine", "ok", "okay",
-        "test", "asdf", "qwerty", "abc", "123", "nothing", "n/a", "na"
+        "hi", "hello", "hey", "howdy", "hiya", "greetings", "good", "morning",
+        "afternoon", "evening", "happy", "fine", "ok", "okay", "doctor", "doc",
+        "test", "asdf", "qwerty", "abc", "123", "nothing", "n/a", "na", "please", "help"
     ];
 
-    private static readonly (Regex Pattern, string Message)[] RedFlagPatterns =
-    [
-        (
-            new Regex(@"\bchest\s*pain\b.{0,80}\b(breath|breathing|breathless|can'?t breathe|cannot breathe|short of breath)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ Emergency: Chest pain combined with breathing difficulty may indicate a heart attack. Call emergency services (1990 / 119) or go to the nearest Emergency Room immediately."
-        ),
-        (
-            new Regex(@"\b(facial\s*droop|slurred\s*speech|sudden\s*weakness|can'?t\s*speak|face\s*(drooping|numb)|arm\s*weak|sudden\s*confusion|stroke)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ Emergency: These symptoms may indicate a stroke. Time is critical — call emergency services (1990 / 119) immediately."
-        ),
-        (
-            new Regex(@"\b(unconscious|loss\s*of\s*consciousness|passed\s*out|unresponsive|fainted)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ Emergency: Loss of consciousness requires immediate medical attention. Call emergency services (1990 / 119) or go to the nearest Emergency Room now."
-        ),
-        (
-            new Regex(@"\b(severe\s*bleed|bleeding\s*heavily|blood\s*everywhere|arterial\s*bleed)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ Emergency: Severe bleeding requires immediate emergency care. Apply pressure and call 1990 / 119 immediately."
-        ),
-        (
-            new Regex(@"\b(anaphyla|severe\s*allergic|throat\s*swell|tongue\s*swell|can'?t\s*swallow)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ Emergency: Signs of severe allergic reaction. Use an EpiPen if available and call emergency services (1990 / 119) immediately."
-        ),
-        (
-            new Regex(@"\b(suicid|kill\s*myself|end\s*my\s*life|want\s*to\s*die|self.harm)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ You are not alone. Please call the National Mental Health Helpline at 1926 or go to your nearest Emergency Department immediately."
-        ),
-        (
-            new Regex(@"\b(seizure|convuls|fitting|epileptic\s*fit)\b",
-                RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "⚠️ Emergency: Seizures require immediate medical evaluation. Call emergency services (1990 / 119) or attend the nearest Emergency Room."
-        )
-    ];
+    private static readonly Regex GreetingRegex = new(
+        @"^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings|howdy|hiya)(\s+(doctor|doc|there|please|help|sir|madam))?[\s.!?,]*$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly HashSet<string> VagueSingleTerms =
     [
@@ -83,20 +63,136 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         "headache", "nausea", "dizzy", "cough", "sore", "weak", "weakness"
     ];
 
+    // Red-Flag Rules evaluated FIRST on normalized raw input
+    private static readonly (string Code, Regex Pattern, string Message)[] RedFlagRules =
+    [
+        // 1. CARDIAC
+        (
+            RedFlagCodes.Cardiac,
+            new Regex(@"\b(heart\s*attack|cardiac\s*arrest|crushing\s*chest\s*pain)\b|\bleft\s*arm\s*pain\b.{0,60}\bchest\b|\bchest\b.{0,60}\bleft\s*arm\s*pain\b|\bchest\s*(pain|tight\w*|pressure)\b.{0,80}\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b|\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b.{0,80}\bchest\s*(pain|tight\w*|pressure)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Possible acute cardiac event (heart attack / cardiac arrest). Time is critical — call emergency services (1990 Suwa Seriya Ambulance / 119) or attend the nearest Emergency Room immediately."
+        ),
+        // 2. STROKE
+        (
+            RedFlagCodes.Stroke,
+            new Regex(@"\b(stroke|facial\s*droop\w*|slurred\s*speech|face\s*(droop\w*|numb\w*)|can'?t\s*speak|sudden\s*weakness|arm\s*weak\w*|sudden\s*confusion)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Symptoms suggest a possible acute stroke. Time is brain — call emergency services (1990 Suwa Seriya Ambulance / 119) immediately."
+        ),
+        // 3. UNCONSCIOUS
+        (
+            RedFlagCodes.Unconscious,
+            new Regex(@"\b(unconscious\w*|loss\s*of\s*consciousness|passed\s*out|unresponsive\w*|blackout|fainted|fainting|collapsed)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Loss of consciousness or unresponsiveness requires urgent medical attention. Call emergency services (1990 / 119) or go to the nearest Emergency Department now."
+        ),
+        // 4. BLEEDING
+        (
+            RedFlagCodes.Bleeding,
+            new Regex(@"\b(severe\s*bleed\w*|bleed\w*\s*heavily|blood\s*everywhere|arterial\s*bleed\w*|uncontrolled\s*bleed\w*|coughing\s*up\s*blood|vomiting\s*blood)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Severe or uncontrolled bleeding requires immediate medical intervention. Apply direct pressure and call emergency services (1990 / 119) immediately."
+        ),
+        // 5. ANAPHYLAXIS
+        (
+            RedFlagCodes.Anaphylaxis,
+            new Regex(@"\b(anaphyla\w*|severe\s*allergic\s*reaction|throat\s*swell\w*|tongue\s*swell\w*|airway\s*swell\w*|can'?t\s*swallow)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Signs of acute anaphylaxis or airway swelling. Administer an EpiPen if prescribed and call emergency services (1990 / 119) immediately."
+        ),
+        // 6. SELF_HARM
+        (
+            RedFlagCodes.SelfHarm,
+            new Regex(@"\b(suicid\w*|kill\s*myself|end\s*my\s*life|want\s*to\s*die|self[\s-]harm)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ You are not alone. Please reach out for immediate support: call the National Mental Health Helpline at 1926 (Toll-Free, 24/7) or attend the nearest Emergency Department immediately."
+        ),
+        // 7. SEIZURE
+        (
+            RedFlagCodes.Seizure,
+            new Regex(@"\b(seiz\w*|convuls\w*|epileptic\s*fit|fitting)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Seizures or convulsions require emergency medical care. Ensure the patient is in a safe position, do not restrain them, and call 1990 / 119 immediately."
+        ),
+        // 8. RESPIRATORY
+        (
+            RedFlagCodes.Respiratory,
+            new Regex(@"\b(chok\w*|not\s*breathing|stopped\s*breathing|cannot\s*breathe|can'?t\s*breathe|gasping\s*for\s*air|asphyxiat\w*|severe\s*stridor)\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Acute respiratory arrest or choking. Call emergency services (1990 / 119) immediately for urgent paramedic assistance."
+        ),
+        // 9. POISONING
+        (
+            RedFlagCodes.Poisoning,
+            new Regex(@"\b(overdos\w*|poison\w*|ingested\s*(chemical|toxin|pesticide)|swallowed\s*(bleach|poison|battery))\b",
+                RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "⚠️ Emergency: Suspected acute poisoning or drug overdose. Call the National Poison Information Centre or 1990 / 119 immediately. Do not induce vomiting unless advised by medical staff."
+        )
+    ];
+
     public ClinicalSafetyAgent(ILogger<ClinicalSafetyAgent> logger)
     {
         _logger = logger;
     }
 
+    /// <summary>
+    /// Normalizes raw symptom text: strips zero-width and control characters,
+    /// corrects unambiguous common typos, and collapses whitespace.
+    /// </summary>
+    public static string NormalizeInput(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+
+        // 1. Strip zero-width, invisible, and control characters
+        var cleaned = Regex.Replace(raw, @"[\u200B-\u200D\uFEFF\u0000-\u001F\u007F-\u009F]", string.Empty);
+
+        // 2. Normalize simple common misspellings for red-flag terminology
+        cleaned = Regex.Replace(cleaned, @"\bhart\s*attack\b", "heart attack", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\bseisure\b", "seizure", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\bunconcious\b", "unconscious", RegexOptions.IgnoreCase);
+
+        // 3. Collapse whitespace and trim
+        return Regex.Replace(cleaned, @"\s+", " ").Trim();
+    }
+
     public SafetyEvaluationResult EvaluateSafety(string symptoms)
     {
-        var input = symptoms?.Trim() ?? string.Empty;
+        var normalized = NormalizeInput(symptoms);
 
-        // 1. Word count & length gate
-        var words = input.Split([' ', '\t', '\n', '\r', ',', ';'], StringSplitOptions.RemoveEmptyEntries);
+        // ───────────────────────────────────────────────────────────────────────
+        // STEP 1: RED-FLAG EMERGENCY CHECK (RUNS FIRST ON NORMALIZED INPUT)
+        // A single-word input like "stroke", "seizure", or "unconscious" MUST
+        // trigger an immediate emergency escalation without being blocked by length gates.
+        // ───────────────────────────────────────────────────────────────────────
+        if (!string.IsNullOrEmpty(normalized))
+        {
+            foreach (var (code, pattern, message) in RedFlagRules)
+            {
+                if (pattern.IsMatch(normalized))
+                {
+                    _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Input='{Input}'",
+                        AgentName, code, normalized.Length > 60 ? normalized[..57] + "..." : normalized);
+
+                    return new SafetyEvaluationResult
+                    {
+                        IsSafeToTriage = false,
+                        Status = "SAFETY_ESCALATION",
+                        RedFlagCode = code,
+                        SafetyMessage = message,
+                        Reason = "Immediate emergency medical attention required."
+                    };
+                }
+            }
+        }
+
+        // ───────────────────────────────────────────────────────────────────────
+        // STEP 2: WORD COUNT & INPUT LENGTH GATE (NON-EMERGENCY ONLY)
+        // ───────────────────────────────────────────────────────────────────────
+        var words = normalized.Split([' ', '\t', '\n', '\r', ',', ';'], StringSplitOptions.RemoveEmptyEntries);
         if (words.Length < 2)
         {
-            _logger.LogInformation("[{Agent}] Input too short (< 2 words): '{Input}'", AgentName, input);
+            _logger.LogInformation("[{Agent}] Input too short (< 2 words): '{Input}'", AgentName, normalized);
             return new SafetyEvaluationResult
             {
                 IsSafeToTriage = false,
@@ -105,10 +201,10 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
             };
         }
 
-        var lower = input.ToLowerInvariant();
+        var lower = normalized.ToLowerInvariant();
         if (IsGreetingOrNonsense(lower))
         {
-            _logger.LogInformation("[{Agent}] Greeting or nonsense detected: '{Input}'", AgentName, input);
+            _logger.LogInformation("[{Agent}] Greeting or nonsense detected: '{Input}'", AgentName, normalized);
             return new SafetyEvaluationResult
             {
                 IsSafeToTriage = false,
@@ -117,29 +213,18 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
             };
         }
 
-        // 2. Vague symptom check
-        var vagueResult = CheckVagueInput(input);
+        // ───────────────────────────────────────────────────────────────────────
+        // STEP 3: VAGUE SYMPTOM CHECK
+        // ───────────────────────────────────────────────────────────────────────
+        var vagueResult = CheckVagueInput(normalized);
         if (vagueResult != null)
         {
             return vagueResult;
         }
 
-        // 3. Red flag emergency rules
-        foreach (var (pattern, message) in RedFlagPatterns)
-        {
-            if (pattern.IsMatch(input))
-            {
-                _logger.LogWarning("[{Agent}] Emergency red flag triggered for input: '{Input}'", AgentName, input);
-                return new SafetyEvaluationResult
-                {
-                    IsSafeToTriage = false,
-                    Status = "SAFETY_ESCALATION",
-                    SafetyMessage = message,
-                    Reason = "Immediate emergency medical attention required."
-                };
-            }
-        }
-
+        // ───────────────────────────────────────────────────────────────────────
+        // STEP 4: PASSED ALL SAFETY GATES
+        // ───────────────────────────────────────────────────────────────────────
         return new SafetyEvaluationResult
         {
             IsSafeToTriage = true,
@@ -150,6 +235,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
 
     private static bool IsGreetingOrNonsense(string lower)
     {
+        if (GreetingRegex.IsMatch(lower)) return true;
         var words = lower.Split([' ', ',', '.', '!', '?'], StringSplitOptions.RemoveEmptyEntries);
         if (words.All(w => GreetingOnlyWords.Contains(w))) return true;
         // Pure digit / punctuation only

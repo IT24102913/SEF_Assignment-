@@ -121,6 +121,7 @@ public class DoctorRecommendationAgent
                 {
                     WorkflowId = workflowId,
                     Status = finalStatus,
+                    RedFlagCode = safetyEval.RedFlagCode,
                     Reason = reason,
                     SafetyMessage = safetyMessage,
                     FollowUpQuestions = followUpQuestions,

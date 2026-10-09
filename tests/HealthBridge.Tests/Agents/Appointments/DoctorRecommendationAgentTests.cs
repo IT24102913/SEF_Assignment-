@@ -92,6 +92,8 @@ public class DoctorRecommendationAgentTests
     [InlineData("ok fine")]
     [InlineData("test qwerty")]
     [InlineData("123 456")]
+    [InlineData("hi doctor")]
+    [InlineData("good morning")]
     public async Task RunAsync_WhenGreetingOrNonsensePhrases_ReturnsInputInvalid(string input)
     {
         // Arrange
@@ -107,9 +109,8 @@ public class DoctorRecommendationAgentTests
     }
 
     [Theory]
-    [InlineData("hi doctor")]
-    [InlineData("good morning")]
     [InlineData("random sentence with no medical symptoms whatsoever")]
+    [InlineData("the quick brown fox jumps over the lazy dog")]
     public async Task RunAsync_WhenNonMedicalInput_FallsBackToSafeFailure(string input)
     {
         // Arrange
@@ -141,6 +142,7 @@ public class DoctorRecommendationAgentTests
 
         // Assert
         Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(RedFlagCodes.Cardiac, result.RedFlagCode);
         Assert.NotNull(result.SafetyMessage);
         Assert.Contains("Emergency", result.SafetyMessage);
         Assert.Contains("1990", result.SafetyMessage);
@@ -158,6 +160,7 @@ public class DoctorRecommendationAgentTests
 
         // Assert
         Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(RedFlagCodes.Stroke, result.RedFlagCode);
         Assert.NotNull(result.SafetyMessage);
         Assert.Contains("stroke", result.SafetyMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("1990", result.SafetyMessage);
@@ -175,8 +178,28 @@ public class DoctorRecommendationAgentTests
 
         // Assert
         Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(RedFlagCodes.Unconscious, result.RedFlagCode);
         Assert.NotNull(result.SafetyMessage);
         Assert.Contains("Emergency", result.SafetyMessage);
+    }
+
+    [Theory]
+    [InlineData("stroke", RedFlagCodes.Stroke)]
+    [InlineData("seizure", RedFlagCodes.Seizure)]
+    [InlineData("unconscious", RedFlagCodes.Unconscious)]
+    public async Task RunAsync_WhenSingleWordEmergency_EscalatesToEmergencyBeforeLengthGate(string emergencyWord, string expectedCode)
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync(emergencyWord, patientId: null);
+
+        // Assert: Red flag must run before length gate
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(expectedCode, result.RedFlagCode);
+        Assert.NotNull(result.SafetyMessage);
     }
 
     // ─── 3. Golden Clinical Test Cases ────────────────────────────────────────
