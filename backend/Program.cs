@@ -12,6 +12,9 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Enforce HttpClient logging level at Warning so outgoing URLs and headers are never logged
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+
 // Railway dynamic PORT binding (defaults to standard ports locally)
 var port = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrEmpty(port))
@@ -25,7 +28,7 @@ var rawConnectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_PUBLIC_URL")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' or 'DATABASE_URL' not found. In Railway, ensure DATABASE_URL is set in Variables.");
+    ?? "Host=localhost;Port=5432;Database=healthbridge_db;Username=postgres;Password=123";
 
 var connectionString = ProgramHelper.ParsePostgreSqlConnectionString(rawConnectionString);
 
