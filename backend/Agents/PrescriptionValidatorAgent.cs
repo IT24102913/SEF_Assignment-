@@ -682,7 +682,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         // ─────────────────────────────────────────────────────────────
         // Build final response
         // ─────────────────────────────────────────────────────────────
-        return new AIPpVerificationResponse
+        var response = new AIPpVerificationResponse
         {
             // Primary status
             Status = status,
@@ -705,6 +705,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
             // Clinical data
             ExtractedTests = drugNames,
             DrugNames = drugNames,
+            Medicines = drugNames.Select(d => new ExtractedMedicineInfoDto { Name = d }).ToList(),
 
             // Document fields
             RequestedTest = requestedTestName,
@@ -741,6 +742,124 @@ REQUESTED ITEM: ""{requestedTestName}""";
             Notes = $"AI SUGGESTION [{safety.Verdict}]: {safety.Reasoning}",
             AuditLog = $"Processed at {DateTime.UtcNow:O} — Verdict: {safety.Verdict}, Risk: {riskScore}/100"
         };
+
+        var quality = AssessExtractionQuality(response);
+        response.ExtractionQuality = quality;
+
+        if (response.ExtractionQuality.RequiresManualReview)
+        {
+            foreach (var reason in response.ExtractionQuality.Reasons)
+                response.SecurityFlags.Add($"⚠️ {reason}");
+            if (response.Status == "PRE_APPROVED")
+                response.Status = "FLAGGED";
+        }
+        else
+        {
+            // Warnings are INFO-only, never blocking
+            foreach (var warning in response.ExtractionQuality.Warnings)
+                response.SecurityFlags.Add($"INFO: {warning}");
+        }
+
+        return response;
+    }
+
+    private static ExtractionQuality AssessExtractionQuality(
+        AIPpVerificationResponse response)
+    {
+        var quality = new ExtractionQuality();
+
+        double conf = response.ExtractionConfidence;
+        bool hasMedicines = response.Medicines != null 
+            && response.Medicines.Count > 0;
+        bool hasPatientName = !string.IsNullOrWhiteSpace(
+            response.Patient?.Name);
+
+        // ═══════════════════════════════════════════════════
+        // RULE 1 — If nothing was extracted, we cannot trust
+        // anything. This is LOW quality.
+        // ═══════════════════════════════════════════════════
+        if (conf < 0.5 || !hasMedicines)
+        {
+            quality.Tier = "LOW";
+            quality.RequiresManualReview = true;
+            if (!hasMedicines)
+                quality.Reasons.Add(
+                    "No medicines detected on prescription");
+            if (conf < 0.5)
+                quality.Reasons.Add(
+                    $"Extraction confidence too low ({conf:F2})");
+            return quality;
+        }
+
+        // ═══════════════════════════════════════════════════
+        // RULE 2 — Patient name missing means we cannot verify
+        // the prescription belongs to the ordering customer.
+        // This is MEDIUM quality — flag for review.
+        // ═══════════════════════════════════════════════════
+        if (!hasPatientName)
+        {
+            quality.Tier = "MEDIUM";
+            quality.RequiresManualReview = true;
+            quality.Reasons.Add(
+                "Patient name missing — cannot verify prescription " +
+                "belongs to order customer");
+            return quality;
+        }
+
+        // ═══════════════════════════════════════════════════
+        // RULE 3 — Patient name + medicines + reasonable
+        // confidence = HIGH quality. Everything else is
+        // optional. Do NOT flag for missing gender, phone,
+        // email, address, age, diagnosis, doctor specialty,
+        // registration number.
+        // ═══════════════════════════════════════════════════
+        if (conf >= 0.7)
+        {
+            quality.Tier = "HIGH";
+            quality.RequiresManualReview = false;
+        }
+        else
+        {
+            // Confidence between 0.5 and 0.7 = medium concern
+            quality.Tier = "MEDIUM";
+            quality.RequiresManualReview = true;
+            quality.Reasons.Add(
+                $"Moderate extraction confidence ({conf:F2})");
+        }
+
+        // ═══════════════════════════════════════════════════
+        // OPTIONAL: Info-level warnings — do NOT block, just
+        // inform the pharmacist in the audit trail.
+        // ═══════════════════════════════════════════════════
+        
+        int medsMissingDosage = response.Medicines
+            .Count(m => string.IsNullOrWhiteSpace(m.Dosage));
+        if (medsMissingDosage > 0)
+        {
+            quality.Warnings.Add(
+                $"{medsMissingDosage} medicine(s) missing dosage info — " +
+                "pharmacist should verify");
+        }
+
+        int medsMissingFrequency = response.Medicines
+            .Count(m => string.IsNullOrWhiteSpace(m.Frequency));
+        if (medsMissingFrequency > 0)
+        {
+            quality.Warnings.Add(
+                $"{medsMissingFrequency} medicine(s) missing frequency info");
+        }
+
+        // Info about missing optional fields — informational only
+        if (string.IsNullOrWhiteSpace(response.Hospital?.Name))
+            quality.Warnings.Add("Hospital/clinic name not detected");
+
+        if (string.IsNullOrWhiteSpace(response.Doctor?.Name))
+            quality.Warnings.Add("Doctor name not detected");
+
+        if (string.IsNullOrWhiteSpace(response.PrescriptionMeta?.DateWritten))
+            quality.Warnings.Add("Prescription date not detected");
+
+        return quality;
     }
 
     // ═══════════════════════════════════════════════════════════════════

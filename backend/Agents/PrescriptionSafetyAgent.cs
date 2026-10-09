@@ -178,6 +178,14 @@ public class PrescriptionSafetyAgent
                             {
                                 foreach (var flag in visionValidation.SecurityFlags)
                                 {
+                                    // INFO flags never count as violations
+                                    if (flag.StartsWith("INFO:"))
+                                    {
+                                        if (!verifiedSignals.Contains(flag))
+                                            verifiedSignals.Add(flag);
+                                        continue;
+                                    }
+
                                     // Skip the generic "Stage 1 extraction failed" (already handled above)
                                     if (flag.Contains("Stage 1 extraction failed")) continue;
 
