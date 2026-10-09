@@ -52,6 +52,13 @@ public class MedicineService : IMedicineService
             throw new ArgumentException("Stock quantity cannot be negative.");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.ImageUrl) &&
+            (request.ImageUrl.Trim().StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase) ||
+             request.ImageUrl.Trim().StartsWith("https://localhost", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("Please upload the image from device storage");
+        }
+
         var medicine = new Medicine
         {
             Name = request.Name.Trim(),
@@ -118,6 +125,16 @@ public class MedicineService : IMedicineService
             throw new ArgumentException("Stock quantity cannot be negative.");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.ImageUrl) &&
+            (request.ImageUrl.Trim().StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase) ||
+             request.ImageUrl.Trim().StartsWith("https://localhost", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (medicine.ImageUrl == null || !medicine.ImageUrl.Equals(request.ImageUrl.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Please upload the image from device storage");
+            }
+        }
+
         medicine.Name = request.Name.Trim();
         medicine.CategoryId = request.CategoryId;
         medicine.Category = category;
@@ -126,7 +143,14 @@ public class MedicineService : IMedicineService
         medicine.StockQuantity = request.StockQuantity;
         medicine.ExpiryDate = DateTime.SpecifyKind(request.ExpiryDate, DateTimeKind.Utc);
         medicine.RequiresPrescription = request.RequiresPrescription;
-        medicine.ImageUrl = request.ImageUrl?.Trim();
+        if (request.ClearImage)
+        {
+            medicine.ImageUrl = null;
+        }
+        else if (!string.IsNullOrWhiteSpace(request.ImageUrl))
+        {
+            medicine.ImageUrl = request.ImageUrl.Trim();
+        }
         medicine.BrandName = request.BrandName?.Trim() ?? medicine.BrandName;
         medicine.StorageCondition = request.StorageCondition?.Trim() ?? medicine.StorageCondition;
         medicine.PillsPerCard = request.PillsPerCard > 0 ? request.PillsPerCard : medicine.PillsPerCard;
