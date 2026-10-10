@@ -247,6 +247,73 @@ class _MyPharmacyOrdersPageState extends State<MyPharmacyOrdersPage> {
   }
 
   void _showDeleteOrderDialog(PharmacyOrderModel order) {
+    // Check if cancel countdown is running
+    final placed = order.createdAt.millisecondsSinceEpoch;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final elapsed = (now - placed) / 1000;
+    final secsLeft = (21600 - elapsed).toInt();
+    final canCancel = !['Dispatched', 'Delivered', 'Cancelled'].contains(order.status) && secsLeft > 0;
+
+    if (canCancel) {
+      final h = secsLeft ~/ 3600;
+      final m = (secsLeft % 3600) ~/ 60;
+      final s = secsLeft % 60;
+      final timeStr = '${h}h ${m}m ${s}s';
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Please Cancel Order First',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Order ${order.orderNumber} is currently active and within the free cancellation window ($timeStr remaining).',
+                style: const TextStyle(fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Please cancel this order before deleting it from your order history.',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFFB91C1C), height: 1.4),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showCancelOrderDialog(order);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Cancel Order Now'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

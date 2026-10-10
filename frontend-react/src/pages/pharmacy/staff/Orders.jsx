@@ -1518,25 +1518,74 @@ const Orders = () => {
                                 />
                             </div>
 
+                            {selectedOrder.status === 'Cancelled' && (
+                                <div style={{
+                                    background: '#FEF2F2',
+                                    border: '1px solid #FECACA',
+                                    borderRadius: '10px',
+                                    padding: '10px 14px',
+                                    marginBottom: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    fontSize: '12.5px',
+                                    fontWeight: 700,
+                                    color: '#991B1B'
+                                }}>
+                                    <AlertCircle size={16} color="#DC2626" />
+                                    This order has been cancelled by the patient. Approval and dispatch actions are disabled.
+                                </div>
+                            )}
+
                             <div style={styles.modalActionsGrid}>
                                 <button
                                     onClick={() => handleUpdateStatus(selectedOrder.id, 'Approved')}
-                                    disabled={actionLoading}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#0284C7' }}
+                                    disabled={actionLoading || selectedOrder.status === 'Cancelled'}
+                                    style={{
+                                        ...styles.actionBtnPrimary,
+                                        backgroundColor: '#0284C7',
+                                        ...(selectedOrder.status === 'Cancelled' ? {
+                                            opacity: 0.38,
+                                            cursor: 'not-allowed',
+                                            filter: 'grayscale(0.85) blur(0.5px)',
+                                            pointerEvents: 'none'
+                                        } : {})
+                                    }}
+                                    title={selectedOrder.status === 'Cancelled' ? "Cannot approve a cancelled order" : undefined}
                                 >
                                     <CheckCircle2 size={16} /> Approve &amp; Send Quote
                                 </button>
                                 <button
                                     onClick={() => handleUpdateStatus(selectedOrder.id, 'Dispatched')}
-                                    disabled={actionLoading}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#0D9488' }}
+                                    disabled={actionLoading || selectedOrder.status === 'Cancelled'}
+                                    style={{
+                                        ...styles.actionBtnPrimary,
+                                        backgroundColor: '#0D9488',
+                                        ...(selectedOrder.status === 'Cancelled' ? {
+                                            opacity: 0.38,
+                                            cursor: 'not-allowed',
+                                            filter: 'grayscale(0.85) blur(0.5px)',
+                                            pointerEvents: 'none'
+                                        } : {})
+                                    }}
+                                    title={selectedOrder.status === 'Cancelled' ? "Cannot dispatch a cancelled order" : undefined}
                                 >
                                     <Truck size={16} /> Dispatch Order
                                 </button>
                                 <button
                                     onClick={() => handleUpdateStatus(selectedOrder.id, 'Cancelled')}
-                                    disabled={actionLoading}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#DC2626' }}
+                                    disabled={actionLoading || selectedOrder.status === 'Cancelled'}
+                                    style={{
+                                        ...styles.actionBtnPrimary,
+                                        backgroundColor: '#DC2626',
+                                        ...(selectedOrder.status === 'Cancelled' ? {
+                                            opacity: 0.38,
+                                            cursor: 'not-allowed',
+                                            filter: 'grayscale(0.85) blur(0.5px)',
+                                            pointerEvents: 'none'
+                                        } : {})
+                                    }}
+                                    title={selectedOrder.status === 'Cancelled' ? "Order is already cancelled" : undefined}
                                 >
                                     <XCircle size={16} /> Reject Order
                                 </button>

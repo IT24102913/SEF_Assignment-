@@ -740,7 +740,7 @@ const DashboardHome = ({ user, onNavigate }) => {
                 let localOrders = [];
                 try {
                     localOrders = JSON.parse(localStorage.getItem('medix_pharmacy_orders') || '[]');
-                } catch (e) {}
+                } catch (e) { }
 
                 const orderMap = new Map();
                 [...apiOrders, ...localOrders].forEach(o => {
@@ -754,12 +754,12 @@ const DashboardHome = ({ user, onNavigate }) => {
                 });
 
                 // Pending orders are those that are not Delivered and not Cancelled/Rejected
-                pendingOrdersCount = allOrders.filter(o => 
+                pendingOrdersCount = allOrders.filter(o =>
                     !['delivered', 'cancelled', 'rejected'].includes((o.status || '').toLowerCase())
                 ).length;
 
                 // Rx orders
-                const rxOrders = allOrders.filter(o => 
+                const rxOrders = allOrders.filter(o =>
                     (o.prescriptionImageUrl || (o.items && o.items.some(i => i.requiresPrescription))) &&
                     !['cancelled', 'rejected'].includes((o.status || '').toLowerCase())
                 ).length;
@@ -786,7 +786,7 @@ const DashboardHome = ({ user, onNavigate }) => {
                 const res = await getMyBookings(patientId || 1, userEmail);
                 const raw = res?.data || res || [];
                 const bookings = Array.isArray(raw) ? raw : (raw.data || raw.items || []);
-                labCount = bookings.filter(b => 
+                labCount = bookings.filter(b =>
                     !['cancelled', 'rejected'].includes((b.status || '').toLowerCase())
                 ).length;
             } catch (e) {
@@ -797,7 +797,7 @@ const DashboardHome = ({ user, onNavigate }) => {
             try {
                 const res = await getMyAppointments({ patientId, email: userEmail });
                 const appointments = Array.isArray(res?.data) ? res.data : [];
-                appointmentsCount = appointments.filter(a => 
+                appointmentsCount = appointments.filter(a =>
                     !['cancelled', 'rejected'].includes((a.status || '').toLowerCase())
                 ).length;
             } catch (e) {
@@ -820,107 +820,107 @@ const DashboardHome = ({ user, onNavigate }) => {
     }, [user]);
 
     return (
-    <div style={{ maxWidth: '1180px', margin: '0 auto' }}>
-        {/* 1. Welcome Banner - Mint Green with Crisp White Text */}
-        <div style={{
-            background: 'linear-gradient(135deg, #059669 0%, #0D9488 100%)',
-            borderRadius: '22px',
-            padding: '30px 36px',
-            boxShadow: '0 12px 30px rgba(5, 150, 105, 0.28)',
-            marginBottom: '28px',
-            color: '#FFFFFF'
-        }}>
-            <div style={{ fontSize: '26px', fontWeight: 900, color: '#FFFFFF', marginBottom: '8px', letterSpacing: '-0.4px' }}>
-                Welcome back, {user?.fullName || 'Brock'}! 👋
-            </div>
-            <p style={{ fontSize: '14.5px', color: 'rgba(255, 255, 255, 0.95)', lineHeight: 1.6, margin: '0 0 18px', maxWidth: '650px' }}>
-                Access channeling, pharmacy delivery, and lab reports all in one secured portal.
-            </p>
-            <div style={{ display: 'flex', gap: '10px' }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', padding: '5px 14px', borderRadius: '999px', fontSize: '12px', fontWeight: 800, color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.35)' }}>
-                    <ShieldCheck size={14} color="#FFFFFF" /> HIPAA Secured
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', padding: '5px 14px', borderRadius: '999px', fontSize: '12px', fontWeight: 800, color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.35)' }}>
-                    <Activity size={14} color="#FFFFFF" /> Health Active
-                </span>
-            </div>
-        </div>
-
-        {/* 2. Hospital Building Hero Banner */}
-        <HospitalHeroBanner onNavigate={onNavigate} />
-
-        {/* 3. Dark Modern Quick Stats Widgets */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '18px', marginBottom: '36px' }}>
-            {[
-                { label: 'Active Prescriptions', value: stats.prescriptions, icon: Pill, color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', border: 'rgba(167,139,250,0.3)', tab: 'orders' },
-                { label: 'Lab Tests Booked', value: stats.labTests, icon: FlaskConical, color: '#FBBF24', bg: 'rgba(251,191,36,0.15)', border: 'rgba(251,191,36,0.3)', tab: 'labs' },
-                { label: 'Pending Orders', value: stats.pendingOrders, icon: ClipboardList, color: '#2DD4BF', bg: 'rgba(45,212,191,0.15)', border: 'rgba(45,212,191,0.3)', tab: 'orders' },
-                { label: 'Appointments', value: stats.appointments, icon: CalendarDays, color: '#60A5FA', bg: 'rgba(96,165,250,0.15)', border: 'rgba(96,165,250,0.3)', tab: 'channeling' },
-            ].map(({ label, value, icon: Icon, color, bg, border, tab }) => (
-                <div key={label}
-                    onClick={() => tab && onNavigate(tab)}
-                    style={{
-                        background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
-                        borderRadius: '20px',
-                        padding: '20px 22px',
-                        border: `1.5px solid ${border}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '18px',
-                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-                        transition: 'all 0.25s ease',
-                        cursor: tab ? 'pointer' : 'default',
-                    }}>
-                    <div style={{
-                        width: '50px',
-                        height: '50px',
-                        borderRadius: '15px',
-                        background: bg,
-                        border: `1px solid ${border}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxShadow: `0 0 15px ${bg}`,
-                    }}>
-                        <Icon size={24} color={color} />
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '26px', fontWeight: 900, color: '#F8FAFC', letterSpacing: '-0.5px' }}>{value}</div>
-                        <div style={{ fontSize: '12.5px', color: '#94A3B8', fontWeight: 600, marginTop: '2px' }}>{label}</div>
-                    </div>
+        <div style={{ maxWidth: '1180px', margin: '0 auto' }}>
+            {/* 1. Welcome Banner - Mint Green with Crisp White Text */}
+            <div style={{
+                background: 'linear-gradient(135deg, #059669 0%, #0D9488 100%)',
+                borderRadius: '22px',
+                padding: '30px 36px',
+                boxShadow: '0 12px 30px rgba(5, 150, 105, 0.28)',
+                marginBottom: '28px',
+                color: '#FFFFFF'
+            }}>
+                <div style={{ fontSize: '26px', fontWeight: 900, color: '#FFFFFF', marginBottom: '8px', letterSpacing: '-0.4px' }}>
+                    Welcome back, {user?.fullName || 'Brock'}! 👋
                 </div>
-            ))}
-        </div>
-
-        {/* 4. Core Service Widget Cards (Dark Glassmorphic Theme) */}
-        <div style={{ marginBottom: '36px' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 16px' }}>
-                <HeartPulse size={20} color="#0D9488" /> Core Healthcare Portal Services
-            </h2>
-            <ServiceWidgetCards onNavigate={onNavigate} />
-        </div>
-
-        {/* 5. OUR SERVICES informational grid */}
-        <OurServicesGrid />
-
-        {/* 6. Dark Health Tips */}
-        <AnimatedDailyTips />
-
-        {/* 7. Trust & Facilities */}
-        <CompanyTrustAndFacilities />
-
-        {/* 8. Emergency Notice */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '16px', padding: '18px 22px', marginTop: '8px' }}>
-            <AlertCircle size={20} color="#2563EB" />
-            <div>
-                <strong style={{ fontSize: '14px' }}>Emergency Contacts</strong>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#475569' }}>
-                    Health Bridge Emergency: <strong>+94 76 447 7999</strong> &nbsp;|&nbsp; Support: <strong>help@healthbridge.com</strong>
+                <p style={{ fontSize: '14.5px', color: 'rgba(255, 255, 255, 0.95)', lineHeight: 1.6, margin: '0 0 18px', maxWidth: '650px' }}>
+                    Access channeling, pharmacy delivery, and lab reports all in one secured portal.
                 </p>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', padding: '5px 14px', borderRadius: '999px', fontSize: '12px', fontWeight: 800, color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.35)' }}>
+                        <ShieldCheck size={14} color="#FFFFFF" /> HIPAA Secured
+                    </span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', padding: '5px 14px', borderRadius: '999px', fontSize: '12px', fontWeight: 800, color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.35)' }}>
+                        <Activity size={14} color="#FFFFFF" /> Health Active
+                    </span>
+                </div>
+            </div>
+
+            {/* 2. Hospital Building Hero Banner */}
+            <HospitalHeroBanner onNavigate={onNavigate} />
+
+            {/* 3. Dark Modern Quick Stats Widgets */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '18px', marginBottom: '36px' }}>
+                {[
+                    { label: 'Active Prescriptions', value: stats.prescriptions, icon: Pill, color: '#A78BFA', bg: 'rgba(167,139,250,0.15)', border: 'rgba(167,139,250,0.3)', tab: 'orders' },
+                    { label: 'Lab Tests Booked', value: stats.labTests, icon: FlaskConical, color: '#FBBF24', bg: 'rgba(251,191,36,0.15)', border: 'rgba(251,191,36,0.3)', tab: 'labs' },
+                    { label: 'Pending Orders', value: stats.pendingOrders, icon: ClipboardList, color: '#2DD4BF', bg: 'rgba(45,212,191,0.15)', border: 'rgba(45,212,191,0.3)', tab: 'orders' },
+                    { label: 'Appointments', value: stats.appointments, icon: CalendarDays, color: '#60A5FA', bg: 'rgba(96,165,250,0.15)', border: 'rgba(96,165,250,0.3)', tab: 'channeling' },
+                ].map(({ label, value, icon: Icon, color, bg, border, tab }) => (
+                    <div key={label}
+                        onClick={() => tab && onNavigate(tab)}
+                        style={{
+                            background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+                            borderRadius: '20px',
+                            padding: '20px 22px',
+                            border: `1.5px solid ${border}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '18px',
+                            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+                            transition: 'all 0.25s ease',
+                            cursor: tab ? 'pointer' : 'default',
+                        }}>
+                        <div style={{
+                            width: '50px',
+                            height: '50px',
+                            borderRadius: '15px',
+                            background: bg,
+                            border: `1px solid ${border}`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: `0 0 15px ${bg}`,
+                        }}>
+                            <Icon size={24} color={color} />
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '26px', fontWeight: 900, color: '#F8FAFC', letterSpacing: '-0.5px' }}>{value}</div>
+                            <div style={{ fontSize: '12.5px', color: '#94A3B8', fontWeight: 600, marginTop: '2px' }}>{label}</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* 4. Core Service Widget Cards (Dark Glassmorphic Theme) */}
+            <div style={{ marginBottom: '36px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 16px' }}>
+                    <HeartPulse size={20} color="#0D9488" /> Core Healthcare Portal Services
+                </h2>
+                <ServiceWidgetCards onNavigate={onNavigate} />
+            </div>
+
+            {/* 5. OUR SERVICES informational grid */}
+            <OurServicesGrid />
+
+            {/* 6. Dark Health Tips */}
+            <AnimatedDailyTips />
+
+            {/* 7. Trust & Facilities */}
+            <CompanyTrustAndFacilities />
+
+            {/* 8. Emergency Notice */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '16px', padding: '18px 22px', marginTop: '8px' }}>
+                <AlertCircle size={20} color="#2563EB" />
+                <div>
+                    <strong style={{ fontSize: '14px' }}>Emergency Contacts</strong>
+                    <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#475569' }}>
+                        Health Bridge Emergency: <strong>+94 76 447 7999</strong> &nbsp;|&nbsp; Support: <strong>help@healthbridge.com</strong>
+                    </p>
+                </div>
             </div>
         </div>
-    </div>
-  );
+    );
 };
 
 /* ─── Footer (Mint Green Theme with Clear White Letters) ─────── */
@@ -996,6 +996,7 @@ const PatientOrders = ({ user, onNavigate }) => {
     const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
     const [viewRxModal, setViewRxModal] = useState(null);
     const [cancelConfirmOrder, setCancelConfirmOrder] = useState(null);
+    const [cancelFirstAlertOrder, setCancelFirstAlertOrder] = useState(null);
     const [cancellingOrder, setCancellingOrder] = useState(false);
     const [now, setNow] = useState(Date.now());
 
@@ -1124,11 +1125,16 @@ const PatientOrders = ({ user, onNavigate }) => {
         finally { setCancellingOrder(false); setCancelConfirmOrder(null); }
     };
 
-    const handleDeletePatientOrder = async (orderId) => {
-        if (!window.confirm('Are you sure you want to delete this order from your order history?')) return;
+    const handleDeletePatientOrder = async (order) => {
+        if (!order) return;
+        if (canCancel(order)) {
+            setCancelFirstAlertOrder(order);
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to delete order ${order.orderNumber || ''} from your order history?`)) return;
         try {
-            try { await api.delete(`/PharmacyOrders/${orderId}`); } catch (e) { console.warn('Delete API fallback:', e); }
-            const updated = orders.filter(o => o.id !== orderId);
+            try { await api.delete(`/PharmacyOrders/${order.id}`); } catch (e) { console.warn('Delete API fallback:', e); }
+            const updated = orders.filter(o => o.id !== order.id);
             setOrders(updated);
             try { localStorage.setItem('medix_pharmacy_orders', JSON.stringify(updated)); } catch (e) { }
             showToast('Order removed from your order history.', 'success');
@@ -1390,7 +1396,7 @@ const PatientOrders = ({ user, onNavigate }) => {
                                             ✕ Cancel Order
                                         </button>
                                     )}
-                                    <button onClick={() => handleDeletePatientOrder(order.id)} style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '11px 14px', borderRadius: '12px', fontWeight: 700, fontSize: '12.5px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }} title="Delete Order from History">
+                                    <button onClick={() => handleDeletePatientOrder(order)} style={{ background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', padding: '11px 14px', borderRadius: '12px', fontWeight: 700, fontSize: '12.5px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }} title="Delete Order from History">
                                         <Trash2 size={15} /> Delete
                                     </button>
                                 </div>
@@ -1469,6 +1475,39 @@ const PatientOrders = ({ user, onNavigate }) => {
                             </button>
                             <button onClick={handleCancelOrder} disabled={cancellingOrder} style={{ flex: 1, padding: '13px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #DC2626, #B91C1C)', color: '#FFF', fontWeight: 800, fontSize: '14px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
                                 {cancellingOrder ? 'Cancelling...' : 'Yes, Cancel Order'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Cancel First Alert Modal */}
+            {cancelFirstAlertOrder && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(5px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={() => setCancelFirstAlertOrder(null)}>
+                    <div style={{ background: '#FFF', borderRadius: '22px', width: '100%', maxWidth: '440px', padding: '30px 28px', boxShadow: '0 25px 50px rgba(0,0,0,0.25)', textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1.5px solid #FECACA' }}>
+                            <AlertCircle size={28} color="#DC2626" />
+                        </div>
+                        <h3 style={{ fontSize: '19px', fontWeight: 900, color: '#0F172A', margin: '0 0 8px' }}>Please Cancel Order First</h3>
+                        <p style={{ fontSize: '13.5px', color: '#64748B', margin: '0 0 14px', lineHeight: 1.55 }}>
+                            Order <strong style={{ color: '#0F172A' }}>{cancelFirstAlertOrder.orderNumber}</strong> has an active cancellation countdown running. Please cancel this order before deleting it from your order history.
+                        </p>
+                        {formatCountdown(getCancelSecondsLeft(cancelFirstAlertOrder)) && (
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '8px', padding: '6px 14px', marginBottom: '22px', fontSize: '12.5px', fontWeight: 700, color: '#92400E' }}>
+                                <Clock size={14} color="#D97706" />
+                                Free cancel window: <span style={{ color: '#D97706' }}>{formatCountdown(getCancelSecondsLeft(cancelFirstAlertOrder))}</span> remaining
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={() => setCancelFirstAlertOrder(null)} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '1.5px solid #CBD5E1', background: '#FFF', color: '#334155', fontWeight: 700, fontSize: '13.5px', cursor: 'pointer' }}>
+                                Close
+                            </button>
+                            <button onClick={() => {
+                                const ord = cancelFirstAlertOrder;
+                                setCancelFirstAlertOrder(null);
+                                setCancelConfirmOrder(ord);
+                            }} style={{ flex: 1.2, padding: '12px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, #DC2626, #B91C1C)', color: '#FFF', fontWeight: 800, fontSize: '13.5px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(220,38,38,0.25)' }}>
+                                Cancel Order Now
                             </button>
                         </div>
                     </div>
