@@ -1504,4 +1504,44 @@ public class DoctorRecommendationAgentTests
         Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
         Assert.Equal(Guid.Empty, result.WorkflowId);
     }
+
+    // ─── Change 9: Stateless RunPipelineAsync Tests ──────────────────────────
+
+    [Fact]
+    public async Task RunPipelineAsync_DoesNotPersistWorkflow_WhereasRunAsyncPersistsExactlyOneRow()
+    {
+        const string symptoms = "Persistent skin rash with itchy red bumps on arms for 5 days";
+        const int patientId = 42;
+
+        using var pipelineContext = CreateInMemoryDbContext();
+        var pipelineAgent = CreateAgent(pipelineContext);
+
+        var pipelineCountBefore = await pipelineContext.RecommendationWorkflows.CountAsync();
+        var pipelineResult = await pipelineAgent.RunPipelineAsync(symptoms, patientId);
+        var pipelineCountAfter = await pipelineContext.RecommendationWorkflows.CountAsync();
+
+        // 1. Assert RunPipelineAsync does not add rows to RecommendationWorkflows
+        Assert.Equal(0, pipelineCountBefore);
+        Assert.Equal(0, pipelineCountAfter);
+        Assert.Equal("RECOMMENDATION_READY", pipelineResult.Status);
+        Assert.Equal("Dermatology", pipelineResult.Specialty);
+
+        using var runContext = CreateInMemoryDbContext();
+        var runAgent = CreateAgent(runContext);
+
+        var runCountBefore = await runContext.RecommendationWorkflows.CountAsync();
+        var runResult = await runAgent.RunAsync(symptoms, patientId);
+        var runCountAfter = await runContext.RecommendationWorkflows.CountAsync();
+
+        // 2. Assert RunAsync adds exactly one row
+        Assert.Equal(0, runCountBefore);
+        Assert.Equal(1, runCountAfter);
+        Assert.Equal("RECOMMENDATION_READY", runResult.Status);
+        Assert.Equal("Dermatology", runResult.Specialty);
+
+        // 3. Assert both return the same status and specialty for the same input
+        Assert.Equal(pipelineResult.Status, runResult.Status);
+        Assert.Equal(pipelineResult.Specialty, runResult.Specialty);
+        Assert.Equal(pipelineResult.Confidence, runResult.Confidence);
+    }
 }
