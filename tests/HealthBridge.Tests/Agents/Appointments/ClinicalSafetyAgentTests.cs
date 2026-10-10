@@ -223,6 +223,10 @@ public class ClinicalSafetyAgentTests
     [InlineData("no chest pain but mild cough", "SAFE", null)]
     [InlineData("I do not have trouble breathing, just a sore throat", "SAFE", null)]
     [InlineData("choking sensation when swallowing for weeks", "SAFE", null)]
+    [InlineData("ill-fitting dentures hurt my gums", "SAFE", null)]
+    [InlineData("my shoes are fitting tight", "SAFE", null)]
+    [InlineData("standing in the fitting room", "SAFE", null)]
+    [InlineData("can't swallow food for weeks", "SAFE", null)]
     public void EvaluateSafety_OverTriggerAndNegationCases_TargetExpectations(string input, string expectedStatus, string? expectedCode)
     {
         var result = _agent.EvaluateSafety(input);
@@ -246,6 +250,11 @@ public class ClinicalSafetyAgentTests
     [InlineData("no chest pain, but crushing chest pain now", RedFlagCodes.Cardiac)]
     [InlineData("coughing blood", RedFlagCodes.Bleeding)]
     [InlineData("I attempted suicide last year", RedFlagCodes.SelfHarm)]
+    [InlineData("can't swallow and my throat is swelling", RedFlagCodes.Anaphylaxis)]
+    [InlineData("he is fitting and foaming", RedFlagCodes.Seizure)]
+    [InlineData("having a fit", RedFlagCodes.Seizure)]
+    [InlineData("seizure", RedFlagCodes.Seizure)]
+    [InlineData("convulsions", RedFlagCodes.Seizure)]
     public void EvaluateSafety_MustStillEscalateCases(string input, string expectedCode)
     {
         var result = _agent.EvaluateSafety(input);

@@ -1164,4 +1164,19 @@ public class DoctorRecommendationAgentTests
 
         Assert.Empty(results);
     }
+
+    [Fact]
+    public async Task RunAsync_WhenChronicSwallowingDifficulty_ReachesTriageAndRoutesSuccessfully()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("can't swallow food for weeks", patientId: 30);
+
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.NotNull(result.Specialty);
+        Assert.True(result.Specialty == "ENT" || result.Specialty == "General Medicine",
+            $"Expected ENT or General Medicine, but got '{result.Specialty}'.");
+        Assert.Null(result.RedFlagCode);
+    }
 }

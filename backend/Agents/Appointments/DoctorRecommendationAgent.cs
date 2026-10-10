@@ -431,7 +431,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         ),
         (
             RedFlagCodes.Anaphylaxis,
-            new Regex(@"\b(anaphyla\w*|severe\s*allergic\s*reaction|throat\s*swell\w*|tongue\s*swell\w*|airway\s*swell\w*|can'?t\s*swallow)\b",
+            new Regex(@"\b(anaphyla\w*|severe\s*allergic\s*reaction|(?:throat|tongue|airway)\s*(?:is\s*)?swell\w*)\b|can'?t\s*swallow\b.{0,60}\b(throat|tongue|lips?|face)\s*(?:is\s*)?swell\w*|\b(throat|tongue|lips?|face)\s*(?:is\s*)?swell\w*.{0,60}can'?t\s*swallow",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Signs of acute anaphylaxis or airway swelling. Administer an EpiPen if prescribed and call emergency services (1990 / 119) immediately."
         ),
@@ -443,7 +443,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         ),
         (
             RedFlagCodes.Seizure,
-            new Regex(@"\b(seiz\w*|convuls\w*|epileptic\s*fit|fitting)\b",
+            new Regex(@"\b(seiz\w*|convuls\w*|epileptic\s*fit|(?:having|had|having\s+a|had\s+a)\s+(?:a\s+)?fit|fitting\s+(?:and|with)\s+\w+|fits)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Seizures or convulsions require emergency medical care. Ensure the patient is in a safe position, do not restrain them, and call 1990 / 119 immediately."
         ),
@@ -462,7 +462,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
     ];
 
     private static readonly Regex NegativeStatePattern = new(
-        @"\b(not\s*breathing|stopped\s*breathing|cannot\s*breathe|can'?t\s*breathe|not\s*responding|unresponsive\w*|no\s*pulse|pulseless|can'?t\s*speak|cannot\s*speak|can'?t\s*swallow|cannot\s*swallow)\b",
+        @"\b(not\s*breathing|stopped\s*breathing|cannot\s*breathe|can'?t\s*breathe|not\s*responding|unresponsive\w*|no\s*pulse|pulseless|can'?t\s*speak|cannot\s*speak)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex ClauseSeparator = new(
@@ -762,7 +762,7 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
             (new Regex(@"\b(hoarse|hoarseness|voice\s*(change|loss)|vocal\s*cord|larynx)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(snoring|sleep\s*apnea|apnoea|adenoid|polyp)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.0),
             (new Regex(@"\b(ent|otolaryngol|audiolog)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
-            (new Regex(@"\b(swallowing\s*(difficulty|problem)|dysphagia|choking\s*sensation|globus)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
+            (new Regex(@"\b(swallowing\s*(difficulty|problem)|dysphagia|choking\s*sensation|globus|can'?t\s*swallow|cannot\s*swallow)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
         ]),
         ("General Medicine", [
             (new Regex(@"\b(food\s*poisoning|gastroenteritis|stomach\s*bug)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), 2.5),
