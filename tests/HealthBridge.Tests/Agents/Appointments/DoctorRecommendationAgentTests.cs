@@ -79,7 +79,8 @@ public class DoctorRecommendationAgentTests
         IClinicalTriageAgent? triageAgent = null,
         IDoctorSlotAllocationAgent? slotAllocationAgent = null,
         IRecommendationValidationAgent? validationAgent = null,
-        IAgentToolRegistry? toolRegistry = null)
+        IAgentToolRegistry? toolRegistry = null,
+        Microsoft.Extensions.Logging.ILogger<DoctorRecommendationAgent>? coordinatorLogger = null)
     {
         var mockConfig = new Mock<IConfiguration>();
         // Empty API key triggers local deterministic keyword engine and safety rules
@@ -102,7 +103,7 @@ public class DoctorRecommendationAgentTests
             slotAgent,
             valAgent,
             reg,
-            NullLogger<DoctorRecommendationAgent>.Instance);
+            coordinatorLogger ?? NullLogger<DoctorRecommendationAgent>.Instance);
     }
 
     // ─── 1. Input Gate Tests ──────────────────────────────────────────────────
@@ -1243,5 +1244,46 @@ public class DoctorRecommendationAgentTests
         Assert.True(result.Specialty == "ENT" || result.Specialty == "General Medicine",
             $"Expected ENT or General Medicine, but got '{result.Specialty}'.");
         Assert.Null(result.RedFlagCode);
+    }
+
+    [Fact]
+    public async Task RunAsync_StepLogs_UseAppointmentToolNamesConstant()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("Persistent skin rash with itchy red bumps on arms for 5 days", patientId: 10);
+
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        var slotStepLog = result.StepLogs.FirstOrDefault(s => s.Action == "DoctorSlotAllocation");
+        Assert.NotNull(slotStepLog);
+        Assert.Equal(AppointmentToolNames.QueryAvailableDoctorsAndSlots, slotStepLog.ToolCalled);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenAgentNotRegisteredInToolRegistry_LogsSecurityError()
+    {
+        using var context = CreateInMemoryDbContext();
+        var mockRegistry = new Mock<IAgentToolRegistry>();
+        // Return false for ClinicalSafetyAgent to trigger error log
+        mockRegistry.Setup(r => r.IsAgentRegistered("ClinicalSafetyAgent")).Returns(false);
+        mockRegistry.Setup(r => r.IsAgentRegistered("ClinicalTriageAgent")).Returns(true);
+        mockRegistry.Setup(r => r.IsAgentRegistered("DoctorSlotAllocationAgent")).Returns(true);
+        mockRegistry.Setup(r => r.IsAgentRegistered("RecommendationValidationAgent")).Returns(true);
+
+        var mockLogger = new Mock<Microsoft.Extensions.Logging.ILogger<DoctorRecommendationAgent>>();
+
+        var agent = CreateAgent(context, toolRegistry: mockRegistry.Object, coordinatorLogger: mockLogger.Object);
+
+        await agent.RunAsync("Persistent skin rash with itchy red bumps on arms for 5 days", patientId: 10);
+
+        mockLogger.Verify(
+            l => l.Log(
+                Microsoft.Extensions.Logging.LogLevel.Error,
+                It.IsAny<Microsoft.Extensions.Logging.EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Required agent 'ClinicalSafetyAgent' is not registered")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
     }
 }

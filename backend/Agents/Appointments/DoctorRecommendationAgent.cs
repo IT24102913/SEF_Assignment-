@@ -1470,6 +1470,22 @@ public class DoctorRecommendationAgent : IWorkflowAgent
         var workflowId = Guid.NewGuid();
         var symptoms = rawSymptoms?.Trim() ?? string.Empty;
 
+        // SE3090 Security Requirement: Verify all four pipeline agents are registered in the tool registry
+        var requiredAgents = new[]
+        {
+            _safetyAgent.AgentName,
+            _triageAgent.AgentName,
+            _slotAllocationAgent.AgentName,
+            _validationAgent.AgentName
+        };
+        foreach (var reqAgent in requiredAgents)
+        {
+            if (!_toolRegistry.IsAgentRegistered(reqAgent))
+            {
+                _logger.LogError("[{Agent}] Security check failed: Required agent '{RequiredAgent}' is not registered in the tool registry.", AgentName, reqAgent);
+            }
+        }
+
         var plan = new WorkflowPlan
         {
             Objective = "Triage patient symptoms, recommend clinical specialty, and allocate top verified consultants via allow-listed tool.",
@@ -1718,7 +1734,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 AgentName = _slotAllocationAgent.AgentName,
                 Action = "DoctorSlotAllocation",
                 StepName = step3Plan.StepName,
-                ToolCalled = "DoctorSlotAllocationTool.QueryAvailableDoctorsAndSlots",
+                ToolCalled = AppointmentToolNames.QueryAvailableDoctorsAndSlots,
                 Input = $"Specialty='{finalSpecialty}', MaxResults=3",
                 Output = slotResult.Success
                     ? $"Found {matchedDoctors.Count} qualified verified consultant(s) with upcoming bookable clinic sessions."
