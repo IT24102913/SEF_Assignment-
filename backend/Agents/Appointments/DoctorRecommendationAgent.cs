@@ -798,7 +798,7 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
 
             if (PromptInjectionRegex.IsMatch(sanitized))
             {
-                _logger.LogWarning("[{Agent}] Security Alert: Prompt injection pattern detected in input: '{Input}'", AgentName, sanitized);
+                _logger.LogWarning("[{Agent}] Prompt injection pattern detected. InputLength={Len}", AgentName, sanitized.Length);
                 return new TriageAnalysisResult
                 {
                     Status = "INPUT_INVALID",
@@ -894,14 +894,11 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[{Agent}] Unexpected error during triage analysis. Safely defaulting to General Medicine.", AgentName);
+            _logger.LogError(ex, "[{Agent}] Unexpected error during triage analysis.", AgentName);
             return new TriageAnalysisResult
             {
-                Status = "RECOMMENDATION_READY",
-                Specialty = "General Medicine",
-                Confidence = 0.65,
-                Reason = DefaultGeneralMedicineReason,
-                FollowUpQuestions = new List<string>(),
+                Status = "SAFE_FAILURE",
+                Reason = "Unable to analyse symptoms right now. Please choose a specialty manually.",
                 UsedFallbackEngine = true,
                 TriageSource = "FALLBACK_KEYWORD",
                 FallbackReason = "UNHANDLED_EXCEPTION",

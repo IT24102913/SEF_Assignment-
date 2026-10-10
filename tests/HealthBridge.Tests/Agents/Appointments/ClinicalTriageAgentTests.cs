@@ -1,6 +1,7 @@
 using HealthBridge.Api.Agents.Appointments;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using System.Net;
 using System.Text.Json;
 using Xunit;
@@ -484,5 +485,29 @@ public class ClinicalTriageAgentTests
         Assert.True(multiMatch.Confidence > singleMatch.Confidence,
             $"Expected higher confidence for multiple keywords ({multiMatch.Confidence}) vs single keyword ({singleMatch.Confidence})");
         Assert.NotEqual(0.85, singleMatch.Confidence);
+    }
+
+    [Fact]
+    public async Task TriageSymptomsAsync_WhenUnhandledExceptionThrown_ReturnsSafeFailureWithUnhandledException()
+    {
+        var mockConfig = new Mock<IConfiguration>();
+        mockConfig.Setup(c => c[It.IsAny<string>()]).Throws(new InvalidOperationException("Simulated configuration failure"));
+
+        var mockHttpFactory = new Mock<IHttpClientFactory>();
+        mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+
+        var agent = new ClinicalTriageAgent(
+            mockConfig.Object,
+            NullLogger<ClinicalTriageAgent>.Instance,
+            mockHttpFactory.Object);
+
+        var result = await agent.TriageSymptomsAsync("Chest tightness and palpitation");
+
+        Assert.Equal("SAFE_FAILURE", result.Status);
+        Assert.Equal("Unable to analyse symptoms right now. Please choose a specialty manually.", result.Reason);
+        Assert.True(result.UsedFallbackEngine);
+        Assert.Equal("FALLBACK_KEYWORD", result.TriageSource);
+        Assert.Equal("UNHANDLED_EXCEPTION", result.FallbackReason);
+        Assert.Equal(0, result.Retries);
     }
 }
