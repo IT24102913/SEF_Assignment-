@@ -941,6 +941,71 @@ public class DoctorRecommendationAgentTests
     }
 
     [Fact]
+    public void ToolPermissions_AllFiveAgents_AgreeWithRegistryPermissions()
+    {
+        using var context = CreateInMemoryDbContext();
+        var mockConfig = new Mock<IConfiguration>();
+        var mockHttp = new Mock<IHttpClientFactory>();
+        mockHttp.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+
+        var registry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var safety = new ClinicalSafetyAgent(NullLogger<ClinicalSafetyAgent>.Instance);
+        var triage = new ClinicalTriageAgent(mockConfig.Object, NullLogger<ClinicalTriageAgent>.Instance, mockHttp.Object);
+        var slotTool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(slotTool, registry, NullLogger<DoctorSlotAllocationAgent>.Instance);
+        var valAgent = new RecommendationValidationAgent();
+        var coordinator = new DoctorRecommendationAgent(
+            context, safety, triage, slotAgent, valAgent, registry, NullLogger<DoctorRecommendationAgent>.Instance);
+
+        IWorkflowAgent[] agents = [safety, triage, slotAgent, valAgent, coordinator];
+
+        // 1. Assert default registry agrees with agent.AllowedTools
+        foreach (var agent in agents)
+        {
+            var registryTools = registry.GetAllowedTools(agent.AgentName);
+            Assert.Equal(new HashSet<string>(agent.AllowedTools), new HashSet<string>(registryTools));
+        }
+
+        // 2. Assert RegisterAgents updates registry directly from agent definitions without drift
+        var dynamicRegistry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        dynamicRegistry.RegisterAgents(agents);
+        foreach (var agent in agents)
+        {
+            var dynamicTools = dynamicRegistry.GetAllowedTools(agent.AgentName);
+            Assert.Equal(new HashSet<string>(agent.AllowedTools), new HashSet<string>(dynamicTools));
+        }
+    }
+
+    [Fact]
+    public async Task ToolPermissions_SlotAllocationAgentAllowed_OtherFourAgentsDenied()
+    {
+        var registry = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var toolName = AppointmentToolNames.QueryAvailableDoctorsAndSlots;
+
+        // SlotAllocationAgent is allowed
+        Assert.True(registry.IsToolAllowed(toolName, "DoctorSlotAllocationAgent"));
+        var allowedResult = await registry.ExecuteToolAsync<string>(
+            toolName, "DoctorSlotAllocationAgent", () => Task.FromResult("data"));
+        Assert.True(allowedResult.Success);
+        Assert.True(allowedResult.IsAllowed);
+        Assert.Equal("SUCCESS", allowedResult.Status);
+        Assert.Equal("data", allowedResult.Data);
+
+        // Safety, Triage, Validation, Coordinator are denied
+        string[] deniedAgents = ["ClinicalSafetyAgent", "ClinicalTriageAgent", "RecommendationValidationAgent", "DoctorRecommendationAgent"];
+        foreach (var agentName in deniedAgents)
+        {
+            Assert.False(registry.IsToolAllowed(toolName, agentName), $"Agent '{agentName}' should not be allowed to call '{toolName}'.");
+            var deniedResult = await registry.ExecuteToolAsync<string>(
+                toolName, agentName, () => Task.FromResult("data"));
+            Assert.False(deniedResult.Success);
+            Assert.False(deniedResult.IsAllowed);
+            Assert.Equal("TOOL_DENIED", deniedResult.Status);
+            Assert.Contains("Security violation", deniedResult.Error);
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_WhenToolCallDeniedByRegistry_StepLogRecordsToolDenied_AndCoordinatorTransitionsToSafeFailure()
     {
         using var context = CreateInMemoryDbContext();

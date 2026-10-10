@@ -120,6 +120,7 @@ public static class AppointmentToolNames
 public interface IAgentToolRegistry
 {
     void RegisterAgent(string agentName, IEnumerable<string> allowedTools);
+    void RegisterAgents(IEnumerable<IWorkflowAgent> agents);
     bool IsAgentRegistered(string agentName);
     IReadOnlyList<string> GetAllowedTools(string agentName);
     bool IsToolAllowed(string toolName, string callingAgentName);
@@ -153,6 +154,15 @@ public class AgentToolRegistry : IAgentToolRegistry
 
         // Coordinator: ZERO tools directly permitted (delegates via specialized agents)
         RegisterAgent("DoctorRecommendationAgent", Array.Empty<string>());
+    }
+
+    public void RegisterAgents(IEnumerable<IWorkflowAgent> agents)
+    {
+        if (agents == null) return;
+        foreach (var agent in agents)
+        {
+            RegisterAgent(agent.AgentName, agent.AllowedTools);
+        }
     }
 
     public void RegisterAgent(string agentName, IEnumerable<string> allowedTools)
