@@ -219,6 +219,16 @@ public class AgentToolRegistry : IAgentToolRegistry
     }
 }
 
+public interface IClock
+{
+    DateTime UtcNow { get; }
+}
+
+public class SystemClock : IClock
+{
+    public DateTime UtcNow => DateTime.UtcNow;
+}
+
 /// <summary>
 /// Allow-listed Tool for Doctor & Slot Allocation Agent.
 /// Interacts directly with PostgreSQL via Entity Framework Core to query active consultants,
@@ -234,13 +244,18 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<DoctorSlotAllocationTool> _logger;
+    private readonly IClock _clock;
 
     public string ToolName => AppointmentToolNames.QueryAvailableDoctorsAndSlots;
 
-    public DoctorSlotAllocationTool(ApplicationDbContext context, ILogger<DoctorSlotAllocationTool> logger)
+    public DoctorSlotAllocationTool(
+        ApplicationDbContext context,
+        ILogger<DoctorSlotAllocationTool> logger,
+        IClock? clock = null)
     {
         _context = context;
         _logger = logger;
+        _clock = clock ?? new SystemClock();
     }
 
     public async Task<List<MatchedDoctorDto>> QueryAvailableDoctorsAndSlotsAsync(string specialty, string? preferredBranch = null, int maxResults = 3)
@@ -254,7 +269,9 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
             throw new ArgumentException("Specialty parameter cannot be empty for DoctorSlotAllocationTool.");
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var colomboNow = _clock.UtcNow.AddHours(5.5); // Sri Lanka = UTC+5:30
+        var today = DateOnly.FromDateTime(colomboNow);
+        var nowTime = TimeOnly.FromDateTime(colomboNow);
         var normSpecialty = specialty.Trim().ToLowerInvariant();
 
         // 1. Fetch matching doctors in this exact specialty
@@ -276,10 +293,10 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
 
         foreach (var doc in candidateDoctors)
         {
-            // Query nearest upcoming session with available capacity
+            // Query nearest upcoming session with available capacity (strictly in future)
             var session = await _context.DoctorSessions.AsNoTracking()
                 .Where(s => s.DoctorId == doc.Id &&
-                            s.SessionDate >= today &&
+                            (s.SessionDate > today || (s.SessionDate == today && s.SessionTime > nowTime)) &&
                             s.SessionStatus != SessionStatus.Cancelled &&
                             s.SessionStatus != SessionStatus.Completed &&
                             s.CurrentBookings < s.MaxCapacity)
@@ -293,7 +310,7 @@ public class DoctorSlotAllocationTool : IDoctorSlotAllocationTool
             }
 
             var availableSlots = session.MaxCapacity - session.CurrentBookings;
-            var sessionTimeFormatted = DateTime.Today.Add(session.SessionTime.ToTimeSpan()).ToString("hh:mm tt");
+            var sessionTimeFormatted = session.SessionTime.ToString("hh:mm tt");
             var matchReason = $"Verified consultant ({doc.Rating:0.0}★, {doc.ExperienceYears} yrs exp). Earliest bookable session on {session.SessionDate:yyyy-MM-dd} at {sessionTimeFormatted} ({availableSlots} slots left).";
 
             matchedResults.Add(new MatchedDoctorDto

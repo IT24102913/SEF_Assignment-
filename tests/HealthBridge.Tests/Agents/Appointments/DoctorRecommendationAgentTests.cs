@@ -987,4 +987,131 @@ public class DoctorRecommendationAgentTests
             }
         }
     }
+
+    private class FakeClock : IClock
+    {
+        public DateTime UtcNow { get; set; }
+        public FakeClock(DateTime utcNow) => UtcNow = utcNow;
+    }
+
+    [Fact]
+    public async Task DoctorSlotAllocationTool_OnlyReturnsFutureSessionsInSriLankaTime()
+    {
+        // Colombo 18:00 (UTC 12:30) on 2026-10-10
+        var utcNow = new DateTime(2026, 10, 10, 12, 30, 0, DateTimeKind.Utc);
+        var fakeClock = new FakeClock(utcNow);
+        var todayColombo = new DateOnly(2026, 10, 10);
+        var tomorrowColombo = todayColombo.AddDays(1);
+
+        using var context = CreateInMemoryDbContext(seedDoctors: false);
+
+        var doc1 = new Doctor
+        {
+            Id = 501,
+            FullName = "Dr. Past Sessions Only",
+            Specialization = "Cardiology",
+            IsAvailable = true,
+            IsVerifiedConsultant = true,
+            Rating = 4.9,
+            ExperienceYears = 15,
+            ConsultationFee = 4000m
+        };
+        var doc2 = new Doctor
+        {
+            Id = 502,
+            FullName = "Dr. Future Sessions",
+            Specialization = "Cardiology",
+            IsAvailable = true,
+            IsVerifiedConsultant = true,
+            Rating = 4.8,
+            ExperienceYears = 10,
+            ConsultationFee = 3500m
+        };
+        context.Doctors.AddRange(doc1, doc2);
+
+        // doc1: session today at 08:00 (past) -> excluded!
+        context.DoctorSessions.Add(new DoctorSession
+        {
+            Id = 601,
+            DoctorId = doc1.Id,
+            SessionDate = todayColombo,
+            SessionTime = new TimeOnly(8, 0),
+            MaxCapacity = 10,
+            CurrentBookings = 0,
+            SessionStatus = SessionStatus.Scheduled
+        });
+
+        // doc2: session today at 20:00 (future today) and tomorrow at 08:00 (future tomorrow)
+        context.DoctorSessions.Add(new DoctorSession
+        {
+            Id = 602,
+            DoctorId = doc2.Id,
+            SessionDate = todayColombo,
+            SessionTime = new TimeOnly(20, 0),
+            MaxCapacity = 10,
+            CurrentBookings = 0,
+            SessionStatus = SessionStatus.Scheduled
+        });
+        context.DoctorSessions.Add(new DoctorSession
+        {
+            Id = 603,
+            DoctorId = doc2.Id,
+            SessionDate = tomorrowColombo,
+            SessionTime = new TimeOnly(8, 0),
+            MaxCapacity = 10,
+            CurrentBookings = 0,
+            SessionStatus = SessionStatus.Scheduled
+        });
+        context.SaveChanges();
+
+        var tool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance, fakeClock);
+
+        var results = await tool.QueryAvailableDoctorsAndSlotsAsync("Cardiology");
+
+        // doc1 has only past sessions -> excluded
+        Assert.DoesNotContain(results, r => r.DoctorId == doc1.Id);
+
+        // doc2 has future sessions -> included, nearest future session picked is today at 20:00
+        var doc2Result = Assert.Single(results, r => r.DoctorId == doc2.Id);
+        Assert.Equal(602, doc2Result.NextSessionId);
+        Assert.Equal("2026-10-10", doc2Result.NextSessionDate);
+        Assert.Equal("08:00 PM", doc2Result.NextSessionTime);
+    }
+
+    [Fact]
+    public async Task DoctorSlotAllocationTool_WhenAllSessionsPast_ExcludesDoctor()
+    {
+        // Colombo 18:00 (UTC 12:30) on 2026-10-10
+        var utcNow = new DateTime(2026, 10, 10, 12, 30, 0, DateTimeKind.Utc);
+        var fakeClock = new FakeClock(utcNow);
+        var todayColombo = new DateOnly(2026, 10, 10);
+
+        using var context = CreateInMemoryDbContext(seedDoctors: false);
+
+        var doc = new Doctor
+        {
+            Id = 503,
+            FullName = "Dr. Past Only",
+            Specialization = "Neurology",
+            IsAvailable = true,
+            IsVerifiedConsultant = true
+        };
+        context.Doctors.Add(doc);
+        context.DoctorSessions.Add(new DoctorSession
+        {
+            Id = 604,
+            DoctorId = doc.Id,
+            SessionDate = todayColombo,
+            SessionTime = new TimeOnly(8, 0), // finished at 8 AM
+            MaxCapacity = 10,
+            CurrentBookings = 0,
+            SessionStatus = SessionStatus.Scheduled
+        });
+        context.SaveChanges();
+
+        var tool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance, fakeClock);
+        var results = await tool.QueryAvailableDoctorsAndSlotsAsync("Neurology");
+
+        Assert.Empty(results);
+    }
 }
