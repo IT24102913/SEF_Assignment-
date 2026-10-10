@@ -1540,6 +1540,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
         List<string>? followUpQuestions = null;
         List<MatchedDoctorDto> matchedDoctors = new();
         string approvalStatus = "NOT_REQUIRED";
+        bool saved;
 
         void MarkRemainingStepsSkipped(int fromStepNumber, string skipReason)
         {
@@ -1630,11 +1631,22 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
-                await PersistWorkflowAsync(
+                saved = await PersistWorkflowAsync(
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, null, 0, retries,
                     string.Join("; ", errors), totalSw.ElapsedMilliseconds,
                     matchedDoctors, "NOT_REQUIRED", plan);
+
+                if (!saved)
+                {
+                    if (string.Equals(finalStatus, "SAFETY_ESCALATION", StringComparison.Ordinal))
+                    {
+                        _logger.LogWarning("[DocRecAgent] Emergency safety escalation workflow {WorkflowId} failed to persist, returning emergency response for patient safety.", workflowId);
+                        return safetyResponse;
+                    }
+
+                    return CreatePersistenceFailureResponse(executionPlanSummary, plan, stepLogs, retries, totalSw.ElapsedMilliseconds);
+                }
 
                 return safetyResponse;
             }
@@ -1704,11 +1716,16 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
-                await PersistWorkflowAsync(
+                saved = await PersistWorkflowAsync(
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, null, 0, retries,
                     string.Join("; ", errors), totalSw.ElapsedMilliseconds,
                     matchedDoctors, "NOT_REQUIRED", plan);
+
+                if (!saved)
+                {
+                    return CreatePersistenceFailureResponse(executionPlanSummary, plan, stepLogs, retries, totalSw.ElapsedMilliseconds);
+                }
 
                 return nonReadyResponse;
             }
@@ -1789,11 +1806,16 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
-                await PersistWorkflowAsync(
+                saved = await PersistWorkflowAsync(
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, finalSpecialty, finalConfidence, retries,
                     string.Join("; ", errors), totalSw.ElapsedMilliseconds,
                     matchedDoctors, approvalStatus, plan);
+
+                if (!saved)
+                {
+                    return CreatePersistenceFailureResponse(executionPlanSummary, plan, stepLogs, retries, totalSw.ElapsedMilliseconds);
+                }
 
                 return noDocsResponse;
             }
@@ -1852,11 +1874,16 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     TotalDurationMs = totalSw.ElapsedMilliseconds
                 };
 
-                await PersistWorkflowAsync(
+                saved = await PersistWorkflowAsync(
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, finalSpecialty, 0, retries,
                     validation.Reason ?? "Validation failed", totalSw.ElapsedMilliseconds,
                     matchedDoctors, approvalStatus, plan);
+
+                if (!saved)
+                {
+                    return CreatePersistenceFailureResponse(executionPlanSummary, plan, stepLogs, retries, totalSw.ElapsedMilliseconds);
+                }
 
                 return invalidResponse;
             }
@@ -1889,11 +1916,16 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 TotalDurationMs = totalSw.ElapsedMilliseconds
             };
 
-            await PersistWorkflowAsync(
+            saved = await PersistWorkflowAsync(
                 workflowId, patientId, symptoms, finalPlanSummary, stepLogs,
                 statusPath, finalStatus, finalSpecialty, finalConfidence, retries,
                 string.Join("; ", errors), totalSw.ElapsedMilliseconds,
                 matchedDoctors, approvalStatus, plan);
+
+            if (!saved)
+            {
+                return CreatePersistenceFailureResponse(finalPlanSummary, plan, stepLogs, retries, totalSw.ElapsedMilliseconds);
+            }
 
             _logger.LogInformation("[DocRecAgent] Workflow {Id} finished in {Ms}ms. Status={Status}, Specialty={Specialty}, Approval={Appr}",
                 workflowId, totalSw.ElapsedMilliseconds, finalStatus, finalSpecialty, approvalStatus);
@@ -1920,11 +1952,16 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 TotalDurationMs = totalSw.ElapsedMilliseconds
             };
 
-            await PersistWorkflowAsync(
+            saved = await PersistWorkflowAsync(
                 workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                 statusPath, finalStatus, null, 0, retries,
                 string.Join("; ", errors), totalSw.ElapsedMilliseconds,
                 matchedDoctors, "NOT_REQUIRED", plan);
+
+            if (!saved)
+            {
+                return CreatePersistenceFailureResponse(executionPlanSummary, plan, stepLogs, retries, totalSw.ElapsedMilliseconds);
+            }
 
             return errResponse;
         }
@@ -2072,7 +2109,24 @@ public class DoctorRecommendationAgent : IWorkflowAgent
     // ═══════════════════════════════════════════════════════════════════════════
     // Persistence
     // ═══════════════════════════════════════════════════════════════════════════
-    private async Task PersistWorkflowAsync(
+    private static DoctorRecommendationResponseDto CreatePersistenceFailureResponse(
+        List<string> executionPlan, WorkflowPlan? structuredPlan, List<AgentStepLogDto> stepLogs, int retries, long totalDurationMs)
+    {
+        return new DoctorRecommendationResponseDto
+        {
+            WorkflowId = Guid.Empty,
+            Status = "SAFE_FAILURE",
+            Reason = "Could not record the recommendation. Please choose a specialty manually.",
+            ExecutionPlan = executionPlan,
+            StructuredPlan = structuredPlan,
+            StepLogs = stepLogs,
+            ApprovalStatus = "NOT_REQUIRED",
+            Retries = retries,
+            TotalDurationMs = totalDurationMs
+        };
+    }
+
+    private async Task<bool> PersistWorkflowAsync(
         Guid workflowId, int? patientId, string symptoms,
         List<string> plan, List<AgentStepLogDto> stepLogs,
         List<string> statusPath, string finalStatus, string? specialty,
@@ -2119,10 +2173,12 @@ public class DoctorRecommendationAgent : IWorkflowAgent
 
             _context.RecommendationWorkflows.Add(wf);
             await _context.SaveChangesAsync();
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[DocRecAgent] Failed to persist workflow record {Id}", workflowId);
+            return false;
         }
     }
 }

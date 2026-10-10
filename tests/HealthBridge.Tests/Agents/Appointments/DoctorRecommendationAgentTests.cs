@@ -1397,4 +1397,111 @@ public class DoctorRecommendationAgentTests
         Assert.Equal("COMPLETED", result.StructuredPlan.Steps[2].Status);
         Assert.Equal("BLOCKED", result.StructuredPlan.Steps[3].Status);
     }
+
+    // ─── Change 8: Persistence Failure Tests ─────────────────────────────────
+
+    private class ThrowingDbContext : ApplicationDbContext
+    {
+        public bool ThrowOnSave { get; set; }
+
+        public ThrowingDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            if (ThrowOnSave)
+            {
+                throw new DbUpdateException("Simulated database failure during SaveChangesAsync", new Exception("Database write error"));
+            }
+            return base.SaveChangesAsync(cancellationToken);
+        }
+
+        public override int SaveChanges()
+        {
+            if (ThrowOnSave)
+            {
+                throw new DbUpdateException("Simulated database failure during SaveChanges", new Exception("Database write error"));
+            }
+            return base.SaveChanges();
+        }
+    }
+
+    private ThrowingDbContext CreateThrowingDbContext(bool seedDoctors = true)
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        var context = new ThrowingDbContext(options);
+
+        if (seedDoctors)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var specialties = CanonicalSpecialties.AllowedSpecialties;
+
+            int docId = 100;
+            int sessId = 200;
+            foreach (var spec in specialties)
+            {
+                var doc = new Doctor
+                {
+                    Id = docId++,
+                    FullName = $"Dr. Jane {spec} Specialist",
+                    Specialization = spec,
+                    Hospital = "Health Bridge General",
+                    HospitalBranch = "Colombo",
+                    IsAvailable = true,
+                    IsVerifiedConsultant = true,
+                    Rating = 4.8,
+                    ExperienceYears = 12,
+                    ConsultationFee = 3500m
+                };
+                context.Doctors.Add(doc);
+
+                var session = new DoctorSession
+                {
+                    Id = sessId++,
+                    DoctorId = doc.Id,
+                    SessionDate = today.AddDays(2),
+                    SessionTime = new TimeOnly(9, 0),
+                    MaxCapacity = 20,
+                    CurrentBookings = 2,
+                    SessionStatus = SessionStatus.Scheduled
+                };
+                context.DoctorSessions.Add(session);
+            }
+            context.SaveChanges();
+        }
+
+        return context;
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenPersistenceFails_EmergencyStillReturnsSafetyEscalation()
+    {
+        using var context = CreateThrowingDbContext(seedDoctors: false);
+        context.ThrowOnSave = true;
+
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("severe crushing chest pain radiating to left arm", patientId: 10);
+
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal("CARDIAC", result.RedFlagCode);
+        Assert.NotNull(result.SafetyMessage);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenPersistenceFails_SuccessPathReturnsSafeFailure()
+    {
+        using var context = CreateThrowingDbContext(seedDoctors: true);
+        context.ThrowOnSave = true;
+
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("Persistent skin rash with itchy red bumps on arms for 5 days", patientId: 10);
+
+        Assert.Equal("SAFE_FAILURE", result.Status);
+        Assert.Equal("Could not record the recommendation. Please choose a specialty manually.", result.Reason);
+        Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
+        Assert.Equal(Guid.Empty, result.WorkflowId);
+    }
 }
