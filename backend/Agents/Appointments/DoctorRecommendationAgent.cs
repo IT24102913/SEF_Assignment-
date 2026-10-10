@@ -1623,6 +1623,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     SafetyMessage = safetyMessage,
                     FollowUpQuestions = followUpQuestions,
                     ExecutionPlan = executionPlanSummary,
+                    StructuredPlan = plan,
                     StepLogs = stepLogs,
                     ApprovalStatus = "NOT_REQUIRED",
                     Retries = retries,
@@ -1633,7 +1634,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, null, 0, retries,
                     string.Join("; ", errors), totalSw.ElapsedMilliseconds,
-                    matchedDoctors, "NOT_REQUIRED");
+                    matchedDoctors, "NOT_REQUIRED", plan);
 
                 return safetyResponse;
             }
@@ -1696,6 +1697,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     Reason = reason,
                     FollowUpQuestions = followUpQuestions,
                     ExecutionPlan = executionPlanSummary,
+                    StructuredPlan = plan,
                     StepLogs = stepLogs,
                     ApprovalStatus = "NOT_REQUIRED",
                     Retries = retries,
@@ -1706,7 +1708,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, null, 0, retries,
                     string.Join("; ", errors), totalSw.ElapsedMilliseconds,
-                    matchedDoctors, "NOT_REQUIRED");
+                    matchedDoctors, "NOT_REQUIRED", plan);
 
                 return nonReadyResponse;
             }
@@ -1780,6 +1782,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     Reason = reason,
                     MatchedDoctors = new(),
                     ExecutionPlan = executionPlanSummary,
+                    StructuredPlan = plan,
                     StepLogs = stepLogs,
                     ApprovalStatus = approvalStatus,
                     Retries = retries,
@@ -1790,7 +1793,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, finalSpecialty, finalConfidence, retries,
                     string.Join("; ", errors), totalSw.ElapsedMilliseconds,
-                    matchedDoctors, approvalStatus);
+                    matchedDoctors, approvalStatus, plan);
 
                 return noDocsResponse;
             }
@@ -1842,6 +1845,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     Reason = reason,
                     MatchedDoctors = new(),
                     ExecutionPlan = executionPlanSummary,
+                    StructuredPlan = plan,
                     StepLogs = stepLogs,
                     ApprovalStatus = approvalStatus,
                     Retries = retries,
@@ -1852,7 +1856,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                     statusPath, finalStatus, finalSpecialty, 0, retries,
                     validation.Reason ?? "Validation failed", totalSw.ElapsedMilliseconds,
-                    matchedDoctors, approvalStatus);
+                    matchedDoctors, approvalStatus, plan);
 
                 return invalidResponse;
             }
@@ -1878,6 +1882,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 Reason = reason,
                 MatchedDoctors = matchedDoctors,
                 ExecutionPlan = finalPlanSummary,
+                StructuredPlan = plan,
                 StepLogs = stepLogs,
                 ApprovalStatus = approvalStatus,
                 Retries = retries,
@@ -1888,7 +1893,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 workflowId, patientId, symptoms, finalPlanSummary, stepLogs,
                 statusPath, finalStatus, finalSpecialty, finalConfidence, retries,
                 string.Join("; ", errors), totalSw.ElapsedMilliseconds,
-                matchedDoctors, approvalStatus);
+                matchedDoctors, approvalStatus, plan);
 
             _logger.LogInformation("[DocRecAgent] Workflow {Id} finished in {Ms}ms. Status={Status}, Specialty={Specialty}, Approval={Appr}",
                 workflowId, totalSw.ElapsedMilliseconds, finalStatus, finalSpecialty, approvalStatus);
@@ -1909,6 +1914,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 Status = "SAFE_FAILURE",
                 Reason = "Please select a specialty manually.",
                 ExecutionPlan = executionPlanSummary,
+                StructuredPlan = plan,
                 StepLogs = stepLogs,
                 ApprovalStatus = "NOT_REQUIRED",
                 TotalDurationMs = totalSw.ElapsedMilliseconds
@@ -1918,7 +1924,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 workflowId, patientId, symptoms, executionPlanSummary, stepLogs,
                 statusPath, finalStatus, null, 0, retries,
                 string.Join("; ", errors), totalSw.ElapsedMilliseconds,
-                matchedDoctors, "NOT_REQUIRED");
+                matchedDoctors, "NOT_REQUIRED", plan);
 
             return errResponse;
         }
@@ -2071,10 +2077,26 @@ public class DoctorRecommendationAgent : IWorkflowAgent
         List<string> plan, List<AgentStepLogDto> stepLogs,
         List<string> statusPath, string finalStatus, string? specialty,
         double confidence, int retries, string errors, long durationMs,
-        List<MatchedDoctorDto> matchedDoctors, string approvalStatus)
+        List<MatchedDoctorDto> matchedDoctors, string approvalStatus,
+        WorkflowPlan? structuredPlan = null)
     {
         try
         {
+            var logsToPersist = new List<AgentStepLogDto>(stepLogs);
+            if (structuredPlan != null)
+            {
+                logsToPersist.Add(new AgentStepLogDto
+                {
+                    AgentName = AgentName,
+                    Action = "StructuredWorkflowPlan",
+                    StepName = "ExecutionPlanDefinition",
+                    Input = structuredPlan.Objective,
+                    Output = JsonSerializer.Serialize(structuredPlan),
+                    DurationMs = 0,
+                    Status = "COMPLETED"
+                });
+            }
+
             var wf = new RecommendationWorkflow
             {
                 Id = workflowId,
@@ -2082,7 +2104,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                 InputText = symptoms,
                 Objective = "Triage patient symptoms, recommend clinical specialty, and allocate top consultants via allow-listed tool.",
                 PlanJson = JsonSerializer.Serialize(plan),
-                StepResultsJson = JsonSerializer.Serialize(stepLogs),
+                StepResultsJson = JsonSerializer.Serialize(logsToPersist),
                 StatusPath = string.Join(" → ", statusPath),
                 FinalStatus = finalStatus,
                 Specialty = specialty,

@@ -1286,4 +1286,115 @@ public class DoctorRecommendationAgentTests
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task RunAsync_Success_PopulatesStructuredPlanWithAllCompleted()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("Persistent skin rash with itchy red bumps on arms for 5 days", patientId: 10);
+
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.NotNull(result.StructuredPlan);
+        Assert.Equal(4, result.StructuredPlan.Steps.Count);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[0].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[1].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[2].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[3].Status);
+
+        // Verify embedded structured plan was persisted in database
+        var savedWf = await context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == result.WorkflowId);
+        Assert.NotNull(savedWf);
+        Assert.Contains("StructuredWorkflowPlan", savedWf.StepResultsJson);
+    }
+
+    [Fact]
+    public async Task RunAsync_SafetyBlock_PopulatesStructuredPlanWithSteps2To4Skipped()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("severe crushing chest pain radiating to left arm", patientId: 10);
+
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.NotNull(result.StructuredPlan);
+        Assert.Equal(4, result.StructuredPlan.Steps.Count);
+        Assert.Equal("BLOCKED", result.StructuredPlan.Steps[0].Status);
+        Assert.Equal("SKIPPED", result.StructuredPlan.Steps[1].Status);
+        Assert.Equal("SKIPPED", result.StructuredPlan.Steps[2].Status);
+        Assert.Equal("SKIPPED", result.StructuredPlan.Steps[3].Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_TriageBlock_PopulatesStructuredPlanWithSteps3To4Skipped()
+    {
+        using var context = CreateInMemoryDbContext();
+        var mockTriage = new Mock<IClinicalTriageAgent>();
+        mockTriage.Setup(t => t.AgentName).Returns("ClinicalTriageAgent");
+        mockTriage.Setup(t => t.Responsibility).Returns("Triage");
+        mockTriage.Setup(t => t.AllowedTools).Returns(Array.Empty<string>());
+        mockTriage.Setup(t => t.TriageSymptomsAsync(It.IsAny<string>()))
+            .ReturnsAsync(new TriageAnalysisResult
+            {
+                Status = "NEED_MORE_CONTEXT",
+                Reason = "Vague symptoms",
+                FollowUpQuestions = new() { "Where does it hurt?" }
+            });
+
+        var agent = CreateAgent(context, triageAgent: mockTriage.Object);
+
+        var result = await agent.RunAsync("I have a general feeling of mild malaise for a few days", patientId: 10);
+
+        Assert.Equal("NEED_MORE_CONTEXT", result.Status);
+        Assert.NotNull(result.StructuredPlan);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[0].Status);
+        Assert.Equal("BLOCKED", result.StructuredPlan.Steps[1].Status);
+        Assert.Equal("SKIPPED", result.StructuredPlan.Steps[2].Status);
+        Assert.Equal("SKIPPED", result.StructuredPlan.Steps[3].Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoDoctorsAvailable_PopulatesStructuredPlanWithStep4Skipped()
+    {
+        using var context = CreateInMemoryDbContext(seedDoctors: false);
+        var agent = CreateAgent(context);
+
+        var result = await agent.RunAsync("Persistent skin rash with itchy red bumps on arms for 5 days", patientId: 10);
+
+        Assert.Equal("NO_DOCTORS_AVAILABLE", result.Status);
+        Assert.NotNull(result.StructuredPlan);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[0].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[1].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[2].Status);
+        Assert.Equal("SKIPPED", result.StructuredPlan.Steps[3].Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_ValidationBlock_PopulatesStructuredPlanWithStep4Blocked()
+    {
+        using var context = CreateInMemoryDbContext();
+        var mockVal = new Mock<IRecommendationValidationAgent>();
+        mockVal.Setup(v => v.AgentName).Returns("RecommendationValidationAgent");
+        mockVal.Setup(v => v.Responsibility).Returns("Validation");
+        mockVal.Setup(v => v.AllowedTools).Returns(Array.Empty<string>());
+        mockVal.Setup(v => v.Validate(It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<List<MatchedDoctorDto>?>()))
+            .Returns(new RecommendationValidationResult
+            {
+                IsValid = false,
+                Status = "SCHEMA_ERROR",
+                Reason = "Simulated validation failure"
+            });
+
+        var agent = CreateAgent(context, validationAgent: mockVal.Object);
+
+        var result = await agent.RunAsync("Persistent skin rash with itchy red bumps on arms for 5 days", patientId: 10);
+
+        Assert.Equal("SAFE_FAILURE", result.Status);
+        Assert.NotNull(result.StructuredPlan);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[0].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[1].Status);
+        Assert.Equal("COMPLETED", result.StructuredPlan.Steps[2].Status);
+        Assert.Equal("BLOCKED", result.StructuredPlan.Steps[3].Status);
+    }
 }
