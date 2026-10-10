@@ -1904,8 +1904,10 @@ public class DoctorRecommendationAgent : IWorkflowAgent
     public async Task<DoctorRecommendationResponseDto?> ApproveRecommendationAsync(
         Guid workflowId, int? selectedDoctorId, int? selectedSessionId)
     {
+        var sw = Stopwatch.StartNew();
         var wf = await _context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == workflowId);
         if (wf == null) return null;
+        if (!string.Equals(wf.ApprovalStatus, "PENDING_APPROVAL", StringComparison.Ordinal)) return null;
 
         wf.ApprovalStatus = "APPROVED";
         wf.ApprovedAt = DateTime.UtcNow;
@@ -1924,6 +1926,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             catch { }
         }
 
+        sw.Stop();
         stepLogs.Add(new AgentStepLogDto
         {
             AgentName = AgentName,
@@ -1931,7 +1934,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             StepName = "ApprovalConfirmation",
             Input = $"SelectedDoctorId={selectedDoctorId}, SelectedSessionId={selectedSessionId}",
             Output = "Proposal approved by patient. Slot reserved for booking.",
-            DurationMs = 1,
+            DurationMs = sw.ElapsedMilliseconds,
             Status = "COMPLETED"
         });
 
@@ -1974,6 +1977,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
     {
         var wf = await _context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == workflowId);
         if (wf == null) return false;
+        if (!string.Equals(wf.ApprovalStatus, "PENDING_APPROVAL", StringComparison.Ordinal)) return false;
 
         wf.ApprovalStatus = "REJECTED";
         wf.StatusPath += $" → ChannelingProposal:REJECTED({notes ?? "by_patient"})";
@@ -1987,6 +1991,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
     /// </summary>
     public async Task<bool> CompleteWorkflowOnBookingAsync(Guid workflowId, int doctorId, int appointmentId)
     {
+        var sw = Stopwatch.StartNew();
         var wf = await _context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == workflowId);
         if (wf == null) return false;
 
@@ -2005,6 +2010,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             catch { }
         }
 
+        sw.Stop();
         stepLogs.Add(new AgentStepLogDto
         {
             AgentName = AgentName,
@@ -2012,7 +2018,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             StepName = "WorkflowCompletion",
             Input = $"SelectedDoctorId={doctorId}, AppointmentId={appointmentId}",
             Output = "Patient completed appointment booking for recommended slot. Workflow audit cycle closed.",
-            DurationMs = 1,
+            DurationMs = sw.ElapsedMilliseconds,
             Status = "COMPLETED"
         });
 

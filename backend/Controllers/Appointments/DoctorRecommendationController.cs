@@ -113,7 +113,7 @@ public class DoctorRecommendationController : ControllerBase
 
         var updated = await _agent.ApproveRecommendationAsync(workflowId, request.SelectedDoctorId, request.SelectedSessionId);
         if (updated == null)
-            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+            return Conflict(new { message = $"Recommendation workflow '{workflowId}' cannot be approved because its current status is '{workflow.ApprovalStatus}' (expected 'PENDING_APPROVAL')." });
 
         _logger.LogInformation("[ApproveRecommendation] Workflow {Id} approved for DoctorId={DocId}", workflowId, request.SelectedDoctorId);
         return Ok(updated);
@@ -130,6 +130,7 @@ public class DoctorRecommendationController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> RejectRecommendation(
         [FromRoute] Guid workflowId,
         [FromBody] RejectRecommendationRequestDto? request)
@@ -146,7 +147,7 @@ public class DoctorRecommendationController : ControllerBase
 
         var ok = await _agent.RejectRecommendationAsync(workflowId, request?.Notes);
         if (!ok)
-            return NotFound(new { message = $"Recommendation workflow '{workflowId}' not found." });
+            return Conflict(new { message = $"Recommendation workflow '{workflowId}' cannot be rejected because its current status is '{workflow.ApprovalStatus}' (expected 'PENDING_APPROVAL')." });
 
         _logger.LogInformation("[RejectRecommendation] Workflow {Id} rejected", workflowId);
         return Ok(new { success = true, workflowId, status = "REJECTED" });

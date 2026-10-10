@@ -251,6 +251,29 @@ public class DoctorRecommendationControllerTests
         Assert.Equal("APPROVED", response.ApprovalStatus);
     }
 
+    [Fact]
+    public async Task ApproveRecommendation_WhenNotPending_ReturnsConflict()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 10,
+            ApprovalStatus = "APPROVED", // Already approved!
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var owner = CreateUserPrincipal(userId: 10, role: UserRole.Patient);
+        var controller = CreateController(context, user: owner);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+    }
+
     // ─── 3. Reject Recommendation Authorization & Ownership Tests ────────────
 
     [Fact]

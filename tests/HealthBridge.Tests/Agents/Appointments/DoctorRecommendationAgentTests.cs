@@ -518,6 +518,56 @@ public class DoctorRecommendationAgentTests
     }
 
     [Fact]
+    public async Task ApproveRecommendationAsync_WhenWorkflowNotRequiredOrInputInvalid_ReturnsNull()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Run with input invalid symptoms -> sets ApprovalStatus = "NOT_REQUIRED"
+        var invalidResult = await agent.RunAsync("pain", patientId: 21);
+        Assert.Equal("NOT_REQUIRED", invalidResult.ApprovalStatus);
+
+        // Attempting to approve must be blocked
+        var approveResult = await agent.ApproveRecommendationAsync(invalidResult.WorkflowId, 101, 202);
+        Assert.Null(approveResult);
+    }
+
+    [Fact]
+    public async Task ApproveRecommendationAsync_WhenApprovedTwice_SecondAttemptReturnsNull()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var runResult = await agent.RunAsync("ear pain and sinus blockage", patientId: 22);
+        Assert.Equal("PENDING_APPROVAL", runResult.ApprovalStatus);
+
+        var firstApprove = await agent.ApproveRecommendationAsync(runResult.WorkflowId, 101, 202);
+        Assert.NotNull(firstApprove);
+        Assert.Equal("APPROVED", firstApprove.ApprovalStatus);
+
+        // Second approve attempt must be blocked
+        var secondApprove = await agent.ApproveRecommendationAsync(runResult.WorkflowId, 101, 202);
+        Assert.Null(secondApprove);
+    }
+
+    [Fact]
+    public async Task RejectRecommendationAsync_WhenAlreadyApproved_ReturnsFalse()
+    {
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var runResult = await agent.RunAsync("ear pain and sinus blockage", patientId: 23);
+        Assert.Equal("PENDING_APPROVAL", runResult.ApprovalStatus);
+
+        var approved = await agent.ApproveRecommendationAsync(runResult.WorkflowId, 101, 202);
+        Assert.NotNull(approved);
+
+        // Rejecting an already approved workflow must be blocked
+        var rejectResult = await agent.RejectRecommendationAsync(runResult.WorkflowId, "Change of mind");
+        Assert.False(rejectResult);
+    }
+
+    [Fact]
     public async Task CompleteWorkflowOnBookingAsync_UpdatesStatusToAcceptedByPatient_AndPersistsIds()
     {
         // Arrange
