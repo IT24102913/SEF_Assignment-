@@ -873,11 +873,59 @@ public class AppointmentService : IAppointmentService
                     PaymentMethod = paymentMethod,
                     PaymentStatus = paymentStatus,
                     Notes = request.Notes,
+                    RecommendationWorkflowId = request.RecommendationWorkflowId,
                     CreatedAt = DateTime.UtcNow
                 };
 
                 _context.DoctorAppointments.Add(appointment);
                 await _context.SaveChangesAsync();
+
+                // If appointment originated from an AI recommendation workflow, close the HITL audit cycle
+                if (request.RecommendationWorkflowId.HasValue)
+                {
+                    try
+                    {
+                        var wf = await _context.RecommendationWorkflows
+                            .FirstOrDefaultAsync(w => w.Id == request.RecommendationWorkflowId.Value);
+
+                        if (wf != null)
+                        {
+                            wf.ApprovalStatus = "ACCEPTED_BY_PATIENT";
+                            wf.SelectedDoctorId = doctor.Id;
+                            wf.AppointmentId = appointment.Id;
+                            wf.CompletedAt = DateTime.UtcNow;
+
+                            var stepLogs = new List<HealthBridge.Api.DTOs.Appointments.AgentStepLogDto>();
+                            if (!string.IsNullOrWhiteSpace(wf.StepResultsJson))
+                            {
+                                try
+                                {
+                                    stepLogs = System.Text.Json.JsonSerializer.Deserialize<List<HealthBridge.Api.DTOs.Appointments.AgentStepLogDto>>(wf.StepResultsJson) ?? new();
+                                }
+                                catch { }
+                            }
+
+                            stepLogs.Add(new HealthBridge.Api.DTOs.Appointments.AgentStepLogDto
+                            {
+                                AgentName = "DoctorRecommendationAgent",
+                                Action = "ChannelingProposal:ACCEPTED_BY_PATIENT",
+                                StepName = "WorkflowCompletion",
+                                Input = $"DoctorId={doctor.Id}, AppointmentId={appointment.Id}",
+                                Output = "Patient completed appointment booking for recommended slot. Workflow audit cycle closed.",
+                                DurationMs = 1,
+                                Status = "COMPLETED"
+                            });
+
+                            wf.StepResultsJson = System.Text.Json.JsonSerializer.Serialize(stepLogs);
+                            wf.StatusPath += $" → ChannelingBooking:ACCEPTED_BY_PATIENT(AppointmentId={appointment.Id})";
+                            await _context.SaveChangesAsync();
+                        }
+                    }
+                    catch (Exception wfEx)
+                    {
+                        _logger.LogWarning(wfEx, "Failed to update RecommendationWorkflow audit record for WorkflowId={WfId}", request.RecommendationWorkflowId.Value);
+                    }
+                }
 
                 if (dbTransaction != null)
                 {
@@ -2372,6 +2420,7 @@ public class AppointmentService : IAppointmentService
             Notes = apt.Notes,
             StatusChangeReason = apt.StatusChangeReason,
             CreatedAt = apt.CreatedAt,
+            RecommendationWorkflowId = apt.RecommendationWorkflowId,
             QrCodeText = qrPayload,
             DisplaySummary = summary
         };

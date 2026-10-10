@@ -432,7 +432,7 @@ public class ClinicalTriageAgentTests
     }
 
     [Fact]
-    public async Task FallbackEngine_WhenTopTwoSpecialtiesHaveInsufficientMargin_ReturnsNeedMoreContext()
+    public async Task FallbackEngine_WhenTopTwoSpecialtiesHaveInsufficientMargin_DefaultsToGeneralMedicine()
     {
         var (agent, _) = CreateAgent(configValues: new Dictionary<string, string?>
         {
@@ -443,9 +443,28 @@ public class ClinicalTriageAgentTests
         var result = await agent.TriageSymptomsAsync("Mild headache and persistent fever.");
 
         Assert.True(result.UsedFallbackEngine);
-        Assert.Equal("NEED_MORE_CONTEXT", result.Status);
-        Assert.NotEmpty(result.FollowUpQuestions);
-        Assert.Contains("primary discomfort", result.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Equal(0.65, result.Confidence);
+        Assert.Equal(ClinicalTriageAgent.DefaultGeneralMedicineReason, result.Reason);
+    }
+
+    [Fact]
+    public async Task FallbackEngine_WhenRareOrNonSpecificSymptoms_DefaultsToGeneralMedicine()
+    {
+        var (agent, _) = CreateAgent(configValues: new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = ""
+        });
+
+        // Rare non-specific symptoms with general symptom markers
+        var result = await agent.TriageSymptomsAsync("Unexplained chronic malaise and rare body discomfort.");
+
+        Assert.True(result.UsedFallbackEngine);
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Equal(0.65, result.Confidence);
+        Assert.Equal(ClinicalTriageAgent.DefaultGeneralMedicineReason, result.Reason);
     }
 
     [Fact]

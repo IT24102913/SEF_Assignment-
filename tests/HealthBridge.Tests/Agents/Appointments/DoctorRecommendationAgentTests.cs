@@ -517,6 +517,51 @@ public class DoctorRecommendationAgentTests
         Assert.Equal("REJECTED", persistedWf.ApprovalStatus);
     }
 
+    [Fact]
+    public async Task CompleteWorkflowOnBookingAsync_UpdatesStatusToAcceptedByPatient_AndPersistsIds()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        var runResult = await agent.RunAsync("ear pain and sinus blockage", patientId: 17);
+        Assert.Equal("PENDING_APPROVAL", runResult.ApprovalStatus);
+
+        // Act - Simulate booking completion
+        var completed = await agent.CompleteWorkflowOnBookingAsync(
+            runResult.WorkflowId,
+            doctorId: 101,
+            appointmentId: 501);
+
+        // Assert
+        Assert.True(completed);
+        var persistedWf = await context.RecommendationWorkflows.FirstOrDefaultAsync(w => w.Id == runResult.WorkflowId);
+        Assert.NotNull(persistedWf);
+        Assert.Equal("ACCEPTED_BY_PATIENT", persistedWf.ApprovalStatus);
+        Assert.Equal(101, persistedWf.SelectedDoctorId);
+        Assert.Equal(501, persistedWf.AppointmentId);
+        Assert.NotNull(persistedWf.CompletedAt);
+        Assert.Contains("ACCEPTED_BY_PATIENT", persistedWf.StatusPath);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenAmbiguousOrRareSymptoms_CleanlyDefaultsToGeneralMedicine()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act - Unexplained rare malaise with non-specific symptom markers
+        var result = await agent.RunAsync("unexplained chronic malaise and rare body discomfort", patientId: 18);
+
+        // Assert
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Equal(0.65, result.Confidence);
+        Assert.Equal("Symptoms are non-specific; initial evaluation by General Medicine consultant recommended.", result.Reason);
+        Assert.NotEmpty(result.MatchedDoctors);
+    }
+
     // ─── 9. Section C Follow-Up Triage & Observability Proof Tests ────────────
 
     [Fact]

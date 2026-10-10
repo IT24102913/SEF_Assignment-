@@ -66,6 +66,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   const [symptomInput, setSymptomInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState(null);
+  const [activeRecommendationWorkflowId, setActiveRecommendationWorkflowId] = useState(null);
   const [showAgentTrace, setShowAgentTrace] = useState(false);
   const [approvingAiDoc, setApprovingAiDoc] = useState(false);
 
@@ -340,6 +341,9 @@ const DoctorChannelingSection = ({ user, showToast }) => {
       const res = await recommendSpecialty(trimmed);
       const data = res.data;
       setAiRecommendations(data);
+      if (data?.workflowId) {
+        setActiveRecommendationWorkflowId(data.workflowId);
+      }
       if (data.status === 'RECOMMENDATION_READY') {
         notify(`AI suggests: ${data.specialty}`, 'success');
       }
@@ -362,6 +366,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
   const handleApproveAndSelectMatchedDoctor = async (matchedDoc) => {
     if (aiRecommendations?.workflowId) {
+      setActiveRecommendationWorkflowId(aiRecommendations.workflowId);
       setApprovingAiDoc(true);
       try {
         await approveRecommendation(
@@ -692,7 +697,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
         patientEmail: patientDetails.email,
         patientNic: patientDetails.nic,
         patientAddress: patientDetails.address,
-        notes: patientDetails.notes
+        notes: patientDetails.notes,
+        recommendationWorkflowId: activeRecommendationWorkflowId || aiRecommendations?.workflowId || null
       });
 
       setConfirmedAppointment(bookRes.data);
@@ -731,7 +737,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
             patientEmail: patientDetails.email,
             patientNic: patientDetails.nic,
             patientAddress: patientDetails.address,
-            notes: patientDetails.notes
+            notes: patientDetails.notes,
+            recommendationWorkflowId: activeRecommendationWorkflowId || aiRecommendations?.workflowId || null
           });
           setConfirmedAppointment(bookRes.data);
           setPendingAppointmentId(null);
@@ -760,7 +767,8 @@ const DoctorChannelingSection = ({ user, showToast }) => {
           patientEmail: patientDetails.email,
           patientNic: patientDetails.nic,
           patientAddress: patientDetails.address,
-          notes: patientDetails.notes
+          notes: patientDetails.notes,
+          recommendationWorkflowId: activeRecommendationWorkflowId || aiRecommendations?.workflowId || null
         });
         appointmentId = bookRes.data.id;
         setPendingAppointmentId(appointmentId);
@@ -1683,27 +1691,6 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                             <span style={{ fontSize: '11px', color: '#6B7280' }}>
                               ⏱️ {aiRecommendations.totalDurationMs || 0}ms
                             </span>
-                          </div>
-
-                          {/* HITL Badge */}
-                          <div style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '5px',
-                            padding: '4px 10px', borderRadius: '999px', fontSize: '11px', fontWeight: '700',
-                            backgroundColor: aiRecommendations.approvalStatus === 'APPROVED' ? '#DEF7EC' : '#FEF3C7',
-                            color: aiRecommendations.approvalStatus === 'APPROVED' ? '#03543F' : '#92400E',
-                            border: `1px solid ${aiRecommendations.approvalStatus === 'APPROVED' ? '#31C48D' : '#F59E0B'}`
-                          }}>
-                            {aiRecommendations.approvalStatus === 'APPROVED' ? (
-                              <>
-                                <CheckCircle2 size={13} color="#057A55" />
-                                <span>Human-in-the-Loop: Approved</span>
-                              </>
-                            ) : (
-                              <>
-                                <Clock size={13} color="#D97706" />
-                                <span>Human-in-the-Loop: Awaiting Selection</span>
-                              </>
-                            )}
                           </div>
                         </div>
 

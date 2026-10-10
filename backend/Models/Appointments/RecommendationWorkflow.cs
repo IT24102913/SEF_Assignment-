@@ -37,6 +37,12 @@ public class RecommendationWorkflow
 
     public DateTime? ApprovedAt { get; set; }
 
+    public int? SelectedDoctorId { get; set; }
+
+    public int? AppointmentId { get; set; }
+
+    public DateTime? CompletedAt { get; set; }
+
     public string? MatchedDoctorsJson { get; set; }
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

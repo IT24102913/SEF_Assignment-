@@ -59,6 +59,10 @@ public static class DbInitializer
                 ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""ApprovalStatus"" text NOT NULL DEFAULT 'NOT_REQUIRED';
                 ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""ApprovedAt"" timestamp with time zone NULL;
                 ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""MatchedDoctorsJson"" text NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""SelectedDoctorId"" integer NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""AppointmentId"" integer NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""CompletedAt"" timestamp with time zone NULL;
+                ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""RecommendationWorkflowId"" uuid NULL;
             ");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
