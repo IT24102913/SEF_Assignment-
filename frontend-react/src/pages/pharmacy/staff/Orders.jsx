@@ -64,9 +64,7 @@ import {
     Camera,
     AlertOctagon,
     Mail,
-    QrCode,
-    ChevronDown,
-    ChevronRight
+    QrCode
 } from 'lucide-react';
 
 const Orders = () => {
@@ -116,106 +114,6 @@ const Orders = () => {
         } catch (e) { return []; }
     });
     const [warningMessages, setWarningMessages] = useState({});
-    const [rxDetailsOpen, setRxDetailsOpen] = useState(false);
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Parses extracted prescription data (patient, doctor, clinic, date,
-    // and medicines) from safetyFlags strings.
-    // ─────────────────────────────────────────────────────────────────────
-    const parseExtractedFromFlags = (flags) => {
-        if (!Array.isArray(flags) || flags.length === 0) return null;
-
-        const result = {
-            quality: null,
-            patient: null,
-            hospital: null,
-            doctor: null,
-            date: null,
-            medicines: []
-        };
-
-        let parsingMeds = false;
-
-        for (const raw of flags) {
-            const flag = String(raw || '').trim();
-            if (!flag) continue;
-
-            // Extraction quality
-            const qMatch = flag.match(/Extraction Quality:\s*(\w+)/i);
-            if (qMatch) {
-                result.quality = qMatch[1].toUpperCase();
-                parsingMeds = false;
-                continue;
-            }
-
-            // Patient
-            if (/(?:👤\s*)?Patient:/i.test(flag)) {
-                result.patient = flag.replace(/^.*Patient:\s*/i, '').trim();
-                parsingMeds = false;
-                continue;
-            }
-
-            // Hospital
-            if (/(?:🏥\s*)?Hospital:/i.test(flag)) {
-                result.hospital = flag.replace(/^.*Hospital:\s*/i, '').trim();
-                parsingMeds = false;
-                continue;
-            }
-
-            // Doctor
-            if (/(?:👨‍⚕️|👨⚕️)?\s*Doctor:/i.test(flag)) {
-                result.doctor = flag.replace(/^.*Doctor:\s*/i, '').trim();
-                parsingMeds = false;
-                continue;
-            }
-
-            // Prescription Date
-            if (/(?:📅\s*)?Prescription Date:/i.test(flag)) {
-                result.date = flag.replace(/^.*Prescription Date:\s*/i, '').trim();
-                parsingMeds = false;
-                continue;
-            }
-
-            // Medicines header
-            if (flag.includes('Extracted Medicines')) {
-                parsingMeds = true;
-                continue;
-            }
-
-            // Medicine detail line
-            if (parsingMeds && /^[•·\-\s]+/.test(flag)) {
-                const cleaned = flag.replace(/^[•·\-\s]+/, '').trim();
-                if (cleaned) {
-                    const parts = cleaned.split(' — ');
-                    const name = parts[0]?.trim() || cleaned;
-                    const details = parts[1]
-                        ? parts[1].split('|').map(s => s.trim()).filter(Boolean)
-                        : [];
-                    result.medicines.push({
-                        name,
-                        details,
-                        dosage: details[0] || null,
-                        frequency: details[1] || null,
-                        duration: details[2] || null
-                    });
-                }
-                continue;
-            }
-
-            parsingMeds = false;
-        }
-
-        const hasAny =
-            result.quality ||
-            result.patient ||
-            result.hospital ||
-            result.doctor ||
-            result.date ||
-            result.medicines.length > 0;
-
-        return hasAny ? result : null;
-    };
-
     // ─────────────────────────────────────────────────────────────────────
     // Builds human-readable, categorized reason cards explaining WHY the
     // AI flagged a prescription. Parses safetyFlags from the backend + the
@@ -1169,7 +1067,6 @@ const Orders = () => {
                                                 setSelectedOrder(order);
                                                 setAdminNoteInput(order.adminNote || '');
                                                 setQuotePriceInput(order.totalAmount ?? 0);
-                                                setRxDetailsOpen(false);
                                             }}
                                             style={{ ...styles.manageBtn, flex: 1 }}
                                         >
@@ -1203,714 +1100,415 @@ const Orders = () => {
             </main>
 
             {/* Modal to Review Order & Update Status */}
-            {selectedOrder && (() => {
-                const safety = evaluatePrescriptionSafetyClient(selectedOrder, orders);
-                const allFlags = [
-                    ...(Array.isArray(selectedOrder.safetyFlags)
-                        ? selectedOrder.safetyFlags
-                        : typeof selectedOrder.safetyFlags === 'string'
-                            ? selectedOrder.safetyFlags.split(',').map(s => s.trim()).filter(Boolean)
-                            : []),
-                    ...(safety.flags || [])
-                ];
-                const detailReasons = buildAiDetailReasons(selectedOrder, allFlags);
-                const docCount = detailReasons.find(r => r.category.includes('Document'))?.items.length || 0;
-                const fieldCount = detailReasons.find(r => r.category.includes('Fields'))?.items.length || 0;
-                const behaviorCount = detailReasons.find(r => r.category.includes('Behavioral'))?.items.length || 0;
-                const totalSignals = (safety.flags || []).length;
-
-                // Score Color and Label Logic
-                const scoreColor = safety.riskScore < 30 ? '#059669' : safety.riskScore < 70 ? '#D97706' : '#DC2626';
-                const scoreLabel = safety.riskScore < 30 ? 'LOW' : safety.riskScore < 70 ? 'MEDIUM' : 'HIGH';
-
-                // Decision Pill Logic
-                let decisionColor = '#059669';
-                let DecisionIcon = CheckCircle2;
-                let decisionSummary = 'Order passed all routine safety checks';
-                if (safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW') {
-                    decisionColor = '#DC2626';
-                    DecisionIcon = XCircle;
-                    decisionSummary = 'Critical safety risk or invalid document detected';
-                } else if (safety.recommendedAction === 'REQUIRE_MANUAL_REVIEW') {
-                    decisionColor = '#D97706';
-                    DecisionIcon = AlertTriangle;
-                    decisionSummary = 'Prescription requires manual pharmacist verification';
-                }
-
-                // Status Cleanups (no emojis)
-                const cleanHwStatus = (safety.handwritingStatus || '').replace(/⚠️/g, '').trim();
-                const hwIsRed = cleanHwStatus.includes('Non-Medical') || cleanHwStatus.includes('Invalid');
-                const hwColor = hwIsRed ? '#DC2626' : '#059669';
-
-                const cleanDupStatus = (safety.duplicationStatus || '').replace(/⚠️/g, '').trim();
-                const dupIsRed = cleanDupStatus.includes('Duplicate') || cleanDupStatus.includes('Invalid');
-                const dupColor = dupIsRed ? '#DC2626' : '#059669';
-
-                const patientAppeal = appeals.find(a => a.orderNumber === selectedOrder.orderNumber || a.email === selectedOrder.customerEmail);
-                const formattedDate = selectedOrder.createdAt ? new Date(selectedOrder.createdAt).toLocaleDateString() : '';
-                const deliveryText = selectedOrder.deliveryMethod === 'Pickup' ? 'Counter Pickup' : 'Home Delivery';
-
-                return (
-                    <div style={styles.modalOverlay} onClick={(e) => {
-                        if (e.target === e.currentTarget) setSelectedOrder(null);
-                    }}>
-                        <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
-                            {/* ZONE A — STICKY HEADER */}
-                            <div style={styles.modalHeader}>
-                                <div>
-                                    <div style={{ fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>
-                                        Review Order #{selectedOrder.orderNumber}
-                                    </div>
-                                    <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
-                                        {selectedOrder.customerName} · {formattedDate} · {deliveryText}
-                                    </div>
-                                    <div style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        marginTop: '6px',
-                                        padding: '2px 8px',
-                                        borderRadius: '10px',
-                                        fontSize: '10px',
-                                        fontWeight: 700,
-                                        color: '#059669',
-                                        backgroundColor: '#ECFDF5',
-                                        border: '1px solid #A7F3D0'
-                                    }}>
-                                        <Bot size={14} color="#059669" />
-                                        <span>Gemini 3.8 Flash</span>
-                                    </div>
+            {selectedOrder && (
+                <div style={styles.modalOverlay} onClick={(e) => {
+                    if (e.target === e.currentTarget) setSelectedOrder(null);
+                }}>
+                    <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
+                        <div style={styles.modalHeader}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0F172A' }}>
+                                    Review Order #{selectedOrder.orderNumber}
+                                </h3>
+                                <div style={{ fontSize: '12px', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                    <Bot size={14} color="#059669" /> Powered by Gemini 3.8 Flash (Agentic AI)
                                 </div>
-                                <button
-                                    onClick={() => setSelectedOrder(null)}
-                                    style={styles.closeBtn}
-                                    title="Close Form (Esc)"
-                                    aria-label="Close"
-                                >
-                                    &times;
-                                </button>
+                            </div>
+                            <button
+                                onClick={() => setSelectedOrder(null)}
+                                style={styles.closeBtn}
+                                title="Close Form (Esc)"
+                                aria-label="Close"
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        <div style={styles.modalBody}>
+                            <p style={{ fontSize: '13px', color: '#64748B', margin: 0 }}>
+                                Customer: <strong>{selectedOrder.customerName}</strong> ({selectedOrder.customerEmail})
+                            </p>
+
+                            <div style={{ background: '#F1F5F9', padding: '10px 12px', borderRadius: '8px', fontSize: '12.5px', color: '#334155' }}>
+                                <div>Fulfillment: <strong>{selectedOrder.deliveryMethod === 'Pickup' ? 'Counter Pickup (FREE)' : 'Home Delivery (Delivery Charges < 500 - Pay on Delivery)'}</strong></div>
+                                {selectedOrder.deliveryAddress && <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>Address: {selectedOrder.deliveryAddress}</div>}
                             </div>
 
-                            {/* SCROLLABLE BODY */}
-                            <div style={styles.modalBody}>
-                                {/* ZONE B — RISK + DECISION BANNER */}
-                                <div style={{ display: 'flex', gap: '20px', alignItems: 'stretch' }}>
-                                    {/* Left: 140px fixed circular risk badge */}
-                                    <div style={{
-                                        width: '140px',
-                                        flexShrink: 0,
-                                        backgroundColor: '#FFFFFF',
-                                        border: '1px solid #E2E8F0',
-                                        borderRadius: '12px',
-                                        padding: '16px',
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
-                                        boxSizing: 'border-box'
-                                    }}>
-                                        <div style={{
-                                            width: '100px',
-                                            height: '100px',
-                                            border: `6px solid ${scoreColor}`,
-                                            borderRadius: '50%',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            justifyContent: 'center',
-                                            alignItems: 'center',
-                                            boxSizing: 'border-box'
-                                        }}>
-                                            <span style={{ fontSize: '32px', fontWeight: 900, color: scoreColor, lineHeight: 1 }}>
-                                                {safety.riskScore}
-                                            </span>
-                                            <span style={{ fontSize: '11px', color: '#64748B', marginTop: '2px', lineHeight: 1 }}>
-                                                /100
-                                            </span>
-                                            <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 800, color: scoreColor, marginTop: '2px', lineHeight: 1 }}>
-                                                {scoreLabel}
-                                            </span>
-                                        </div>
+                            {/* Counter Pickup Digital QR Ticket for Staff Verification */}
+                            {(selectedOrder.deliveryMethod === 'Pickup' || selectedOrder.paymentMethod === 'PayAtCounter') && (
+                                <div style={{
+                                    background: '#ECFDF5',
+                                    border: '1px solid #A7F3D0',
+                                    borderRadius: '12px',
+                                    padding: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '14px'
+                                }}>
+                                    <div style={{ background: '#FFFFFF', padding: '6px', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
+                                        <img
+                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`PHARMACY_ORDER|${selectedOrder.orderNumber || selectedOrder.id}|${selectedOrder.customerName || 'Patient'}|${selectedOrder.totalAmount || 0}`)}`}
+                                            alt="Staff QR Verification"
+                                            style={{ width: '70px', height: '70px', display: 'block' }}
+                                        />
                                     </div>
-
-                                    {/* Right: Decision pill + tiles */}
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                                        <div style={{
-                                            width: '100%',
-                                            padding: '14px 18px',
-                                            borderRadius: '10px',
-                                            backgroundColor: decisionColor,
-                                            boxSizing: 'border-box'
-                                        }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 800, color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                <DecisionIcon size={18} />
-                                                <span>{safety.recommendedAction.replace(/_/g, ' ')}</span>
-                                            </div>
-                                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.85)', marginTop: '4px' }}>
-                                                {totalSignals} signals detected
-                                            </div>
-                                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.9)', marginTop: '2px' }}>
-                                                {decisionSummary}
-                                            </div>
+                                    <div>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#D1FAE5', color: '#065F46', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', marginBottom: '4px' }}>
+                                            <QrCode size={12} /> Counter Pickup QR Ticket
                                         </div>
-
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '12px' }}>
-                                            <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '10px 12px' }}>
-                                                <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748B', letterSpacing: '0.5px', fontWeight: 700 }}>
-                                                    PRINTED RX VERIFICATION
-                                                </div>
-                                                <div style={{ fontSize: '13px', fontWeight: 700, color: hwColor, marginTop: '2px' }}>
-                                                    {cleanHwStatus}
-                                                </div>
-                                            </div>
-                                            <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '10px 12px' }}>
-                                                <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748B', letterSpacing: '0.5px', fontWeight: 700 }}>
-                                                    DUPLICATION CHECK
-                                                </div>
-                                                <div style={{ fontSize: '13px', fontWeight: 700, color: dupColor, marginTop: '2px' }}>
-                                                    {cleanDupStatus}
-                                                </div>
-                                            </div>
+                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A' }}>
+                                            Ticket Order #{selectedOrder.orderNumber}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#047857' }}>
+                                            Patient Counter Express Scan Validated
                                         </div>
                                     </div>
                                 </div>
+                            )}
 
-                                {/* ZONE C — ISSUE SUMMARY STRIP */}
-                                {(docCount > 0 || fieldCount > 0 || behaviorCount > 0) && (
-                                    <div style={{
-                                        padding: '14px 18px',
-                                        backgroundColor: '#FFFFFF',
-                                        border: '1px solid #E2E8F0',
-                                        borderRadius: '10px',
-                                        display: 'flex',
-                                        gap: '32px',
-                                        alignItems: 'center'
-                                    }}>
-                                        {docCount > 0 && (
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, color: '#DC2626' }}>
-                                                    DOCUMENT
-                                                </span>
-                                                <span style={{ fontSize: '20px', fontWeight: 800, color: '#DC2626' }}>
-                                                    {docCount}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {fieldCount > 0 && (
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, color: '#D97706' }}>
-                                                    FIELDS
-                                                </span>
-                                                <span style={{ fontSize: '20px', fontWeight: 800, color: '#D97706' }}>
-                                                    {fieldCount}
-                                                </span>
-                                            </div>
-                                        )}
-                                        {behaviorCount > 0 && (
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, color: '#7C3AED' }}>
-                                                    BEHAVIOR
-                                                </span>
-                                                <span style={{ fontSize: '20px', fontWeight: 800, color: '#7C3AED' }}>
-                                                    {behaviorCount}
-                                                </span>
-                                            </div>
-                                        )}
+                            {selectedOrder.prescriptionImageUrl && (
+                                <div style={{ background: '#FFFBEB', padding: '12px', borderRadius: '8px', border: '1px solid #FDE68A' }}>
+                                    <div style={{ fontWeight: 700, color: '#B45309', marginBottom: '6px', fontSize: '13px' }}>
+                                        Uploaded Doctor Prescription Receipt
                                     </div>
-                                )}
+                                    <img
+                                        src={selectedOrder.prescriptionImageUrl}
+                                        alt="Prescription"
+                                        style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '6px', border: '1px solid #CBD5E1', cursor: 'pointer', backgroundColor: '#FFFFFF' }}
+                                        onClick={() => setViewRxModal(selectedOrder.prescriptionImageUrl)}
+                                    />
+                                    <p style={{ fontSize: '11px', color: '#92400E', marginTop: '4px', textAlign: 'center', margin: '4px 0 0' }}>
+                                        Click image to view full screen
+                                    </p>
+                                </div>
+                            )}
 
-                                {/* ZONE D — GROUPED ISSUE CARDS */}
-                                {detailReasons.length > 0 && (
-                                    <div>
-                                        {detailReasons.map((section, si) => (
-                                            <div key={si} style={{
-                                                backgroundColor: '#FFFFFF',
-                                                border: '1px solid #E2E8F0',
-                                                borderLeft: `4px solid ${section.color}`,
-                                                borderRadius: '8px',
-                                                padding: '14px 16px',
-                                                marginBottom: '10px'
+                            {/* AGENT 1 & 2 — AGENTIC AI VISION & PRESCRIPTION SAFETY EVALUATION */}
+                            {(() => {
+                                const safety = evaluatePrescriptionSafetyClient(selectedOrder, orders);
+                                const isHighRisk = safety.riskScore >= 50 || safety.flags.some(f => f.toLowerCase().includes("duplicate") || f.toLowerCase().includes("suspicious"));
+                                return (
+                                    <div style={{
+                                        background: isHighRisk ? '#FEF2F2' : '#FFFBEB',
+                                        border: `1px solid ${isHighRisk ? '#FCA5A5' : '#FDE68A'}`,
+                                        borderRadius: '10px',
+                                        padding: '16px',
+                                        color: isHighRisk ? '#991B1B' : '#856404'
+                                    }}>
+                                        <div style={{ fontWeight: 800, fontSize: '14px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <ShieldAlert size={16} color={isHighRisk ? "#DC2626" : "#D97706"} />
+                                                <span>Agentic AI Safety &amp; Printed Rx Assessment</span>
+                                            </span>
+                                            <span style={{
+                                                fontSize: '11px',
+                                                padding: '2px 8px',
+                                                borderRadius: '12px',
+                                                backgroundColor: '#0F172A',
+                                                color: '#38BDF8',
+                                                fontWeight: 700
                                             }}>
-                                                <div style={{
-                                                    display: 'flex',
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    paddingBottom: '8px',
-                                                    borderBottom: '1px solid #F1F5F9'
-                                                }}>
-                                                    <span style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.5px', color: section.color }}>
-                                                        {section.category}
-                                                    </span>
-                                                    <span style={{ fontSize: '12px', fontWeight: 700, color: section.color }}>
-                                                        {section.items.length}
-                                                    </span>
+                                                {safety.aiAgent}
+                                            </span>
+                                        </div>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px', fontSize: '12px', background: 'rgba(255,255,255,0.7)', padding: '8px 10px', borderRadius: '6px' }}>
+                                            <div>
+                                                <strong>Printed Rx Verification:</strong>
+                                                <div style={{ color: safety.handwritingStatus.includes('Non-Medical') ? '#DC2626' : '#059669', fontWeight: 700 }}>{safety.handwritingStatus}</div>
+                                            </div>
+                                            <div>
+                                                <strong>Duplication Check:</strong>
+                                                <div style={{ color: safety.duplicationStatus.includes("Duplicate") ? '#DC2626' : '#059669', fontWeight: 700 }}>
+                                                    {safety.duplicationStatus}
                                                 </div>
-                                                <div>
-                                                    {section.items.map((item, ii) => (
-                                                        <div key={ii} style={{
-                                                            fontSize: '13px',
-                                                            lineHeight: 1.55,
-                                                            color: '#334155',
-                                                            padding: '8px 0',
-                                                            borderBottom: ii < section.items.length - 1 ? '1px solid #F8FAFC' : 'none'
-                                                        }}>
-                                                            {typeof item.text === 'string' ? item.text.replace(/⚠️/g, '').trim() : item.text}
+                                            </div>
+                                        </div>
+
+                                        <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '6px' }}>
+                                            Overall Risk Score: <span style={{ color: isHighRisk ? '#DC2626' : '#D97706', fontSize: '15px' }}>{safety.riskScore}/100</span>
+                                        </div>
+
+                                        {safety.flags && safety.flags.length > 0 && (
+                                            <div style={{ marginBottom: '10px' }}>
+                                                <div style={{ fontWeight: 700, fontSize: '12px', marginBottom: '4px' }}>
+                                                    Detected AI Flags &amp; Checks:
+                                                </div>
+                                                <div style={{ fontSize: '12px' }}>
+                                                    {safety.flags.map((flag, idx) => (
+                                                        <div key={idx} style={{ marginBottom: '3px', display: 'flex', alignItems: 'flex-start', gap: '4px' }}>
+                                                            <span>•</span> <span>{flag}</span>
                                                         </div>
                                                     ))}
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {/* ZONE E — PRESCRIPTION DETAILS (collapsible) */}
-                                {selectedOrder.prescriptionImageUrl && (
-                                    <div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setRxDetailsOpen(!rxDetailsOpen)}
-                                            style={{
-                                                width: '100%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px',
-                                                padding: '12px 16px',
-                                                backgroundColor: '#F8FAFC',
-                                                border: '1px solid #E2E8F0',
-                                                borderRadius: '8px',
-                                                cursor: 'pointer',
-                                                textAlign: 'left'
-                                            }}
-                                        >
-                                            {rxDetailsOpen ? <ChevronDown size={16} color="#0F172A" /> : <ChevronRight size={16} color="#0F172A" />}
-                                            <span style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A' }}>
-                                                Prescription Details
-                                            </span>
-                                        </button>
-
-                                        {rxDetailsOpen && (
-                                            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                                {/* Block 1 — Image */}
-                                                <div>
-                                                    <img
-                                                        src={selectedOrder.prescriptionImageUrl}
-                                                        alt="Prescription"
-                                                        style={{
-                                                            maxHeight: '260px',
-                                                            width: '100%',
-                                                            objectFit: 'contain',
-                                                            backgroundColor: '#F8FAFC',
-                                                            border: '1px solid #E2E8F0',
-                                                            borderRadius: '8px',
-                                                            cursor: 'pointer'
-                                                        }}
-                                                        onClick={() => setViewRxModal(selectedOrder.prescriptionImageUrl)}
-                                                    />
-                                                    <div style={{ fontSize: '11px', color: '#64748B', textAlign: 'center', marginTop: '6px' }}>
-                                                        Click to view full size
-                                                    </div>
-                                                </div>
-
-                                                {/* Block 2 — Extracted Data (only if available) */}
-                                                {(() => {
-                                                    const parsedFlags = Array.isArray(selectedOrder.safetyFlags)
-                                                        ? selectedOrder.safetyFlags
-                                                        : typeof selectedOrder.safetyFlags === 'string'
-                                                            ? selectedOrder.safetyFlags.split(',').map(s => s.trim()).filter(Boolean)
-                                                            : [];
-
-                                                    const extracted = selectedOrder.extractedData ||
-                                                        parseExtractedFromFlags(parsedFlags);
-
-                                                    const hasExtracted = extracted && (
-                                                        extracted.patient ||
-                                                        extracted.doctor ||
-                                                        extracted.hospital ||
-                                                        extracted.date ||
-                                                        (Array.isArray(extracted.medicines) && extracted.medicines.length > 0)
-                                                    );
-
-                                                    if (!hasExtracted) {
-                                                        return (
-                                                            <div style={{ fontSize: '12px', color: '#94A3B8', fontStyle: 'italic', padding: '4px 0' }}>
-                                                                No structured extraction available for this order.
-                                                            </div>
-                                                        );
-                                                    }
-
-                                                    return (
-                                                        <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px' }}>
-                                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                                                <div>
-                                                                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748B', fontWeight: 700 }}>Patient</div>
-                                                                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A' }}>{extracted.patient || 'N/A'}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748B', fontWeight: 700 }}>Doctor</div>
-                                                                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A' }}>{extracted.doctor || 'N/A'}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748B', fontWeight: 700 }}>Hospital</div>
-                                                                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A' }}>{extracted.hospital || 'N/A'}</div>
-                                                                </div>
-                                                                <div>
-                                                                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#64748B', fontWeight: 700 }}>Prescription Date</div>
-                                                                    <div style={{ fontSize: '13px', fontWeight: 600, color: '#0F172A' }}>{extracted.date || 'N/A'}</div>
-                                                                </div>
-                                                            </div>
-
-                                                            {Array.isArray(extracted.medicines) && extracted.medicines.length > 0 && (
-                                                                <div style={{ marginTop: '12px' }}>
-                                                                    <div style={{ fontSize: '11px', textTransform: 'uppercase', color: '#64748B', fontWeight: 700, marginBottom: '8px' }}>
-                                                                        Extracted Medicines ({extracted.medicines.length})
-                                                                    </div>
-                                                                    {extracted.medicines.map((med, mIdx) => (
-                                                                        <div key={mIdx} style={{ padding: '8px 10px', backgroundColor: '#F8FAFC', borderRadius: '6px', marginBottom: '6px' }}>
-                                                                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A' }}>
-                                                                                {med.name || 'Unnamed Medicine'}
-                                                                            </div>
-                                                                            <div style={{ fontSize: '12px', color: '#64748B' }}>
-                                                                                {[med.dosage, med.frequency, med.duration].filter(Boolean).join(' · ')}
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </div>
                                         )}
-                                    </div>
-                                )}
 
-                                {/* Counter Pickup Digital QR Ticket for Staff Verification */}
-                                {(selectedOrder.deliveryMethod === 'Pickup' || selectedOrder.paymentMethod === 'PayAtCounter') && (
-                                    <div style={{
-                                        backgroundColor: '#ECFDF5',
-                                        border: '1px solid #A7F3D0',
-                                        borderRadius: '10px',
-                                        padding: '12px 14px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '14px'
-                                    }}>
-                                        <div style={{ backgroundColor: '#FFFFFF', padding: '6px', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
-                                            <img
-                                                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`PHARMACY_ORDER|${selectedOrder.orderNumber || selectedOrder.id}|${selectedOrder.customerName || 'Patient'}|${selectedOrder.totalAmount || 0}`)}`}
-                                                alt="Staff QR Verification"
-                                                style={{ width: '60px', height: '60px', display: 'block' }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: '#D1FAE5', color: '#065F46', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', marginBottom: '4px' }}>
-                                                <QrCode size={12} /> Counter Pickup QR Ticket
-                                            </div>
-                                            <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A' }}>
-                                                Ticket Order #{selectedOrder.orderNumber}
-                                            </div>
-                                            <div style={{ fontSize: '11px', color: '#047857' }}>
-                                                Patient Counter Express Scan Validated
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* ZONE F — VIOLATION PANEL (conditional) */}
-                                {(safety.recommendedAction !== 'APPROVE' || (safety.flags && safety.flags.length > 0)) && (
-                                    <div style={{
-                                        backgroundColor: '#FFFFFF',
-                                        border: '1px solid #E2E8F0',
-                                        borderLeft: '4px solid #DC2626',
-                                        borderRadius: '8px',
-                                        padding: '16px',
-                                        marginBottom: '10px'
-                                    }}>
-                                        {/* Section header */}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <ShieldAlert size={16} color="#DC2626" />
-                                                <span style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 800, color: '#DC2626', letterSpacing: '0.5px' }}>
-                                                    PATIENT VIOLATION & ANTI-ABUSE MANAGEMENT
-                                                </span>
-                                            </div>
+                                        <div style={{ fontWeight: 700, fontSize: '12px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>Recommended Decision:</span>
                                             <span style={{
                                                 padding: '3px 10px',
-                                                borderRadius: '12px',
-                                                fontSize: '10px',
-                                                fontWeight: 700,
-                                                color: '#FFFFFF',
-                                                backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#DC2626' : '#059669'
+                                                borderRadius: '6px',
+                                                fontWeight: 800,
+                                                fontSize: '11px',
+                                                backgroundColor: safety.recommendedAction === 'BLOCK_AND_FLAG_FOR_REVIEW' ? '#DC2626' : '#D97706',
+                                                color: '#FFFFFF'
                                             }}>
-                                                {blockedUsers.includes(selectedOrder.customerEmail) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
+                                                {safety.recommendedAction}
                                             </span>
                                         </div>
 
-                                        {/* Patient info block */}
+                                        {/* PATIENT VIOLATION AUDIT & ANTI-ABUSE CONTROLS PANEL */}
                                         <div style={{
                                             marginTop: '12px',
-                                            backgroundColor: '#F8FAFC',
-                                            border: '1px solid #E2E8F0',
-                                            borderRadius: '6px',
-                                            padding: '12px',
-                                            fontSize: '12px',
-                                            color: '#334155',
-                                            lineHeight: 1.6
+                                            paddingTop: '12px',
+                                            borderTop: '1px dashed #FCA5A5',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '10px'
                                         }}>
-                                            <div><strong>Violating Patient:</strong> {selectedOrder.customerName || 'Anonymous'} ({selectedOrder.customerEmail || 'No Email'})</div>
-                                            <div><strong>Violation Date:</strong> {formattedDate || new Date(selectedOrder.createdAt).toLocaleDateString()}</div>
-                                            <div><strong>Offending Order:</strong> #{selectedOrder.orderNumber}</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#DC2626', fontSize: '11px', marginTop: '4px', fontWeight: 600 }}>
-                                                <Bot size={14} color="#DC2626" /> AI Flags: {safety.flags.length} signals detected
+                                            <div style={{ fontSize: '13px', fontWeight: 800, color: '#991B1B', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <ShieldAlert size={16} color="#DC2626" /> Patient Violation &amp; Anti-Abuse Management
+                                                </span>
+                                                <span style={{
+                                                    fontSize: '11px',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '12px',
+                                                    backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#EF4444' : '#10B981',
+                                                    color: '#FFFFFF',
+                                                    fontWeight: 800
+                                                }}>
+                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
+                                                </span>
                                             </div>
-                                        </div>
 
-                                        {/* Appeal viewer (if appeals match) */}
-                                        {patientAppeal && (
-                                            <div style={{
-                                                marginTop: '10px',
-                                                backgroundColor: '#F0FDF4',
-                                                border: '1px solid #BBF7D0',
-                                                borderLeft: '4px solid #22C55E',
-                                                borderRadius: '8px',
-                                                padding: '12px'
-                                            }}>
-                                                <div style={{ fontSize: '12px', fontWeight: 800, color: '#15803D', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <FileText size={14} /> Patient Violation Appeal & Doctor Letter Submitted:
-                                                </div>
-                                                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#166534', fontStyle: 'italic' }}>
-                                                    "{patientAppeal.reason || 'No explanation text provided.'}"
-                                                </p>
-                                                {patientAppeal.doctorLetterUrl && (
-                                                    <div style={{ marginTop: '6px' }}>
-                                                        <a
-                                                            href={patientAppeal.doctorLetterUrl}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            style={{ fontSize: '12px', fontWeight: 700, color: '#0284C7', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                                                        >
-                                                            <FileText size={14} /> View Attached Doctor Letter / Medical Note
-                                                        </a>
+                                            {/* Patient Violation Audit Details */}
+                                            <div style={{ fontSize: '12px', color: '#7F1D1D', background: '#FFFFFF', padding: '10px', borderRadius: '6px', border: '1px solid #FECACA' }}>
+                                                <div><strong>Violating Patient:</strong> {selectedOrder.customerName} ({selectedOrder.customerEmail || 'No Email'})</div>
+                                                <div><strong>Violation Date:</strong> {new Date(selectedOrder.createdAt).toLocaleString()}</div>
+                                                <div><strong>Offending Order #:</strong> {selectedOrder.orderNumber}</div>
+                                                {safety.flags && safety.flags.length > 0 && (
+                                                    <div style={{ marginTop: '4px', color: '#B91C1C', fontWeight: 600, fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <Bot size={14} color="#DC2626" /> AI Flags: {safety.flags.length} violation signal(s) detected by Gemini 3.8 Flash vision analysis.
                                                     </div>
                                                 )}
                                             </div>
-                                        )}
 
-                                        {/* Warning textarea */}
-                                        <div style={{ marginTop: '10px' }}>
-                                            <label style={{ fontSize: '11px', fontWeight: 700, color: '#7F1D1D', display: 'block', marginBottom: '4px' }}>
-                                                Admin Violation Notice Message to Patient:
-                                            </label>
-                                            <textarea
-                                                rows={3}
-                                                value={warningMessages[selectedOrder.orderNumber] ?? `We detected that you uploaded an invalid non-medical image for prescription verification (Order #${selectedOrder.orderNumber}). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to medibridge@gmail.com.`}
-                                                onChange={(e) => setWarningMessages({ ...warningMessages, [selectedOrder.orderNumber]: e.target.value })}
-                                                style={{ width: '100%', border: '1px solid #CBD5E1', borderRadius: '6px', padding: '10px', fontSize: '12px', resize: 'vertical', boxSizing: 'border-box' }}
-                                            />
-                                        </div>
+                                            {/* ── WHY AI FLAGGED THIS PRESCRIPTION — Detailed Reason Breakdown ── */}
+                                            {(() => {
+                                                const allFlags = [
+                                                    ...(Array.isArray(selectedOrder.safetyFlags)
+                                                        ? selectedOrder.safetyFlags
+                                                        : typeof selectedOrder.safetyFlags === 'string'
+                                                            ? selectedOrder.safetyFlags.split(',').map(s => s.trim()).filter(Boolean)
+                                                            : []),
+                                                    ...safety.flags
+                                                ];
+                                                const detailReasons = buildAiDetailReasons(selectedOrder, allFlags);
+                                                if (detailReasons.length === 0) return null;
+                                                return (
+                                                    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '12px 14px' }}>
+                                                        <div style={{ fontSize: '12.5px', fontWeight: 900, color: '#0F172A', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <Search size={15} color="#0F172A" /> Why AI Flagged This Prescription — Detailed Analysis
+                                                        </div>
+                                                        {detailReasons.map((section, si) => (
+                                                            <div key={si} style={{ marginBottom: si < detailReasons.length - 1 ? '10px' : 0 }}>
+                                                                <div style={{
+                                                                    fontSize: '11px', fontWeight: 800, color: section.color,
+                                                                    background: section.bg, border: `1px solid ${section.border}`,
+                                                                    borderRadius: '6px', padding: '4px 8px', marginBottom: '6px',
+                                                                    display: 'inline-block'
+                                                                }}>
+                                                                    {section.category}
+                                                                </div>
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                    {section.items.map((item, ii) => {
+                                                                        const IconComp = item.IconComponent;
+                                                                        return (
+                                                                            <div key={ii} style={{
+                                                                                display: 'flex', alignItems: 'flex-start', gap: '8px',
+                                                                                background: section.bg, border: `1px solid ${section.border}`,
+                                                                                borderRadius: '6px', padding: '6px 10px', fontSize: '11.5px',
+                                                                                color: '#1E293B', lineHeight: 1.5
+                                                                            }}>
+                                                                                {IconComp && <IconComp size={15} style={{ flexShrink: 0, marginTop: '2px', color: section.color }} />}
+                                                                                <span>{item.text}</span>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })()}
 
-                                        {/* Action buttons row */}
-                                        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleSendWarningMessage(selectedOrder.customerEmail, selectedOrder.orderNumber)}
-                                                style={{
-                                                    flex: 1,
-                                                    backgroundColor: '#0F172A',
-                                                    color: '#FFFFFF',
-                                                    border: 'none',
-                                                    padding: '10px 16px',
-                                                    borderRadius: '6px',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '6px'
-                                                }}
-                                            >
-                                                <Bell size={14} /> Send Warning Notification
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleToggleBlockUser(selectedOrder.customerEmail)}
-                                                style={{
-                                                    backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#059669' : '#DC2626',
-                                                    color: '#FFFFFF',
-                                                    border: 'none',
-                                                    padding: '10px 16px',
-                                                    borderRadius: '6px',
-                                                    fontSize: '12px',
-                                                    fontWeight: 700,
-                                                    cursor: 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    gap: '6px'
-                                                }}
-                                            >
-                                                <UserX size={14} /> {blockedUsers.includes(selectedOrder.customerEmail) ? 'Unblock User' : 'Block User'}
-                                            </button>
+                                            {/* Patient Submitted Appeal & Doctor Letter Viewer (if exists) */}
+                                            {(() => {
+                                                const patientAppeal = appeals.find(a => a.orderNumber === selectedOrder.orderNumber || a.email === selectedOrder.customerEmail);
+                                                if (!patientAppeal) return null;
+                                                return (
+                                                    <div style={{ backgroundColor: '#F0FDF4', border: '1px dashed #22C55E', padding: '10px 12px', borderRadius: '8px' }}>
+                                                        <div style={{ fontSize: '12px', fontWeight: 800, color: '#15803D', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <FileText size={14} /> Patient Violation Appeal &amp; Doctor Letter Submitted:
+                                                        </div>
+                                                        <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#166534', italic: 'italic' }}>
+                                                            "{patientAppeal.reason || 'No explanation text provided.'}"
+                                                        </p>
+                                                        {patientAppeal.doctorLetterUrl && (
+                                                            <div style={{ marginTop: '6px' }}>
+                                                                <a
+                                                                    href={patientAppeal.doctorLetterUrl}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    style={{ fontSize: '12px', fontWeight: 700, color: '#0284C7', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                                                >
+                                                                    <FileText size={14} /> View Attached Doctor Letter / Medical Note
+                                                                </a>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+
+                                            {/* Admin Custom Warning Message Textarea */}
+                                            <div>
+                                                <label style={{ fontSize: '12px', fontWeight: 700, color: '#7F1D1D', display: 'block', marginBottom: '4px' }}>
+                                                    Admin Violation Notice Message to Patient:
+                                                </label>
+                                                <textarea
+                                                    rows={2}
+                                                    value={warningMessages[selectedOrder.orderNumber] ?? `We detected that you uploaded an invalid non-medical image for prescription verification (Order #${selectedOrder.orderNumber}). Your account may be blocked if this continues. If you have valid reasons or a doctor letter, please send an appeal to medibridge@gmail.com.`}
+                                                    onChange={(e) => setWarningMessages({ ...warningMessages, [selectedOrder.orderNumber]: e.target.value })}
+                                                    style={{ width: '100%', borderRadius: '6px', border: '1px solid #FCA5A5', padding: '8px', fontSize: '12px', boxSizing: 'border-box' }}
+                                                />
+                                            </div>
+
+                                            {/* Admin Action Buttons: Send Warning & Block Account */}
+                                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSendWarningMessage(selectedOrder.customerEmail, selectedOrder.orderNumber)}
+                                                    style={{
+                                                        flex: 1,
+                                                        backgroundColor: '#0F172A',
+                                                        color: '#FFFFFF',
+                                                        border: 'none',
+                                                        padding: '8px 12px',
+                                                        borderRadius: '6px',
+                                                        fontSize: '12px',
+                                                        fontWeight: 700,
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <Bell size={14} /> Send Warning Notification to User
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleBlockUser(selectedOrder.customerEmail)}
+                                                    style={{
+                                                        backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#166534' : '#DC2626',
+                                                        color: '#FFFFFF',
+                                                        border: 'none',
+                                                        padding: '8px 12px',
+                                                        borderRadius: '6px',
+                                                        fontSize: '12px',
+                                                        fontWeight: 800,
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px'
+                                                    }}
+                                                >
+                                                    <UserX size={14} />
+                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'Unblock User' : 'Block User'}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                )}
+                                );
+                            })()}
+
+                            <div>
+                                <label style={styles.inputLabel}>
+                                    Calculated Total Quoted Price (Rs.) {selectedOrder.totalAmount === 0 && <span style={{ color: '#D97706', fontWeight: 600 }}>(Set price for Rx Order)</span>}
+                                </label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="Enter total quoted amount for patient..."
+                                    value={quotePriceInput}
+                                    onChange={(e) => setQuotePriceInput(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '10px 14px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #CBD5E1',
+                                        fontSize: '14px',
+                                        fontWeight: 700,
+                                        boxSizing: 'border-box'
+                                    }}
+                                />
+                                <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '4px' }}>
+                                    Tip: Doctor dosage calculation. Delivery charges (&lt; Rs. 500) are paid directly to the courier upon delivery.
+                                </div>
                             </div>
 
-                            {/* ZONE G — STICKY FOOTER */}
-                            <div style={{
-                                position: 'sticky',
-                                bottom: 0,
-                                backgroundColor: '#FFFFFF',
-                                borderTop: '1px solid #E2E8F0',
-                                padding: '16px 24px',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '12px',
-                                zIndex: 2
-                            }}>
-                                {/* Row 1: Quote Price and Pharmacist Note */}
-                                <div style={{ display: 'flex', gap: '12px' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '4px' }}>
-                                            QUOTE PRICE (Rs.)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            placeholder="Quote price..."
-                                            value={quotePriceInput}
-                                            onChange={(e) => setQuotePriceInput(e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                border: '1px solid #CBD5E1',
-                                                borderRadius: '6px',
-                                                fontSize: '14px',
-                                                fontWeight: 700,
-                                                boxSizing: 'border-box'
-                                            }}
-                                        />
-                                    </div>
-                                    <div style={{ flex: 2 }}>
-                                        <label style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '4px' }}>
-                                            PHARMACIST NOTE
-                                        </label>
-                                        <textarea
-                                            rows={2}
-                                            placeholder="Add stock or dosage instructions..."
-                                            value={adminNoteInput}
-                                            onChange={(e) => setAdminNoteInput(e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                border: '1px solid #CBD5E1',
-                                                borderRadius: '6px',
-                                                fontSize: '13px',
-                                                resize: 'vertical',
-                                                boxSizing: 'border-box'
-                                            }}
-                                        />
-                                    </div>
-                                </div>
+                            <div>
+                                <label style={styles.inputLabel}>
+                                    Pharmacist Note / Stock &amp; Dosage Advice to Patient *
+                                </label>
+                                <textarea
+                                    rows="3"
+                                    placeholder="Add comments regarding prescription legitimacy, availability, stock updates, or dosage instructions..."
+                                    value={adminNoteInput}
+                                    onChange={(e) => setAdminNoteInput(e.target.value)}
+                                    style={styles.textarea}
+                                />
+                            </div>
 
-                                {/* Row 2: Four Action Buttons */}
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleUpdateStatus(selectedOrder.id, 'Approved')}
-                                        disabled={actionLoading}
-                                        style={{
-                                            flex: 1,
-                                            height: '40px',
-                                            borderRadius: '8px',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#FFFFFF',
-                                            backgroundColor: '#059669',
-                                            border: 'none',
-                                            cursor: actionLoading ? 'not-allowed' : 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            opacity: actionLoading ? 0.7 : 1
-                                        }}
-                                    >
-                                        Approve &amp; Send Quote
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleUpdateStatus(selectedOrder.id, 'Dispatched')}
-                                        disabled={actionLoading}
-                                        style={{
-                                            flex: 1,
-                                            height: '40px',
-                                            borderRadius: '8px',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#FFFFFF',
-                                            backgroundColor: '#0D9488',
-                                            border: 'none',
-                                            cursor: actionLoading ? 'not-allowed' : 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            opacity: actionLoading ? 0.7 : 1
-                                        }}
-                                    >
-                                        Dispatch Order
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleUpdateStatus(selectedOrder.id, 'Cancelled')}
-                                        disabled={actionLoading}
-                                        style={{
-                                            flex: 1,
-                                            height: '40px',
-                                            borderRadius: '8px',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#FFFFFF',
-                                            backgroundColor: '#DC2626',
-                                            border: 'none',
-                                            cursor: actionLoading ? 'not-allowed' : 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            opacity: actionLoading ? 0.7 : 1
-                                        }}
-                                    >
-                                        Reject Order
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const email = selectedOrder.customerEmail;
-                                            setSelectedOrder(null);
-                                            navigate(`/pharmacy/staff/patient-analytics?email=${encodeURIComponent(email)}`);
-                                        }}
-                                        style={{
-                                            flex: 1,
-                                            height: '40px',
-                                            borderRadius: '8px',
-                                            fontSize: '12px',
-                                            fontWeight: 700,
-                                            color: '#FFFFFF',
-                                            backgroundColor: '#7C3AED',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center'
-                                        }}
-                                    >
-                                        View Analytics
-                                    </button>
-                                </div>
+                            <div style={styles.modalActionsGrid}>
+                                <button
+                                    onClick={() => handleUpdateStatus(selectedOrder.id, 'Approved')}
+                                    disabled={actionLoading}
+                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#0284C7' }}
+                                >
+                                    <CheckCircle2 size={16} /> Approve &amp; Send Quote
+                                </button>
+                                <button
+                                    onClick={() => handleUpdateStatus(selectedOrder.id, 'Dispatched')}
+                                    disabled={actionLoading}
+                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#0D9488' }}
+                                >
+                                    <Truck size={16} /> Dispatch Order
+                                </button>
+                                <button
+                                    onClick={() => handleUpdateStatus(selectedOrder.id, 'Cancelled')}
+                                    disabled={actionLoading}
+                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#DC2626' }}
+                                >
+                                    <XCircle size={16} /> Reject Order
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const email = selectedOrder.customerEmail;
+                                        setSelectedOrder(null);
+                                        navigate(`/pharmacy/staff/patient-analytics?email=${encodeURIComponent(email)}`);
+                                    }}
+                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                                >
+                                    <FileText size={16} /> View Patient Analytics
+                                </button>
                             </div>
                         </div>
                     </div>
-                );
-            })()}
+                </div>
+            )}
 
             {/* Modal for viewing Prescription Image Full Screen */}
             {viewRxModal && (
@@ -2237,8 +1835,8 @@ const styles = {
         backgroundColor: '#FFFFFF',
         borderRadius: '16px',
         width: '100%',
-        maxWidth: '720px',
-        maxHeight: '90vh',
+        maxWidth: '560px',
+        maxHeight: '88vh',
         display: 'flex',
         flexDirection: 'column',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
@@ -2250,16 +1848,13 @@ const styles = {
         justifyContent: 'space-between',
         alignItems: 'center',
         borderBottom: '1px solid #E2E8F0',
-        padding: '16px 24px',
-        backgroundColor: '#FFFFFF',
-        position: 'sticky',
-        top: 0,
-        zIndex: 2,
+        padding: '16px 20px',
+        backgroundColor: '#F8FAFC',
     },
     modalBody: {
-        padding: '20px 24px',
+        padding: '20px',
         overflowY: 'auto',
-        flex: 1,
+        maxHeight: 'calc(88vh - 75px)',
         display: 'flex',
         flexDirection: 'column',
         gap: '16px',
