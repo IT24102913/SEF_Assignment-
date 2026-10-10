@@ -581,11 +581,11 @@ const Orders = () => {
 
     const handleToggleBlockUser = async (patientEmail) => {
         if (!patientEmail) return;
-        const isCurrentlyBlocked = blockedUsers.includes(patientEmail);
+        const isCurrentlyBlocked = blockedUsers.some(e => e.toLowerCase() === patientEmail.toLowerCase());
         const shouldBlock = !isCurrentlyBlocked;
         let updated;
         if (isCurrentlyBlocked) {
-            updated = blockedUsers.filter(e => e !== patientEmail);
+            updated = blockedUsers.filter(e => e.toLowerCase() !== patientEmail.toLowerCase());
         } else {
             updated = [...blockedUsers, patientEmail];
         }
@@ -600,10 +600,10 @@ const Orders = () => {
                 block: shouldBlock,
                 reason: "Prescription anti-abuse violation"
             });
-            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
         } catch (e) {
             console.warn('Failed to update block state on backend:', e);
-            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
         }
     };
 
@@ -836,7 +836,22 @@ const Orders = () => {
                                     }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                                             <div>
-                                                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>{p.customerName || 'Anonymous'}</h4>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>{p.customerName || 'Anonymous'}</h4>
+                                                    {blockedUsers.some(b => b.toLowerCase() === p.customerEmail?.toLowerCase()) && (
+                                                        <span style={{
+                                                            backgroundColor: '#DC2626',
+                                                            color: '#FFFFFF',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '12px',
+                                                            fontSize: '11px',
+                                                            fontWeight: 800,
+                                                            letterSpacing: '0.3px'
+                                                        }}>
+                                                            Blocked User
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <div style={{ fontSize: '12.5px', color: '#64748B' }}>{p.customerEmail}</div>
                                             </div>
                                             <span style={{
@@ -895,6 +910,10 @@ const Orders = () => {
                     ) : (
                         filteredOrders.filter(Boolean).map(order => {
                             if (!order) return null;
+                            const isCustomerBlocked = Boolean(
+                                order.customerEmail &&
+                                blockedUsers.some(b => b.toLowerCase() === order.customerEmail.toLowerCase())
+                            );
                             const badge = getStatusBadgeStyle(order.status);
                             const StatusIcon = badge.icon;
                             return (
@@ -906,7 +925,21 @@ const Orders = () => {
                                                 <Calendar size={13} /> {new Date(order.createdAt).toLocaleString()}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                            {isCustomerBlocked && (
+                                                <div style={{
+                                                    backgroundColor: '#DC2626',
+                                                    color: '#FFFFFF',
+                                                    padding: '4px 10px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '12px',
+                                                    fontWeight: 800,
+                                                    display: 'flex',
+                                                    alignItems: 'center'
+                                                }}>
+                                                    Blocked User
+                                                </div>
+                                            )}
                                             {(order.status !== 'PendingVerification' && order.status !== 'Pending' && (order.patientConfirmed || order.status === 'Confirmed' || order.status === 'Dispatched' || order.status === 'Delivered')) ? (
                                                 <div style={{
                                                     backgroundColor: '#ECFDF5',
@@ -954,6 +987,19 @@ const Orders = () => {
                                     <div style={styles.patientInfoBox}>
                                         <div style={styles.infoLine}>
                                             <User size={14} color="#059669" /> <strong>{order.customerName}</strong> ({order.customerEmail})
+                                            {isCustomerBlocked && (
+                                                <span style={{
+                                                    marginLeft: '6px',
+                                                    backgroundColor: '#DC2626',
+                                                    color: '#FFFFFF',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '11px',
+                                                    fontWeight: 800
+                                                }}>
+                                                    Blocked User
+                                                </span>
+                                            )}
                                         </div>
                                         <div style={styles.infoLine}>
                                             <Phone size={14} color="#059669" /> {order.customerPhone || 'N/A'}
@@ -1275,11 +1321,11 @@ const Orders = () => {
                                                     fontSize: '11px',
                                                     padding: '2px 8px',
                                                     borderRadius: '12px',
-                                                    backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#EF4444' : '#10B981',
+                                                    backgroundColor: blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? '#EF4444' : '#10B981',
                                                     color: '#FFFFFF',
                                                     fontWeight: 800
                                                 }}>
-                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
+                                                    {blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
                                                 </span>
                                             </div>
 
@@ -1412,7 +1458,7 @@ const Orders = () => {
                                                     type="button"
                                                     onClick={() => handleToggleBlockUser(selectedOrder.customerEmail)}
                                                     style={{
-                                                        backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#166534' : '#DC2626',
+                                                        backgroundColor: blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? '#166534' : '#DC2626',
                                                         color: '#FFFFFF',
                                                         border: 'none',
                                                         padding: '8px 12px',
@@ -1426,7 +1472,7 @@ const Orders = () => {
                                                     }}
                                                 >
                                                     <UserX size={14} />
-                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'Unblock User' : 'Block User'}
+                                                    {blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? 'Unblock User' : 'Block User'}
                                                 </button>
                                             </div>
                                         </div>
