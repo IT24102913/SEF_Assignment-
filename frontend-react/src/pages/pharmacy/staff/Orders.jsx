@@ -117,6 +117,105 @@ const Orders = () => {
     });
     const [warningMessages, setWarningMessages] = useState({});
     const [rxDetailsOpen, setRxDetailsOpen] = useState(false);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Parses extracted prescription data (patient, doctor, clinic, date,
+    // and medicines) from safetyFlags strings.
+    // ─────────────────────────────────────────────────────────────────────
+    const parseExtractedFromFlags = (flags) => {
+        if (!Array.isArray(flags) || flags.length === 0) return null;
+
+        const result = {
+            quality: null,
+            patient: null,
+            hospital: null,
+            doctor: null,
+            date: null,
+            medicines: []
+        };
+
+        let parsingMeds = false;
+
+        for (const raw of flags) {
+            const flag = String(raw || '').trim();
+            if (!flag) continue;
+
+            // Extraction quality
+            const qMatch = flag.match(/Extraction Quality:\s*(\w+)/i);
+            if (qMatch) {
+                result.quality = qMatch[1].toUpperCase();
+                parsingMeds = false;
+                continue;
+            }
+
+            // Patient
+            if (/(?:👤\s*)?Patient:/i.test(flag)) {
+                result.patient = flag.replace(/^.*Patient:\s*/i, '').trim();
+                parsingMeds = false;
+                continue;
+            }
+
+            // Hospital
+            if (/(?:🏥\s*)?Hospital:/i.test(flag)) {
+                result.hospital = flag.replace(/^.*Hospital:\s*/i, '').trim();
+                parsingMeds = false;
+                continue;
+            }
+
+            // Doctor
+            if (/(?:👨‍⚕️|👨⚕️)?\s*Doctor:/i.test(flag)) {
+                result.doctor = flag.replace(/^.*Doctor:\s*/i, '').trim();
+                parsingMeds = false;
+                continue;
+            }
+
+            // Prescription Date
+            if (/(?:📅\s*)?Prescription Date:/i.test(flag)) {
+                result.date = flag.replace(/^.*Prescription Date:\s*/i, '').trim();
+                parsingMeds = false;
+                continue;
+            }
+
+            // Medicines header
+            if (flag.includes('Extracted Medicines')) {
+                parsingMeds = true;
+                continue;
+            }
+
+            // Medicine detail line
+            if (parsingMeds && /^[•·\-\s]+/.test(flag)) {
+                const cleaned = flag.replace(/^[•·\-\s]+/, '').trim();
+                if (cleaned) {
+                    const parts = cleaned.split(' — ');
+                    const name = parts[0]?.trim() || cleaned;
+                    const details = parts[1]
+                        ? parts[1].split('|').map(s => s.trim()).filter(Boolean)
+                        : [];
+                    result.medicines.push({
+                        name,
+                        details,
+                        dosage: details[0] || null,
+                        frequency: details[1] || null,
+                        duration: details[2] || null
+                    });
+                }
+                continue;
+            }
+
+            parsingMeds = false;
+        }
+
+        const hasAny =
+            result.quality ||
+            result.patient ||
+            result.hospital ||
+            result.doctor ||
+            result.date ||
+            result.medicines.length > 0;
+
+        return hasAny ? result : null;
+    };
+
     // ─────────────────────────────────────────────────────────────────────
     // Builds human-readable, categorized reason cards explaining WHY the
     // AI flagged a prescription. Parses safetyFlags from the backend + the
@@ -1413,8 +1512,22 @@ const Orders = () => {
 
                                                 {/* Block 2 — Extracted Data (only if available) */}
                                                 {(() => {
-                                                    const extracted = selectedOrder.extractedData || null;
-                                                    const hasExtracted = extracted && (extracted.patient || extracted.doctor || extracted.hospital || extracted.date || (Array.isArray(extracted.medicines) && extracted.medicines.length > 0));
+                                                    const parsedFlags = Array.isArray(selectedOrder.safetyFlags)
+                                                        ? selectedOrder.safetyFlags
+                                                        : typeof selectedOrder.safetyFlags === 'string'
+                                                            ? selectedOrder.safetyFlags.split(',').map(s => s.trim()).filter(Boolean)
+                                                            : [];
+
+                                                    const extracted = selectedOrder.extractedData ||
+                                                        parseExtractedFromFlags(parsedFlags);
+
+                                                    const hasExtracted = extracted && (
+                                                        extracted.patient ||
+                                                        extracted.doctor ||
+                                                        extracted.hospital ||
+                                                        extracted.date ||
+                                                        (Array.isArray(extracted.medicines) && extracted.medicines.length > 0)
+                                                    );
 
                                                     if (!hasExtracted) {
                                                         return (
