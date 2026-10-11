@@ -15,8 +15,8 @@ const Color kLightBg = Color(0xFFF2FAF8);
 const Color kMint = Color(0xFFE6F5F2);
 
 class EmrPatientScreen extends StatefulWidget {
-  final String patientCode;
-  const EmrPatientScreen({super.key, this.patientCode = 'PAT-1004'});
+  final String? patientCode;
+  const EmrPatientScreen({super.key, this.patientCode});
 
   @override
   State<EmrPatientScreen> createState() => _EmrPatientScreenState();
@@ -73,25 +73,48 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
       _error = null;
     });
     try {
-      final code = (widget.patientCode.isNotEmpty && widget.patientCode != 'PAT-1001')
-          ? widget.patientCode
-          : (AuthState.patientCode ?? 'PAT-1004');
+      String code = (widget.patientCode != null && widget.patientCode!.trim().isNotEmpty)
+          ? widget.patientCode!.trim()
+          : (AuthState.patientCode ?? '');
+
+      // Automatically sync current patient from API if not explicitly supplied
+      if (widget.patientCode == null || widget.patientCode!.trim().isEmpty) {
+        try {
+          final me = await EmrApiService.getMyPatient();
+          if (me.patientCode.isNotEmpty) {
+            code = me.patientCode;
+          }
+        } catch (_) {
+          if (code.isEmpty) {
+            code = AuthState.patientCode ?? EmrApiService.activePatientCode;
+          }
+        }
+      }
+
+      if (code.isEmpty) {
+        code = AuthState.patientCode ?? EmrApiService.activePatientCode;
+      }
+
       final summaryFuture = EmrApiService.getClinicalSummary(code);
       final appointmentsFuture = EmrApiService.getChannelingHistory(patientCode: code);
 
       final results = await Future.wait([summaryFuture, appointmentsFuture]);
-      setState(() {
-        _summary = results[0] as ClinicalSummary;
-        _appointments = results[1] as List<ChannelingAppointment>;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _summary = results[0] as ClinicalSummary;
+          _appointments = results[1] as List<ChannelingAppointment>;
+          _isLoading = false;
+        });
+      }
       // Preload AI insight in background
       _loadAIInsight(code);
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -149,9 +172,11 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
     _aiQuestionCtrl.clear();
 
     try {
-      final code = (widget.patientCode.isNotEmpty && widget.patientCode != 'PAT-1001')
-          ? widget.patientCode
-          : (AuthState.patientCode ?? 'PAT-1004');
+      final code = (widget.patientCode != null && widget.patientCode!.trim().isNotEmpty)
+          ? widget.patientCode!.trim()
+          : (_summary?.patientCode.isNotEmpty == true
+              ? _summary!.patientCode
+              : (AuthState.patientCode ?? EmrApiService.activePatientCode));
       final token = AuthState.token ?? '';
       final headers = {
         'Content-Type': 'application/json',
@@ -212,7 +237,7 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             Text(
-              _summary?.patientCode ?? widget.patientCode,
+              _summary?.patientCode ?? (AuthState.patientCode ?? widget.patientCode ?? EmrApiService.activePatientCode),
               style: const TextStyle(fontSize: 12, color: Colors.white70),
             ),
           ],
@@ -298,9 +323,12 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
   // ═════════════════════════════════════════════════════════════════════════════
   Widget _buildOverviewTab() {
     final s = _summary!;
-    final patientName = s.fullName.isNotEmpty ? s.fullName : 'samith udayanga';
-    final patientCode = s.patientCode.isNotEmpty ? s.patientCode : 'PAT-1004';
-    final userInitial = patientName.isNotEmpty ? patientName[0].toUpperCase() : 'S';
+    final fallbackName = AuthState.name ?? 'Patient';
+    final patientName = s.fullName.isNotEmpty ? s.fullName : fallbackName;
+    final patientCode = s.patientCode.isNotEmpty
+        ? s.patientCode
+        : (AuthState.patientCode ?? EmrApiService.activePatientCode);
+    final userInitial = patientName.isNotEmpty ? patientName[0].toUpperCase() : 'P';
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -1367,7 +1395,7 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
                 if (titleCtrl.text.trim().isEmpty) return;
                 Navigator.pop(ctx);
                 try {
-                  final code = _summary?.patientCode ?? widget.patientCode;
+                  final code = _summary?.patientCode ?? (widget.patientCode ?? AuthState.patientCode ?? EmrApiService.activePatientCode);
                   await EmrApiService.createLabReport({
                     'patientCode': code,
                     'testTitle': titleCtrl.text.trim(),

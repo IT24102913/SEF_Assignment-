@@ -40,7 +40,17 @@ class _CustomerMainContainerState extends State<CustomerMainContainer> {
     if (AuthState.patientCode != null && AuthState.patientCode!.isNotEmpty) {
       EmrApiService.setActivePatient(AuthState.patientCode!, AuthState.name ?? 'Patient');
     }
+    _syncCurrentPatient();
     _fetchLiveNotifications();
+  }
+
+  Future<void> _syncCurrentPatient() async {
+    try {
+      await EmrApiService.getMyPatient();
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (_) {}
   }
 
   String _formatDateTimeToRelative(DateTime dt) {
