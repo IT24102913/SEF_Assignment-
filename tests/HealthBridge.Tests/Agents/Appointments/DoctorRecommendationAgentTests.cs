@@ -1581,6 +1581,32 @@ public class DoctorRecommendationSafetyStageTests
         Assert.Equal(expectedCode, result.RedFlagCode);
     }
 
+    [Theory]
+    [InlineData("heartattack")]
+    [InlineData("heart attack")]
+    [InlineData("hart attack")]
+    [InlineData("heartatack")]
+    [InlineData("stroke")]
+    [InlineData("seizure")]
+    [InlineData("seisure")]
+    [InlineData("unconcious")]
+    public void EvaluateSafety_CriticalEmergencyVariants_ReturnSafetyEscalation(string input)
+    {
+        var result = _agent.EvaluateSafety(input);
+        Assert.False(result.IsSafeToTriage);
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+    }
+
+    [Fact]
+    public void EvaluateSafety_FeverSingleWord_ReturnsInputInvalidWith1990EmergencyMention()
+    {
+        var result = _agent.EvaluateSafety("fever");
+        Assert.False(result.IsSafeToTriage);
+        Assert.Equal("INPUT_INVALID", result.Status);
+        Assert.NotNull(result.Reason);
+        Assert.Contains("1990", result.Reason);
+    }
+
     // ─── 3. Negatives That Must NOT Escalate ──────────────────────────────────
 
     [Theory]

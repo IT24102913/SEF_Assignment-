@@ -19,7 +19,6 @@ namespace HealthBridge.Api.Agents.Appointments;
 /// <summary>
 /// Formal contract implemented by all specialized agents in the Doctor Recommendation multi-agent pipeline.
 /// Defines identity, clinical responsibility, input/output contracts, and allow-listed tools.
-/// Complies with SE3090 Section 9.1: least privilege and role-specific contracts.
 /// </summary>
 public interface IWorkflowAgent
 {
@@ -32,7 +31,6 @@ public interface IWorkflowAgent
 
 /// <summary>
 /// Structured execution plan created by the Coordinator Agent before delegation.
-/// Complies with SE3090 Section 9.1: "Domain objective -> structured multi-step plan -> delegation to distinct agent roles".
 /// </summary>
 public class WorkflowPlan
 {
@@ -504,9 +502,10 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
     {
         if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
         var cleaned = Regex.Replace(raw, @"[\u200B-\u200D\uFEFF\u0000-\u001F\u007F-\u009F]", string.Empty);
-        cleaned = Regex.Replace(cleaned, @"\bhart\s*attack\b", "heart attack", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\bseisure\b", "seizure", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\bunconcious\b", "unconscious", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\b(h[ea]rt\s*at+ack|heart\s*at+ack)\b", "heart attack", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\b(seisure|seizur|siezure|siezer|seizer)\b", "seizure", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\buncon[sc]+ious(\w*)\b", "unconscious$1", RegexOptions.IgnoreCase);
+        cleaned = Regex.Replace(cleaned, @"\b(strok|stoke)\b", "stroke", RegexOptions.IgnoreCase);
         return Regex.Replace(cleaned, @"\s+", " ").Trim();
     }
 
@@ -535,7 +534,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
             {
                 IsSafeToTriage = false,
                 Status = "INPUT_INVALID",
-                Reason = "Please describe your symptoms in 2 or more words (e.g., 'frequent headache', 'persistent knee pain', or 'chest tightness'). Single words lack clinical context for accurate triage."
+                Reason = "Please describe your symptoms in 2 or more words (e.g., 'frequent headache', 'persistent knee pain', or 'chest tightness'). If you are experiencing an emergency, please call 1990 (Suwa Seriya Ambulance) or 119 immediately."
             };
         }
 
