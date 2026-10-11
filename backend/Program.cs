@@ -129,6 +129,7 @@ builder.Services.AddScoped<IMedicineService, MedicineService>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IPrescriptionService, PrescriptionService>();
 builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<IEmailService, EmailService>();
