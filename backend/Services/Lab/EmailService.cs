@@ -126,23 +126,33 @@ public class EmailService : IEmailService
 
     public async Task SendBookingReceivedAsync(string toEmail, string patientName, string testName, DateOnly date, TimeOnly time, bool requiresPrescription)
     {
-        var subject = "📋 Your Lab Test Booking Has Been Received";
+        var subject = requiresPrescription
+            ? "📋 Your Lab Test Booking Has Been Received"
+            : "✅ Your Lab Test Booking is Confirmed";
+
+        var statusText = requiresPrescription ? "⏳ Pending Prescription Upload" : "✅ Confirmed";
+
         var statusNote = requiresPrescription
             ? "Your test requires a prescription. Please upload it in the app. Once uploaded, our AI system will verify it and the lab team will review your booking."
-            : "Your booking is now in the queue for lab approval. You will receive a confirmation email once it is approved.";
+            : "Your booking is confirmed! No prescription or extra approval is required for this routine diagnostic test. Please arrive 10 minutes prior to your allocated time slot.";
+
+        var bannerColor = requiresPrescription ? "#FFF3E0" : "#ECFDF5";
+        var borderColor = requiresPrescription ? "#FF9800" : "#10B981";
+        var textColor = requiresPrescription ? "#E65100" : "#065F46";
+
         var html = $@"
         <div style='font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; background: #f9f9f9;'>
-            <h2 style='color: #2E86AB;'>Booking Received!</h2>
+            <h2 style='color: #2E86AB;'>{(requiresPrescription ? "Booking Received!" : "Appointment Confirmed!")}</h2>
             <p>Dear <strong>{patientName}</strong>,</p>
-            <p>We have received your lab test booking request. Here are the details:</p>
+            <p>{(requiresPrescription ? "We have received your lab test booking request. Here are the details:" : "Your lab test booking has been successfully confirmed. Here are your details:")}</p>
             <table style='background: white; width: 100%; padding: 15px; border-radius: 8px; border: 1px solid #ddd;'>
                 <tr><td><strong>Test:</strong></td><td>{testName}</td></tr>
                 <tr><td><strong>Date:</strong></td><td>{date:dddd, MMMM d, yyyy}</td></tr>
                 <tr><td><strong>Time:</strong></td><td>{time:hh:mm tt}</td></tr>
-                <tr><td><strong>Status:</strong></td><td>⏳ Pending Approval</td></tr>
+                <tr><td><strong>Status:</strong></td><td>{statusText}</td></tr>
             </table>
-            <div style='margin-top: 16px; padding: 12px; background: #FFF3E0; border-radius: 8px; border-left: 4px solid #FF9800;'>
-                <p style='margin: 0; color: #E65100; font-size: 14px;'>{statusNote}</p>
+            <div style='margin-top: 16px; padding: 12px; background: {bannerColor}; border-radius: 8px; border-left: 4px solid {borderColor};'>
+                <p style='margin: 0; color: {textColor}; font-size: 14px;'>{statusNote}</p>
             </div>
             <p style='margin-top: 20px;'>Thank you for choosing HealthCare Lab System!</p>
             <p style='color: #888; font-size: 12px;'>HealthCare Lab System | This is an automated email.</p>
