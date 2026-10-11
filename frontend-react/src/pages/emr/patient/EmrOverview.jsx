@@ -15,7 +15,7 @@ export default function EmrOverview() {
       title: 'Consultation Notes',
       description: 'View your consultation history, medical diagnoses, and doctor notes.',
       badgeText: 'Consultations',
-      dotColor: '#ef4444', // Red dot
+      dotColor: '#44dbef', // Red dot
       path: '/emr/consultation-notes',
       image: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&q=80&w=800',
     },
