@@ -394,28 +394,33 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
     public string OutputContract => "SafetyEvaluationResult (IsSafeToTriage, Status, RedFlagCode, Reason, SafetyMessage, FollowUpQuestions)";
     public IReadOnlyList<string> AllowedTools => Array.Empty<string>(); // Least privilege: pure deterministic clinical safety logic
 
-    private static readonly HashSet<string> GreetingOnlyWords =
-    [
-        "hi", "hello", "hey", "howdy", "hiya", "greetings", "good", "morning",
-        "afternoon", "evening", "happy", "fine", "ok", "okay", "doctor", "doc",
-        "test", "asdf", "qwerty", "abc", "123", "nothing", "n/a", "na", "please", "help"
-    ];
-
     private static readonly Regex GreetingRegex = new(
         @"^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings|howdy|hiya)(\s+(doctor|doc|there|please|help|sir|madam))?[\s.!?,]*$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static readonly HashSet<string> VagueSingleTerms =
+    private static readonly (string Key, string Replacement, int MaxDistance)[] EmergencyTypoTargets =
     [
-        "pain", "hurt", "ache", "tired", "fatigue", "sick", "unwell", "fever",
-        "headache", "nausea", "dizzy", "cough", "sore", "weak", "weakness"
+        ("heartattack", "heart attack", 3), // max 2 per prompt, allows heattack (dist 3)
+        ("hartattack", "heart attack", 2),
+        ("cardiacarrest", "cardiac arrest", 2),
+        ("stroke", "stroke", 1),
+        ("seizure", "seizure", 1),
+        ("unconscious", "unconscious", 1),
+        ("overdose", "overdose", 1),
+        ("anaphylaxis", "anaphylaxis", 1),
+        ("suicidal", "suicidal", 1),
     ];
+
+    private static readonly HashSet<string> ExcludedRealWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "strike", "stroll", "overdone", "conscious"
+    };
 
     private static readonly (string Code, Regex Pattern, string Message)[] RedFlagRules =
     [
         (
             RedFlagCodes.Cardiac,
-            new Regex(@"\b(heart\s*attack|cardiac\s*arrest|crushing\s*chest\s*pain|no\s*pulse|pulseless)\b|\bleft\s*arm\s*pain\b.{0,60}\bchest\b|\bchest\b.{0,60}\bleft\s*arm\s*pain\b|\bchest\s*(pain|tight\w*|pressure)\b.{0,80}\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b|\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b.{0,80}\bchest\s*(pain|tight\w*|pressure)\b",
+            new Regex(@"\b(heart\s*attack|cardiac\s*arrest|crushing\s*chest\s*pain|severe\s*chest\s*pain|sudden\s*chest\s*pain|no\s*pulse|pulseless)\b|\bleft\s*arm\s*pain\b.{0,60}\bchest\b|\bchest\b.{0,60}\bleft\s*arm\s*pain\b|\bchest\s*(pain|tight\w*|pressure)\b.{0,80}\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b|\b(breath\w*|can'?t\s*breathe|cannot\s*breathe|short\w*\s*of\s*breath)\b.{0,80}\bchest\s*(pain|tight\w*|pressure)\b",
                 RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "⚠️ Emergency: Possible acute cardiac event (heart attack / cardiac arrest). Time is critical — call emergency services (1990 Suwa Seriya Ambulance / 119) or attend the nearest Emergency Room immediately."
         ),
@@ -498,50 +503,134 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
         _logger = logger;
     }
 
+    public static int ComputeLevenshteinDistance(string s, string t)
+    {
+        if (string.IsNullOrEmpty(s)) return t?.Length ?? 0;
+        if (string.IsNullOrEmpty(t)) return s.Length;
+
+        int n = s.Length;
+        int m = t.Length;
+        var d = new int[n + 1, m + 1];
+
+        for (int i = 0; i <= n; i++) d[i, 0] = i;
+        for (int j = 0; j <= m; j++) d[0, j] = j;
+
+        for (int i = 1; i <= n; i++)
+        {
+            for (int j = 1; j <= m; j++)
+            {
+                int cost = char.ToLowerInvariant(s[i - 1]) == char.ToLowerInvariant(t[j - 1]) ? 0 : 1;
+                d[i, j] = Math.Min(
+                    Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
+                    d[i - 1, j - 1] + cost);
+            }
+        }
+
+        return d[n, m];
+    }
+
+    public static string FixEmergencyTypos(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+
+        var words = text.Split(' ');
+        var replaced = new bool[words.Length];
+        var resultWords = (string[])words.Clone();
+
+        // 1. Check adjacent pairs for keys with length >= 9
+        for (int i = 0; i < words.Length - 1; i++)
+        {
+            if (replaced[i] || replaced[i + 1]) continue;
+
+            var w1 = Regex.Replace(words[i], @"[^a-zA-Z]", "").ToLowerInvariant();
+            var w2 = Regex.Replace(words[i + 1], @"[^a-zA-Z]", "").ToLowerInvariant();
+            var pair = w1 + w2;
+
+            if (pair.Length < 9) continue;
+            if (ExcludedRealWords.Contains(w1) || ExcludedRealWords.Contains(w2) || ExcludedRealWords.Contains(pair))
+                continue;
+
+            foreach (var (key, replacement, maxDist) in EmergencyTypoTargets)
+            {
+                if (key.Length < 9) continue;
+                if (ComputeLevenshteinDistance(pair, key) <= maxDist)
+                {
+                    resultWords[i] = replacement;
+                    resultWords[i + 1] = string.Empty;
+                    replaced[i] = true;
+                    replaced[i + 1] = true;
+                    break;
+                }
+            }
+        }
+
+        // 2. Check single words of length >= 5
+        for (int i = 0; i < words.Length; i++)
+        {
+            if (replaced[i]) continue;
+
+            var clean = Regex.Replace(words[i], @"[^a-zA-Z]", "").ToLowerInvariant();
+            if (clean.Length < 5) continue;
+            if (ExcludedRealWords.Contains(clean)) continue;
+
+            foreach (var (key, replacement, maxDist) in EmergencyTypoTargets)
+            {
+                if (ComputeLevenshteinDistance(clean, key) <= maxDist)
+                {
+                    resultWords[i] = replacement;
+                    replaced[i] = true;
+                    break;
+                }
+            }
+        }
+
+        var sb = new StringBuilder();
+        foreach (var w in resultWords)
+        {
+            if (!string.IsNullOrEmpty(w))
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(w);
+            }
+        }
+        return sb.ToString();
+    }
+
     public static string NormalizeInput(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
         var cleaned = Regex.Replace(raw, @"[\u200B-\u200D\uFEFF\u0000-\u001F\u007F-\u009F]", string.Empty);
-        cleaned = Regex.Replace(cleaned, @"\b(h[ea]rt\s*at+ack|heart\s*at+ack)\b", "heart attack", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\b(seisure|seizur|siezure|siezer|seizer)\b", "seizure", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\buncon[sc]+ious(\w*)\b", "unconscious$1", RegexOptions.IgnoreCase);
-        cleaned = Regex.Replace(cleaned, @"\b(strok|stoke)\b", "stroke", RegexOptions.IgnoreCase);
-        return Regex.Replace(cleaned, @"\s+", " ").Trim();
+        var collapsed = Regex.Replace(cleaned, @"\s+", " ").Trim();
+        return FixEmergencyTypos(collapsed);
     }
 
     public SafetyEvaluationResult EvaluateSafety(string symptoms)
     {
         var normalized = NormalizeInput(symptoms);
 
-        // STEP 1: RED-FLAG EMERGENCY CHECK (RUNS FIRST ON NORMALIZED INPUT)
-        if (!string.IsNullOrEmpty(normalized))
+        if (string.IsNullOrWhiteSpace(normalized))
         {
-            var emergencyResult = EvaluateEmergencyPatterns(normalized);
-            if (emergencyResult != null)
-            {
-                _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Length={Len}",
-                    AgentName, emergencyResult.RedFlagCode, normalized.Length);
-                return emergencyResult;
-            }
-        }
-
-        // STEP 2: WORD COUNT & INPUT LENGTH GATE (NON-EMERGENCY ONLY)
-        var words = normalized.Split([' ', '\t', '\n', '\r', ',', ';'], StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length < 2)
-        {
-            _logger.LogInformation("[{Agent}] Input too short (< 2 words): Length={Len}", AgentName, normalized.Length);
             return new SafetyEvaluationResult
             {
                 IsSafeToTriage = false,
                 Status = "INPUT_INVALID",
-                Reason = "Please describe your symptoms in 2 or more words (e.g., 'frequent headache', 'persistent knee pain', or 'chest tightness'). If you are experiencing an emergency, please call 1990 (Suwa Seriya Ambulance) or 119 immediately."
+                Reason = "Please describe your symptoms to receive a doctor recommendation."
             };
         }
 
-        var lower = normalized.ToLowerInvariant();
-        if (IsGreetingOrNonsense(lower))
+        // STEP 1: RED-FLAG EMERGENCY CHECK (RUNS FIRST ON NORMALIZED INPUT)
+        var emergencyResult = EvaluateEmergencyPatterns(normalized);
+        if (emergencyResult != null)
         {
-            _logger.LogInformation("[{Agent}] Greeting or nonsense detected: Length={Len}", AgentName, normalized.Length);
+            _logger.LogWarning("[{Agent}] Emergency red flag triggered: Code={Code}, Length={Len}",
+                AgentName, emergencyResult.RedFlagCode, normalized.Length);
+            return emergencyResult;
+        }
+
+        // STEP 2: PURE GREETING CHECK
+        if (GreetingRegex.IsMatch(normalized))
+        {
+            _logger.LogInformation("[{Agent}] Pure greeting detected: Length={Len}", AgentName, normalized.Length);
             return new SafetyEvaluationResult
             {
                 IsSafeToTriage = false,
@@ -550,14 +639,7 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
             };
         }
 
-        // STEP 3: VAGUE SYMPTOM CHECK
-        var vagueResult = CheckVagueInput(normalized);
-        if (vagueResult != null)
-        {
-            return vagueResult;
-        }
-
-        // STEP 4: PASSED ALL SAFETY GATES
+        // STEP 3: PASSED SAFETY GATES (Single words, vague descriptions, and non-emergency text reach Clinical Triage)
         return new SafetyEvaluationResult
         {
             IsSafeToTriage = true,
@@ -626,40 +708,6 @@ public class ClinicalSafetyAgent : IClinicalSafetyAgent
 
         return null;
     }
-
-    private static bool IsGreetingOrNonsense(string lower)
-    {
-        if (GreetingRegex.IsMatch(lower)) return true;
-        var words = lower.Split([' ', ',', '.', '!', '?'], StringSplitOptions.RemoveEmptyEntries);
-        if (words.All(w => GreetingOnlyWords.Contains(w))) return true;
-        if (Regex.IsMatch(lower, @"^[\d\s\W]+$")) return true;
-        return !words.Any(w => w.Length > 3 && !GreetingOnlyWords.Contains(w));
-    }
-
-    private static SafetyEvaluationResult? CheckVagueInput(string symptoms)
-    {
-        var lower = symptoms.ToLowerInvariant();
-        var words = lower.Split([' ', ',', '.', ';'], StringSplitOptions.RemoveEmptyEntries);
-
-        if (words.Length <= 3 && words.Any(w => VagueSingleTerms.Contains(w))
-            && !Regex.IsMatch(lower, @"\b(since|for|days?|hours?|weeks?|ago|with|and|also|plus|wors(e|en))\b"))
-        {
-            return new SafetyEvaluationResult
-            {
-                IsSafeToTriage = false,
-                Status = "NEED_MORE_CONTEXT",
-                Reason = "Your description is a little brief. A few more details will help us point you to the right specialist.",
-                FollowUpQuestions =
-                [
-                    "How long have you been experiencing this symptom? (e.g., since yesterday, for a week)",
-                    "Are there any other symptoms alongside this — such as fever, nausea, or swelling?",
-                    "How would you rate the severity on a scale of 1 to 10?"
-                ]
-            };
-        }
-
-        return null;
-    }
 }
 
 // ─── 3B. Clinical Triage & Specialty Routing Agent ───────────────────────────
@@ -697,7 +745,7 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
     private static readonly string[] AllowedSpecialties = CanonicalSpecialties.AllowedSpecialties;
 
     private static readonly Regex PromptInjectionRegex = new(
-        @"\b(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions|system\s+override|you\s+are\s+now|disregard\s+(?:all\s+)?(?:previous|prior)|jailbreak|act\s+as|new\s+persona|reveal\s+(?:your\s+)?(?:system\s+)?prompt|admin\s+mode|bypass\s+safety)\b",
+        @"\b(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions|system\s+override|you\s+are\s+now|disregard\s+(?:all\s+)?(?:previous|prior)|jailbreak|act\s+as\s+(?:a|an|if)|new\s+persona|reveal\s+(?:your\s+)?(?:system\s+)?prompt|admin\s+mode|bypass\s+safety)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public const string DefaultGeneralMedicineReason = "Symptoms are non-specific; initial evaluation by General Medicine consultant recommended.";
@@ -1198,7 +1246,15 @@ public class ClinicalTriageAgent : IClinicalTriageAgent
         }
 
         if (scores.Count == 0)
-            return null;
+        {
+            return new DoctorRecommendationResponseDto
+            {
+                Status = "RECOMMENDATION_READY",
+                Specialty = "General Medicine",
+                Confidence = 0.50,
+                Reason = "We couldn't identify specific symptoms, so we suggest an initial General Medicine consultation."
+            };
+        }
 
         var ranked = scores.OrderByDescending(s => s.Score).ToList();
         var top1 = ranked[0];
@@ -1421,7 +1477,7 @@ public class RecommendationValidationAgent : IRecommendationValidationAgent
 ///      - Slot Allocation: DoctorSlotAllocationAgent (Allow-listed DoctorSlotAllocationTool execution)
 ///      - Validation: RecommendationValidationAgent (Deterministic post-tool clinical & slot integrity validation)
 ///   2. Strict Tool Calling: Only DoctorSlotAllocationAgent is permitted to invoke DoctorSlotAllocationTool via IAgentToolRegistry.
-///   3. Human-in-the-Loop (HITL): Proposals pause in PENDING_APPROVAL status until the patient confirms consultant selection.
+///   3. Human-in-the-Loop (HITL): Proposals pause until patient selection; authorized approval is handled by the separate approval component.
 ///   4. Complete Observability: Returns ExecutionPlan, StepLogs (agent names, tool calls, timings, outputs), and audit record.
 /// 
 /// NEVER diagnoses, NEVER recommends medication, NEVER books appointments automatically without human approval.
@@ -1788,6 +1844,37 @@ public class DoctorRecommendationAgent : IWorkflowAgent
             });
 
             statusPath.Add($"SlotAllocationTool:{slotResult.Status}_{matchedDoctors.Count}");
+
+            // REPLAN STEP: if no doctors found and specialty is not General Medicine, try General Medicine once
+            if ((!slotResult.Success || matchedDoctors.Count == 0) &&
+                slotResult.Status != "TOOL_DENIED" &&
+                !string.Equals(finalSpecialty, "General Medicine", StringComparison.OrdinalIgnoreCase))
+            {
+                var originalSpecialty = finalSpecialty;
+                var replanSw = Stopwatch.StartNew();
+                var replanResult = await _slotAllocationAgent.AllocateSlotsAsync("General Medicine", null, 3);
+                replanSw.Stop();
+                var replanDoctors = replanResult.Data ?? new List<MatchedDoctorDto>();
+
+                stepLogs.Add(new AgentStepLogDto
+                {
+                    AgentName = _slotAllocationAgent.AgentName,
+                    Action = "DoctorSlotAllocation",
+                    StepName = step3Plan.StepName,
+                    ToolCalled = AppointmentToolNames.QueryAvailableDoctorsAndSlots,
+                    Input = "Specialty='General Medicine', MaxResults=3",
+                    Output = $"Replan: no doctors for {originalSpecialty}, trying General Medicine",
+                    DurationMs = replanSw.ElapsedMilliseconds,
+                    Status = replanResult.Success ? "COMPLETED" : (replanResult.Status == "TOOL_DENIED" ? "TOOL_DENIED" : "FAILED")
+                });
+
+                statusPath.Add($"SlotAllocationReplan:{replanResult.Status}_{replanDoctors.Count}");
+
+                finalSpecialty = "General Medicine";
+                matchedDoctors = replanDoctors;
+                slotResult = replanResult;
+                reason = $"Currently no verified consultants with open channeling slots are available for {originalSpecialty}. Triaged to General Medicine for an initial consultation.";
+            }
 
             if (!slotResult.Success || matchedDoctors.Count == 0)
             {

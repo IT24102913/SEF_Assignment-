@@ -113,9 +113,7 @@ public class DoctorRecommendationAgentTests
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
-    [InlineData("fever")]
-    [InlineData("pain")]
-    public async Task RunAsync_WhenSingleWordOrEmpty_ReturnsInputInvalid(string input)
+    public async Task RunAsync_WhenEmpty_ReturnsInputInvalid(string input)
     {
         // Arrange
         using var context = CreateInMemoryDbContext();
@@ -127,7 +125,42 @@ public class DoctorRecommendationAgentTests
         // Assert
         Assert.Equal("INPUT_INVALID", result.Status);
         Assert.Null(result.Specialty);
-        Assert.Contains("2 or more words", result.Reason);
+    }
+
+    [Theory]
+    [InlineData("fever")]
+    [InlineData("pain")]
+    public async Task RunAsync_WhenSingleWordSymptoms_TriagesToGeneralMedicine(string input)
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync(input, patientId: null);
+
+        // Assert: Single word symptoms reach General Medicine triage
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.NotEmpty(result.MatchedDoctors);
+    }
+
+    [Theory]
+    [InlineData("hi doctor")]
+    [InlineData("good morning")]
+    [InlineData("hello")]
+    public async Task RunAsync_WhenPureGreeting_ReturnsInputInvalid(string input)
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var agent = CreateAgent(context);
+
+        // Act
+        var result = await agent.RunAsync(input, patientId: null);
+
+        // Assert
+        Assert.Equal("INPUT_INVALID", result.Status);
+        Assert.Null(result.Specialty);
     }
 
     [Theory]
@@ -135,9 +168,7 @@ public class DoctorRecommendationAgentTests
     [InlineData("ok fine")]
     [InlineData("test qwerty")]
     [InlineData("123 456")]
-    [InlineData("hi doctor")]
-    [InlineData("good morning")]
-    public async Task RunAsync_WhenGreetingOrNonsensePhrases_ReturnsInputInvalid(string input)
+    public async Task RunAsync_WhenGibberishOrInformal_TriagesToGeneralMedicine(string input)
     {
         // Arrange
         using var context = CreateInMemoryDbContext();
@@ -146,15 +177,15 @@ public class DoctorRecommendationAgentTests
         // Act
         var result = await agent.RunAsync(input, patientId: null);
 
-        // Assert
-        Assert.Equal("INPUT_INVALID", result.Status);
-        Assert.Null(result.Specialty);
+        // Assert: Gibberish/short input reaches General Medicine
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
     }
 
     [Theory]
     [InlineData("random sentence with no medical symptoms whatsoever")]
     [InlineData("the quick brown fox jumps over the lazy dog")]
-    public async Task RunAsync_WhenNonMedicalInput_FallsBackToSafeFailure(string input)
+    public async Task RunAsync_WhenNonMedicalInput_ReachesGeneralMedicineWithFiftyConfidence(string input)
     {
         // Arrange
         using var context = CreateInMemoryDbContext();
@@ -164,9 +195,10 @@ public class DoctorRecommendationAgentTests
         var result = await agent.RunAsync(input, patientId: null);
 
         // Assert
-        Assert.Equal("SAFE_FAILURE", result.Status);
-        Assert.Null(result.Specialty);
-        Assert.Contains("manually", result.Reason);
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Equal(0.50, result.Confidence);
+        Assert.Equal("We couldn't identify specific symptoms, so we suggest an initial General Medicine consultation.", result.Reason);
     }
 
     // ─── 2. Red-Flag Emergency Detection ──────────────────────────────────────
@@ -462,7 +494,7 @@ public class DoctorRecommendationAgentTests
         var agent = CreateAgent(context);
 
         // Run with input invalid symptoms -> sets ApprovalStatus = "NOT_REQUIRED"
-        var invalidResult = await agent.RunAsync("pain", patientId: 21);
+        var invalidResult = await agent.RunAsync("good morning", patientId: 21);
         Assert.Equal("NOT_REQUIRED", invalidResult.ApprovalStatus);
 
         // Attempting to approve must be blocked
@@ -739,6 +771,116 @@ public class DoctorRecommendationAgentTests
         Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
         Assert.Empty(result.MatchedDoctors);
         Assert.Contains("no verified consultants", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenSpecialtyHasNoDoctors_ReplansToGeneralMedicineAndSucceeds()
+    {
+        // Arrange: DbContext with ONLY General Medicine doctors seeded (no Orthopaedics doctors)
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        using var context = new ApplicationDbContext(options);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var genMedDoc = new Doctor
+        {
+            Id = 301,
+            FullName = "Dr. Saman Perera",
+            Specialization = "General Medicine",
+            Hospital = "Health Bridge General",
+            HospitalBranch = "Colombo",
+            IsAvailable = true,
+            IsVerifiedConsultant = true,
+            Rating = 4.8,
+            ExperienceYears = 15,
+            ConsultationFee = 3000m
+        };
+        context.Doctors.Add(genMedDoc);
+        context.DoctorSessions.Add(new DoctorSession
+        {
+            Id = 401,
+            DoctorId = genMedDoc.Id,
+            SessionDate = today.AddDays(2),
+            SessionTime = new TimeOnly(9, 0),
+            MaxCapacity = 20,
+            CurrentBookings = 1,
+            SessionStatus = SessionStatus.Scheduled
+        });
+        context.SaveChanges();
+
+        var agent = CreateAgent(context);
+
+        // Act: Orthopaedics symptoms (no Orthopaedics doctors exist)
+        var result = await agent.RunAsync("knee joint pain and swelling", patientId: 77);
+
+        // Assert: Re-plans to General Medicine
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.NotEmpty(result.MatchedDoctors);
+        Assert.All(result.MatchedDoctors, d => Assert.Equal("General Medicine", d.Specialization));
+        Assert.Contains("General Medicine", result.Reason);
+        Assert.Contains("Orthopaedics", result.Reason);
+
+        // Assert step log records the replan
+        var replanLog = result.StepLogs.FirstOrDefault(l =>
+            l.AgentName == "DoctorSlotAllocationAgent" &&
+            (l.Output?.Contains("Replan: no doctors for Orthopaedics, trying General Medicine") ?? false));
+        Assert.NotNull(replanLog);
+    }
+
+    [Fact]
+    public async Task RunAsync_WhenSpecialtyAndGeneralMedicineHaveNoDoctors_ReturnsNoDoctorsAvailable()
+    {
+        // Arrange: DbContext with ONLY Cardiology doctors seeded (no Dermatology, no General Medicine)
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        using var context = new ApplicationDbContext(options);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var cardioDoc = new Doctor
+        {
+            Id = 302,
+            FullName = "Dr. Sunil Silva",
+            Specialization = "Cardiology",
+            Hospital = "Health Bridge General",
+            HospitalBranch = "Colombo",
+            IsAvailable = true,
+            IsVerifiedConsultant = true,
+            Rating = 4.9,
+            ExperienceYears = 20,
+            ConsultationFee = 4000m
+        };
+        context.Doctors.Add(cardioDoc);
+        context.DoctorSessions.Add(new DoctorSession
+        {
+            Id = 402,
+            DoctorId = cardioDoc.Id,
+            SessionDate = today.AddDays(2),
+            SessionTime = new TimeOnly(10, 0),
+            MaxCapacity = 20,
+            CurrentBookings = 0,
+            SessionStatus = SessionStatus.Scheduled
+        });
+        context.SaveChanges();
+
+        var agent = CreateAgent(context);
+
+        // Act: Dermatology symptoms (neither Dermatology nor General Medicine doctors exist)
+        var result = await agent.RunAsync("dry skin rash with itchy red hives", patientId: 78);
+
+        // Assert: Re-plans to General Medicine, finds none, returns NO_DOCTORS_AVAILABLE
+        Assert.Equal("NO_DOCTORS_AVAILABLE", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Empty(result.MatchedDoctors);
+        Assert.Equal("NOT_REQUIRED", result.ApprovalStatus);
+
+        // Assert replan step log was recorded
+        var replanLog = result.StepLogs.FirstOrDefault(l =>
+            l.AgentName == "DoctorSlotAllocationAgent" &&
+            (l.Output?.Contains("Replan: no doctors for Dermatology, trying General Medicine") ?? false));
+        Assert.NotNull(replanLog);
     }
 
     [Fact]
@@ -1582,14 +1724,16 @@ public class DoctorRecommendationSafetyStageTests
     }
 
     [Theory]
-    [InlineData("heartattack")]
-    [InlineData("heart attack")]
-    [InlineData("hart attack")]
+    [InlineData("heattack")]
     [InlineData("heartatack")]
-    [InlineData("stroke")]
-    [InlineData("seizure")]
+    [InlineData("hart attack")]
+    [InlineData("heart atack")]
+    [InlineData("heartattack")]
+    [InlineData("stoke")]
+    [InlineData("strok")]
     [InlineData("seisure")]
     [InlineData("unconcious")]
+    [InlineData("overdoze")]
     public void EvaluateSafety_CriticalEmergencyVariants_ReturnSafetyEscalation(string input)
     {
         var result = _agent.EvaluateSafety(input);
@@ -1597,14 +1741,34 @@ public class DoctorRecommendationSafetyStageTests
         Assert.Equal("SAFETY_ESCALATION", result.Status);
     }
 
-    [Fact]
-    public void EvaluateSafety_FeverSingleWord_ReturnsInputInvalidWith1990EmergencyMention()
+    [Theory]
+    [InlineData("he is conscious and awake")]
+    [InlineData("strike on my knee")]
+    [InlineData("my stomach is overdone")]
+    public void EvaluateSafety_ExcludedRealWords_DoNotEscalate(string input)
     {
-        var result = _agent.EvaluateSafety("fever");
+        var result = _agent.EvaluateSafety(input);
+        Assert.True(result.IsSafeToTriage);
+        Assert.Equal("SAFE", result.Status);
+        Assert.Null(result.RedFlagCode);
+    }
+
+    [Fact]
+    public void EvaluateSafety_SevereChestPain_EscalatesWithCardiacCode()
+    {
+        var result = _agent.EvaluateSafety("severe chest pain");
         Assert.False(result.IsSafeToTriage);
-        Assert.Equal("INPUT_INVALID", result.Status);
-        Assert.NotNull(result.Reason);
-        Assert.Contains("1990", result.Reason);
+        Assert.Equal("SAFETY_ESCALATION", result.Status);
+        Assert.Equal(RedFlagCodes.Cardiac, result.RedFlagCode);
+    }
+
+    [Fact]
+    public void EvaluateSafety_MildChestPainForAWeek_DoesNotEscalate()
+    {
+        var result = _agent.EvaluateSafety("mild chest pain for a week");
+        Assert.True(result.IsSafeToTriage);
+        Assert.Equal("SAFE", result.Status);
+        Assert.Null(result.RedFlagCode);
     }
 
     // ─── 3. Negatives That Must NOT Escalate ──────────────────────────────────
@@ -1633,10 +1797,7 @@ public class DoctorRecommendationSafetyStageTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("fever")]
-    [InlineData("pain")]
-    [InlineData("cough")]
-    public void EvaluateSafety_WhenSingleNonEmergencyWordOrEmpty_ReturnsInputInvalid(string input)
+    public void EvaluateSafety_WhenEmpty_ReturnsInputInvalid(string input)
     {
         // Act
         var result = _agent.EvaluateSafety(input);
@@ -1644,29 +1805,41 @@ public class DoctorRecommendationSafetyStageTests
         // Assert
         Assert.False(result.IsSafeToTriage);
         Assert.Equal("INPUT_INVALID", result.Status);
+    }
+
+    [Theory]
+    [InlineData("fever")]
+    [InlineData("pain")]
+    [InlineData("cough")]
+    public void EvaluateSafety_WhenSingleNonEmergencyWord_PassesAsSafe(string input)
+    {
+        // Act
+        var result = _agent.EvaluateSafety(input);
+
+        // Assert: Single non-emergency words pass safety gate to reach triage
+        Assert.True(result.IsSafeToTriage);
+        Assert.Equal("SAFE", result.Status);
     }
 
     [Theory]
     [InlineData("just pain")]
     [InlineData("severe ache")]
     [InlineData("feeling sick")]
-    public void EvaluateSafety_WhenVagueWithoutContext_ReturnsNeedMoreContext(string input)
+    public void EvaluateSafety_WhenVagueWithoutContext_PassesAsSafe(string input)
     {
         // Act
         var result = _agent.EvaluateSafety(input);
 
-        // Assert
-        Assert.False(result.IsSafeToTriage);
-        Assert.Equal("NEED_MORE_CONTEXT", result.Status);
-        Assert.NotEmpty(result.FollowUpQuestions);
+        // Assert: Vague inputs pass safety gate to reach General Medicine triage
+        Assert.True(result.IsSafeToTriage);
+        Assert.Equal("SAFE", result.Status);
     }
 
     [Theory]
     [InlineData("hello")]
     [InlineData("hi doctor")]
     [InlineData("good morning")]
-    [InlineData("test 123")]
-    public void EvaluateSafety_WhenGreetingsOrNonsense_ReturnsInputInvalid(string input)
+    public void EvaluateSafety_WhenPureGreeting_ReturnsInputInvalid(string input)
     {
         // Act
         var result = _agent.EvaluateSafety(input);
@@ -1674,6 +1847,19 @@ public class DoctorRecommendationSafetyStageTests
         // Assert
         Assert.False(result.IsSafeToTriage);
         Assert.Equal("INPUT_INVALID", result.Status);
+    }
+
+    [Theory]
+    [InlineData("test 123")]
+    [InlineData("asdf qwerty")]
+    public void EvaluateSafety_WhenNonsenseOrNumber_PassesAsSafe(string input)
+    {
+        // Act
+        var result = _agent.EvaluateSafety(input);
+
+        // Assert: Nonsense inputs pass safety to reach fallback General Medicine triage
+        Assert.True(result.IsSafeToTriage);
+        Assert.Equal("SAFE", result.Status);
     }
 
     // ─── 5. Normalization & Control Character Handling ────────────────────────
@@ -2147,6 +2333,22 @@ public class DoctorRecommendationTriageStageTests
     }
 
     [Fact]
+    public async Task TriageSymptomsAsync_WhenInputContainsActAsNormal_DoesNotTriggerPromptInjection()
+    {
+        var (agent, _) = CreateAgent(configValues: new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = "" // deterministic fallback
+        });
+
+        // "act as normal" must not trigger prompt injection
+        var result = await agent.TriageSymptomsAsync("my leg does not act as normal and has persistent joint pain");
+
+        Assert.NotEqual("INPUT_INVALID", result.Status);
+        Assert.NotEqual("PROMPT_INJECTION", result.FallbackReason);
+        Assert.Equal("Orthopaedics", result.Specialty);
+    }
+
+    [Fact]
     public async Task TriageSymptomsAsync_EnsuresDelimiterWrappingAndNoPatientIdentifiersSent()
     {
         var (agent, handler) = CreateAgent(handlerFunc: _ =>
@@ -2253,6 +2455,23 @@ public class DoctorRecommendationTriageStageTests
         Assert.True(multiMatch.Confidence > singleMatch.Confidence,
             $"Expected higher confidence for multiple keywords ({multiMatch.Confidence}) vs single keyword ({singleMatch.Confidence})");
         Assert.NotEqual(0.85, singleMatch.Confidence);
+    }
+
+    [Fact]
+    public async Task FallbackEngine_WhenNoKeywordsScore_DefaultsToGeneralMedicineWithFiftyConfidence()
+    {
+        var (agent, _) = CreateAgent(configValues: new Dictionary<string, string?>
+        {
+            ["Gemini:ApiKey"] = ""
+        });
+
+        var result = await agent.TriageSymptomsAsync("asdf qwerty nonmedical phrase");
+
+        Assert.True(result.UsedFallbackEngine);
+        Assert.Equal("RECOMMENDATION_READY", result.Status);
+        Assert.Equal("General Medicine", result.Specialty);
+        Assert.Equal(0.50, result.Confidence);
+        Assert.Equal("We couldn't identify specific symptoms, so we suggest an initial General Medicine consultation.", result.Reason);
     }
 
     [Fact]
