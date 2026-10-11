@@ -1241,7 +1241,7 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                 padding: '10px',
                 borderRadius: '50%'
               }}>
-                <Phone size={22} color="#80CBC4" />
+                <Phone size={22} color="#c61016ff" />
               </div>
               <div>
                 <h2 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>
