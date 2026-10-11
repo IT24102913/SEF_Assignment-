@@ -59,10 +59,10 @@ export default function Dashboard() {
       <div 
         className="lab-hero-banner animate-slide-up" 
         style={{ 
-          backgroundImage: `linear-gradient(135deg, rgba(6, 78, 59, 0.90) 0%, rgba(6, 95, 70, 0.85) 50%, rgba(13, 148, 136, 0.80) 100%), url(${labHeroBanner})`,
+          backgroundImage: `linear-gradient(135deg,rgba(253, 253, 253, 0.9) 0%, rgba(251, 252, 252, 0.85) 50%, rgba(255, 255, 255, 0.8) 100%), url(${labHeroBanner})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          boxShadow: '0 12px 28px rgba(6, 78, 59, 0.25)',
+          boxShadow: '0 12px 28px rgba(255, 255, 255, 0.96)',
           borderRadius: 20
         }}
       >
