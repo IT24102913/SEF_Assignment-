@@ -68,6 +68,7 @@ public class BookAppointmentRequest
     public string? PatientAddress { get; set; }
     public string? Notes { get; set; }
     public string BookingType { get; set; } = "OnlinePayment"; // Reservation, OnlinePayment
+    public Guid? RecommendationWorkflowId { get; set; }
 }
 
 public class PaymentRequest
@@ -189,6 +190,7 @@ public class AppointmentDto
     public string? DelayReason { get; set; }
     public string? RoomNumber { get; set; }
     public bool IsToday { get; set; }
+    public Guid? RecommendationWorkflowId { get; set; }
     public string? DisplaySummary { get; set; }
 }
 

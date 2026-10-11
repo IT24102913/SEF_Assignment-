@@ -96,5 +96,7 @@ public class DoctorAppointment
     [MaxLength(500)]
     public string? StatusChangeReason { get; set; }
 
+    public Guid? RecommendationWorkflowId { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
