@@ -1457,7 +1457,7 @@ public class DoctorRecommendationAgentTests
         mockVal.Setup(v => v.AgentName).Returns("RecommendationValidationAgent");
         mockVal.Setup(v => v.Responsibility).Returns("Validation");
         mockVal.Setup(v => v.AllowedTools).Returns(Array.Empty<string>());
-        mockVal.Setup(v => v.Validate(It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<List<MatchedDoctorDto>?>()))
+        mockVal.Setup(v => v.Validate(It.IsAny<string?>(), It.IsAny<double>(), It.IsAny<List<MatchedDoctorDto>>()))
             .Returns(new RecommendationValidationResult
             {
                 IsValid = false,
