@@ -482,8 +482,7 @@ class EmrApiService {
     } catch (e) {
       // If /patients/me fails, try getPatient with existing patientCode if present
       if (AuthState.patientCode != null &&
-          AuthState.patientCode!.isNotEmpty &&
-          AuthState.patientCode != 'PAT-1001') {
+          AuthState.patientCode!.isNotEmpty) {
         try {
           return await getPatient(AuthState.patientCode!);
         } catch (_) {}

@@ -126,6 +126,16 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthState.patientCode = (result.patientCode != null && result.patientCode!.isNotEmpty)
           ? result.patientCode
           : 'PAT-${result.userId}';
+      if (AuthState.patientCode != null && AuthState.patientCode!.isNotEmpty) {
+        EmrApiService.setActivePatient(AuthState.patientCode!, result.name);
+      }
+      try {
+        final p = await EmrApiService.getMyPatient();
+        if (p.patientCode.isNotEmpty) {
+          AuthState.patientCode = p.patientCode;
+          EmrApiService.setActivePatient(p.patientCode, p.fullName);
+        }
+      } catch (_) {}
 
       if (mounted) Navigator.pushReplacementNamed(context, '/emr');
     } catch (e) {
@@ -196,8 +206,20 @@ class _LoginScreenState extends State<LoginScreen> {
       AuthState.name = result.name;
       AuthState.email = result.email;
       AuthState.role = result.role;
-      AuthState.patientCode = 'PAT-${result.userId}';
+      AuthState.patientCode = (result.patientCode != null && result.patientCode!.isNotEmpty)
+          ? result.patientCode
+          : 'PAT-${result.userId}';
       AuthState.phoneNumber = phone;
+      if (AuthState.patientCode != null && AuthState.patientCode!.isNotEmpty) {
+        EmrApiService.setActivePatient(AuthState.patientCode!, result.name);
+      }
+      try {
+        final p = await EmrApiService.getMyPatient();
+        if (p.patientCode.isNotEmpty) {
+          AuthState.patientCode = p.patientCode;
+          EmrApiService.setActivePatient(p.patientCode, p.fullName);
+        }
+      } catch (_) {}
 
       if (mounted) {
         _showSuccess('Account created successfully!');
