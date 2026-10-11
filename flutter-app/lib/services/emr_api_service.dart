@@ -166,6 +166,7 @@ class LabReport {
   final String status;
   final String resultsSummary;
   final String? fileName;
+  final String? fileUrl;
 
   LabReport({
     required this.id,
@@ -177,6 +178,7 @@ class LabReport {
     required this.status,
     required this.resultsSummary,
     this.fileName,
+    this.fileUrl,
   });
 
   factory LabReport.fromJson(Map<String, dynamic> json) => LabReport(
@@ -189,6 +191,7 @@ class LabReport {
         status: json['status'] ?? 'Pending',
         resultsSummary: json['resultsSummary'] ?? '',
         fileName: json['fileName'],
+        fileUrl: json['fileUrl'],
       );
 }
 

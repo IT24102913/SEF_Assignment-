@@ -7,6 +7,8 @@ import '../../utils/config.dart';
 import 'ai_clinical_advisor_screen.dart';
 import 'customer_health_passport_dialog.dart';
 import 'customer_profile_screen.dart';
+import 'lab_report_viewer_dialog.dart';
+import 'lab_report_helper.dart';
 
 // Health Bridge teal color palette
 const Color kPrimary = Color(0xFF095E51);
@@ -858,9 +860,19 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _tag(r.status, statusColor.shade50, statusColor.shade700),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 2),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444), size: 20),
+                      icon: const Icon(Icons.remove_red_eye_outlined, color: kPrimary, size: 20),
+                      tooltip: 'View Report',
+                      onPressed: () => LabReportViewerDialog.show(context, r),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.file_download, color: kAccent, size: 20),
+                      tooltip: 'Download PDF',
+                      onPressed: () => LabReportHelper.downloadOrOpenReport(context, r),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444), size: 19),
                       tooltip: 'Remove Report',
                       onPressed: () => _confirmDeleteLabReport(r.id, r.testTitle),
                     ),
@@ -875,6 +887,36 @@ class _EmrPatientScreenState extends State<EmrPatientScreen>
                         _detailRow('Ordered by', r.orderedDoctor),
                         if (r.resultsSummary.isNotEmpty && !r.resultsSummary.contains('Diagnostic evaluation conducted')) _detailRow('Results', r.resultsSummary),
                         if (r.fileName != null && r.fileName!.isNotEmpty) _detailRow('Attachment', r.fileName!),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => LabReportViewerDialog.show(context, r),
+                              icon: const Icon(Icons.remove_red_eye_outlined, size: 15),
+                              label: const Text('View Report', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: kPrimary,
+                                side: const BorderSide(color: kPrimary),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              onPressed: () => LabReportHelper.downloadOrOpenReport(context, r),
+                              icon: const Icon(Icons.file_download, size: 16),
+                              label: const Text('Download PDF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: kAccent,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                elevation: 0,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
