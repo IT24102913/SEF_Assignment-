@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
+using System.Net.Http;
 
 namespace HealthBridge.Tests.Agents.Appointments;
 
@@ -31,18 +32,20 @@ public class DoctorRecommendationAgentTests
 
     private DoctorRecommendationAgent CreateAgent(ApplicationDbContext context)
     {
-        var mockConfig = new Mock<IConfiguration>();
-        // Empty API key triggers local deterministic keyword engine and safety rules
-        mockConfig.Setup(c => c["Gemini:ApiKey"]).Returns(string.Empty);
-
-        var mockHttpFactory = new Mock<IHttpClientFactory>();
-        mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+        var mockSafetyAgent = new Mock<IClinicalSafetyAgent>();
+        var mockTriageAgent = new Mock<IClinicalTriageAgent>();
+        var mockSlotAgent = new Mock<IDoctorSlotAllocationAgent>();
+        var mockValidationAgent = new Mock<IRecommendationValidationAgent>();
+        var mockToolRegistry = new Mock<IAgentToolRegistry>();
 
         return new DoctorRecommendationAgent(
-            mockConfig.Object,
-            NullLogger<DoctorRecommendationAgent>.Instance,
-            mockHttpFactory.Object,
-            context);
+            context,
+            mockSafetyAgent.Object,
+            mockTriageAgent.Object,
+            mockSlotAgent.Object,
+            mockValidationAgent.Object,
+            mockToolRegistry.Object,
+            NullLogger<DoctorRecommendationAgent>.Instance);
     }
 
     // ─── 1. Input Gate Tests ──────────────────────────────────────────────────
