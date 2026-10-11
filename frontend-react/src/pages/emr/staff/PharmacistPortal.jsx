@@ -290,7 +290,7 @@ export default function PharmacistPortal({ staffSession }) {
                     padding: '2px 10px',
                     borderRadius: '12px'
                   }}>
-                    Total: ${totalCost.toFixed(2)}
+                    Total: LKR {totalCost.toFixed(2)}
                   </span>
                 )}
               </div>
@@ -388,7 +388,7 @@ export default function PharmacistPortal({ staffSession }) {
                         type="text"
                         value={med.unitPrice}
                         onChange={(e) => handleMedicineChange(index, 'unitPrice', e.target.value)}
-                        placeholder="$15.00"
+                        placeholder="LKR 150.00"
                         style={{
                           width: '100%',
                           padding: '10px 14px',
