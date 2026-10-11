@@ -407,7 +407,7 @@ class PharmacyService {
       try {
         final response = await http
             .get(Uri.parse('$host/api/Medicines'))
-            .timeout(const Duration(seconds: 4));
+            .timeout(const Duration(seconds: 30));
 
         if (response.statusCode == 200) {
           final List<dynamic> data = jsonDecode(response.body);
@@ -417,7 +417,7 @@ class PharmacyService {
         print('Fetch medicines error on $host: $e');
       }
     }
-    return [];
+    throw Exception('Failed to load medicines from any host');
   }
 
   /// Fetch all live categories from backend database
