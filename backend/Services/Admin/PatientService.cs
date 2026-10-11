@@ -98,6 +98,18 @@ public class PatientService : IPatientService
         if (request.EmergencyContact != null) profile.EmergencyContact = request.EmergencyContact.Trim();
         profile.UpdatedAt = DateTime.UtcNow;
 
+        // Synchronize changes to linked EMR Patient record
+        var emrPatient = await _context.Patients.FirstOrDefaultAsync(p => p.UserId == user.Id || (p.Email != null && p.Email.ToLower() == user.Email.ToLower()));
+        if (emrPatient != null)
+        {
+            if (request.PhoneNumber != null) emrPatient.ContactPhone = request.PhoneNumber.Trim();
+            if (request.Address != null) emrPatient.Address = request.Address.Trim();
+            if (request.Gender != null) emrPatient.Gender = request.Gender.Trim();
+            if (request.DateOfBirth.HasValue) emrPatient.DateOfBirth = DateTime.SpecifyKind(request.DateOfBirth.Value, DateTimeKind.Utc);
+            if (request.EmergencyContact != null) emrPatient.EmergencyContactPhone = request.EmergencyContact.Trim();
+            emrPatient.UpdatedAt = DateTime.UtcNow;
+        }
+
         await _context.SaveChangesAsync();
 
         var rxCount = await _context.PrescriptionSubmissions.CountAsync(p => p.PatientId == user.Id);

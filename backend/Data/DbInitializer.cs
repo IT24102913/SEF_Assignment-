@@ -35,6 +35,9 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"EmailVerificationTokenExpiresAt\" timestamp with time zone;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"NicNumber\" text;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"DoctorAppointments\" ADD COLUMN IF NOT EXISTS \"ReadyAlertSentAt\" timestamp with time zone;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"DoctorSessions\" ADD COLUMN IF NOT EXISTS \"SessionType\" text NOT NULL DEFAULT 'Morning';");
+            await context.Database.ExecuteSqlRawAsync("UPDATE \"Medicines\" SET \"ImageUrl\" = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop' WHERE \"ImageUrl\" LIKE '%photo-1584308666744-24d5c474f2ae%' OR \"ImageUrl\" LIKE '%photo-1471864190281%';");
+            await context.Database.ExecuteSqlRawAsync("UPDATE \"DoctorSessions\" SET \"SessionType\" = CASE WHEN \"SessionTime\" < '12:00:00' THEN 'Morning' WHEN \"SessionTime\" < '17:00:00' THEN 'Evening' ELSE 'Night' END WHERE \"SessionType\" = 'Morning' AND \"SessionTime\" >= '12:00:00';");
             await context.Database.ExecuteSqlRawAsync("UPDATE \"Users\" SET \"IsEmailVerified\" = true;");
             await context.Database.ExecuteSqlRawAsync(@"
                 CREATE TABLE IF NOT EXISTS ""RecommendationWorkflows"" (
@@ -52,7 +55,15 @@ public static class DbInitializer
                     ""Errors"" text NULL,
                     ""DurationMs"" bigint NOT NULL,
                     ""CreatedAt"" timestamp with time zone NOT NULL
-                );");
+                );
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""ApprovalStatus"" text NOT NULL DEFAULT 'NOT_REQUIRED';
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""ApprovedAt"" timestamp with time zone NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""MatchedDoctorsJson"" text NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""SelectedDoctorId"" integer NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""AppointmentId"" integer NULL;
+                ALTER TABLE ""RecommendationWorkflows"" ADD COLUMN IF NOT EXISTS ""CompletedAt"" timestamp with time zone NULL;
+                ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""RecommendationWorkflowId"" uuid NULL;
+            ");
 
             // Mark existing baseline migrations as applied so EF Core does not attempt to recreate existing tables
             await context.Database.ExecuteSqlRawAsync(@"
@@ -284,6 +295,31 @@ public static class DbInitializer
                 CreatedAt = DateTime.UtcNow
             };
             context.PatientProfiles.Add(profile);
+            await context.SaveChangesAsync();
+        }
+
+        // Ensure EMR Patient record exists for patientUser
+        if (!await context.Patients.AnyAsync(p => p.UserId == patientUser.Id || p.Email == patientUser.Email))
+        {
+            var emrPatient = new HealthBridge.Api.Models.EMR.Patient
+            {
+                UserId = patientUser.Id,
+                PatientCode = "PAT-1001",
+                FullName = patientUser.FullName,
+                Email = patientUser.Email,
+                ContactPhone = "+94 77 123 4567",
+                Address = "742 Evergreen Terrace, Colombo",
+                Gender = "Male",
+                BloodGroup = "O+",
+                DateOfBirth = DateTime.UtcNow.AddYears(-30),
+                EmergencyContactName = "Jane Doe",
+                EmergencyContactPhone = "+94 71 987 6543",
+                Allergies = "None reported",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            context.Patients.Add(emrPatient);
+            await context.SaveChangesAsync();
         }
 
         // 4. Seed Categories if none exist
@@ -684,8 +720,7 @@ public static class DbInitializer
         }
 
         // 8. Seed Doctor Sessions (Real OPD Clinic Blocks: Morning, Evening, Night)
-        // Date range: from today for the next 14 days
-        if (!await context.DoctorSessions.AnyAsync())
+        // Rolling schedule: ensures each doctor always has upcoming bookable sessions for the next 14 days
         {
             var allDoctors = await context.Doctors.ToListAsync();
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
@@ -693,38 +728,50 @@ public static class DbInitializer
 
             foreach (var doc in allDoctors)
             {
-                var spec = (doc.Specialization ?? string.Empty).ToLower();
-                bool isGenMed = spec.Contains("general") || spec.Contains("physician");
-
-                // General Medicine gets Morning, Evening, Night. All others get Morning, Evening.
-                var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>
+                var upcomingCount = await context.DoctorSessions.CountAsync(s => s.DoctorId == doc.Id && s.SessionDate >= today);
+                if (upcomingCount < 7)
                 {
-                    (SessionType.Morning, new TimeOnly(8, 30), 25),
-                    (SessionType.Evening, new TimeOnly(16, 30), 25)
-                };
+                    var spec = (doc.Specialization ?? string.Empty).ToLower();
+                    bool isGenMed = spec.Contains("general") || spec.Contains("physician");
 
-                if (isGenMed)
-                {
-                    sessionConfigs.Add((SessionType.Night, new TimeOnly(20, 0), 15));
-                }
-
-                for (int i = 0; i < 14; i++)
-                {
-                    var sessionDate = today.AddDays(i);
-
-                    foreach (var cfg in sessionConfigs)
+                    // General Medicine gets Morning, Evening, Night. All others get Morning, Evening.
+                    var sessionConfigs = new List<(SessionType Type, TimeOnly Time, int Capacity)>
                     {
-                        sessionsToSeed.Add(new DoctorSession
+                        (SessionType.Morning, new TimeOnly(8, 30), 25),
+                        (SessionType.Evening, new TimeOnly(16, 30), 25)
+                    };
+
+                    if (isGenMed)
+                    {
+                        sessionConfigs.Add((SessionType.Night, new TimeOnly(20, 0), 15));
+                    }
+
+                    for (int i = 0; i < 14; i++)
+                    {
+                        var sessionDate = today.AddDays(i);
+
+                        foreach (var cfg in sessionConfigs)
                         {
-                            DoctorId = doc.Id,
-                            SessionDate = sessionDate,
-                            SessionTime = cfg.Time,
-                            SessionType = cfg.Type,
-                            MaxCapacity = cfg.Capacity,
-                            CurrentBookings = 0,
-                            IsActive = true,
-                            SessionStatus = SessionStatus.Scheduled
-                        });
+                            var exists = await context.DoctorSessions.AnyAsync(s =>
+                                s.DoctorId == doc.Id &&
+                                s.SessionDate == sessionDate &&
+                                s.SessionTime == cfg.Time);
+
+                            if (!exists)
+                            {
+                                sessionsToSeed.Add(new DoctorSession
+                                {
+                                    DoctorId = doc.Id,
+                                    SessionDate = sessionDate,
+                                    SessionTime = cfg.Time,
+                                    SessionType = cfg.Type,
+                                    MaxCapacity = cfg.Capacity,
+                                    CurrentBookings = 0,
+                                    IsActive = true,
+                                    SessionStatus = SessionStatus.Scheduled
+                                });
+                            }
+                        }
                     }
                 }
             }

@@ -12,6 +12,9 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Enforce HttpClient logging level at Warning so outgoing URLs and headers are never logged
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+
 // Railway dynamic PORT binding (defaults to standard ports locally)
 var port = Environment.GetEnvironmentVariable("PORT");
 if (!string.IsNullOrEmpty(port))
@@ -25,7 +28,7 @@ var rawConnectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? Environment.GetEnvironmentVariable("DATABASE_PUBLIC_URL")
     ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
     ?? builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' or 'DATABASE_URL' not found. In Railway, ensure DATABASE_URL is set in Variables.");
+    ?? "Host=localhost;Port=5432;Database=healthbridge_db;Username=postgres;Password=123";
 
 var connectionString = ProgramHelper.ParsePostgreSqlConnectionString(rawConnectionString);
 
@@ -82,6 +85,30 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization();
 
+// 2.1 Configure Rate Limiting per user for Doctor Recommendation AI Agents
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("AppointmentRecommendationPolicy", httpContext =>
+    {
+        var partitionKey = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? httpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "anonymous";
+
+        var permitLimit = builder.Configuration.GetValue<int>("Appointments:RecommendationRateLimitPerMinute", 10);
+
+        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+});
+
 // 3. Configure CORS
 builder.Services.AddCors(options =>
 {
@@ -102,20 +129,27 @@ builder.Services.AddScoped<IMedicineService, MedicineService>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IPrescriptionService, PrescriptionService>();
 builder.Services.AddScoped<IPharmacyOrderService, PharmacyOrderService>();
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IDoctorEmailService, DoctorEmailService>();
 builder.Services.AddScoped<IPharmacyEmailService, PharmacyEmailService>();
-builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+// ✅ Register Doctor Recommendation Multi-Agent System (Coordinator, Safety, Triage, Tool Registry, Slot Allocation, Validation)
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IAgentToolRegistry, HealthBridge.Api.Agents.Appointments.AgentToolRegistry>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IClinicalSafetyAgent, HealthBridge.Api.Agents.Appointments.ClinicalSafetyAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IClinicalTriageAgent, HealthBridge.Api.Agents.Appointments.ClinicalTriageAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IDoctorSlotAllocationTool, HealthBridge.Api.Agents.Appointments.DoctorSlotAllocationTool>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IDoctorSlotAllocationAgent, HealthBridge.Api.Agents.Appointments.DoctorSlotAllocationAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.IRecommendationValidationAgent, HealthBridge.Api.Agents.Appointments.RecommendationValidationAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.Appointments.DoctorRecommendationAgent>();
-// ✅ Register full-pipeline Doctor Recommendation Agent (triage router, not a diagnostician)
 // ✅ Register Vision AI Agents — PrescriptionValidatorAgent MUST be registered BEFORE PrescriptionSafetyAgent
 // so it is correctly injected into PrescriptionSafetyAgent's constructor (not resolved as null)
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionValidatorAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.QwenVisionAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.PrescriptionSafetyAgent>();
 builder.Services.AddScoped<HealthBridge.Api.Agents.InventoryForecastingAgent>();
+builder.Services.AddScoped<HealthBridge.Api.Agents.Pharmacy.SymptomAdviceAgent>();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpClient("GeminiClient");
 
@@ -243,6 +277,7 @@ app.Use(async (context, next) =>
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 
 // Auto-ensure DB schema updates & index creation
@@ -253,8 +288,11 @@ try
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""CheckedInByUserId"" integer NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""StatusChangeReason"" text NULL;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorAppointments"" ADD COLUMN IF NOT EXISTS ""ReadyAlertSentAt"" timestamp with time zone NULL;");
+    db.Database.ExecuteSqlRaw(@"ALTER TABLE ""DoctorSessions"" ADD COLUMN IF NOT EXISTS ""SessionType"" text NOT NULL DEFAULT 'Morning';");
+    db.Database.ExecuteSqlRaw(@"UPDATE ""DoctorSessions"" SET ""SessionType"" = CASE WHEN ""SessionTime"" < '12:00:00' THEN 'Morning' WHEN ""SessionTime"" < '17:00:00' THEN 'Evening' ELSE 'Night' END WHERE ""SessionType"" = 'Morning' AND ""SessionTime"" >= '12:00:00';");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""IsSavedToEmr"" boolean NOT NULL DEFAULT FALSE;");
     db.Database.ExecuteSqlRaw(@"ALTER TABLE ""LabBookings"" ADD COLUMN IF NOT EXISTS ""EmrLabReportId"" uuid NULL;");
+    db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""SymptomAdviceHistory"" (""Id"" integer GENERATED BY DEFAULT AS IDENTITY, ""PatientEmail"" text NULL, ""Symptom"" text NOT NULL, ""SymptomCategory"" text NOT NULL, ""Summary"" text NOT NULL, ""ResponseJson"" text NOT NULL, ""EngineUsed"" text NOT NULL, ""CreatedAt"" timestamp with time zone NOT NULL, CONSTRAINT ""PK_SymptomAdviceHistory"" PRIMARY KEY (""Id""));");
 
     if (db.Database.IsNpgsql())
     {
@@ -371,3 +409,5 @@ public static partial class ProgramHelper
         return raw;
     }
 }
+
+public partial class Program { }

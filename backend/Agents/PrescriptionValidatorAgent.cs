@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using HealthBridge.Api.DTOs.Pharmacy;
@@ -8,7 +9,7 @@ namespace HealthBridge.Api.Agents;
 /// <summary>
 /// PrescriptionValidatorAgent — Hybrid 3-Stage Pharmacy Prescription Analyzer
 ///
-/// Uses Google Gemini 3.8 Flash for vision and reasoning.
+/// Uses Google Gemini Flash fallback cascade for vision and reasoning.
 ///
 /// ARCHITECTURE:
 ///   Stage 1 — Extraction: Image → Facts (JSON)
@@ -27,8 +28,14 @@ public class PrescriptionValidatorAgent
     private readonly ILogger<PrescriptionValidatorAgent> _logger;
     private readonly HttpClient _httpClient;
 
-    // Model used for all calls — single model, no fallback loop
-    private const string ModelName = "gemini-3.8-flash";
+    // Multimodal Vision AI Model Cascade — tries each model in order
+    private static readonly string[] ModelFallbackCascade = new[]
+    {
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest"
+    };
     private const string GeminiBaseUrl =
         "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -175,13 +182,8 @@ public class PrescriptionValidatorAgent
         };
 
         var result = await CallGeminiAsync(requestBody, "Stage 1", sw);
-        if (result == null)
-        {
-            _logger.LogWarning("[Stage 1] Initial Gemini call returned null. Retrying in 1000ms...");
-            await Task.Delay(1000);
-            result = await CallGeminiAsync(requestBody, "Stage 1 (Retry 1)", sw);
-        }
-
+        // Note: CallGeminiAsync already tries all fallback models internally.
+        // If it returns null, all models failed — no point retrying the same cascade.
         return result;
     }
 
@@ -233,6 +235,46 @@ Return EXACT strings. If none, return [].
 - patient_name
 - date_written           (YYYY-MM-DD if possible)
 - drug_names             (array of strings)
+
+                          FOR EACH MEDICINE, output ONE string
+                          in this exact format:
+                          ""DRUGNAME STRENGTH - DOSAGE | FREQUENCY | DURATION""
+
+                          Rules:
+                          • Preserve the drug name and strength
+                            exactly as written
+                          • Expand ALL medical abbreviations with
+                            meaning in parentheses
+                          • Use "" | "" as separator
+                          • If a field is missing, omit that part
+
+                          ABBREVIATION EXPANSION:
+                            OD / qd     = once daily
+                            BD / BID    = twice daily
+                            TDS / TID   = three times daily
+                            QID         = four times daily
+                            QHS         = at bedtime
+                            nocte       = at bedtime
+                            mane        = in the morning
+                            PRN         = as needed
+                            STAT        = immediately
+                            AC          = before meals
+                            PC          = after meals
+                            PO          = by mouth
+                            SL          = sublingual
+                            TOP         = topical
+                            INH         = inhalation
+                            q4h/q6h/q8h = every 4/6/8 hours
+                            x N days    = for N days
+
+                          EXAMPLES:
+                            ""Amoxil 250mg - 1 capsule | TDS (three times daily) | 7 days""
+                            ""Panadol 500mg - 1 tablet | BD (twice daily) | 5 days | Before meals""
+                            ""Cetirizine 10mg - 1 tablet | nocte (at bedtime) | 5 days""
+
+                          WRONG (do NOT do this):
+                            ""Amoxil 250mg""  ← missing dosage
+                            ""Amoxil 250mg - 1 cap TDS x 7 days""  ← unexpanded
 - has_signature          (boolean)
 - has_stamp_or_seal      (boolean)
 
@@ -682,7 +724,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
         // ─────────────────────────────────────────────────────────────
         // Build final response
         // ─────────────────────────────────────────────────────────────
-        return new AIPpVerificationResponse
+        var response = new AIPpVerificationResponse
         {
             // Primary status
             Status = status,
@@ -705,6 +747,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
             // Clinical data
             ExtractedTests = drugNames,
             DrugNames = drugNames,
+            Medicines = drugNames.Select(d => new ExtractedMedicineInfoDto { Name = d }).ToList(),
 
             // Document fields
             RequestedTest = requestedTestName,
@@ -735,12 +778,130 @@ REQUESTED ITEM: ""{requestedTestName}""";
             // Metadata
             ProcessingStage = "stage3_complete",
             ProcessingTimeMs = elapsedMs,
-            AiModelUsed = ModelName,
+            AiModelUsed = ModelFallbackCascade[0],
 
             // Developer-facing
             Notes = $"AI SUGGESTION [{safety.Verdict}]: {safety.Reasoning}",
             AuditLog = $"Processed at {DateTime.UtcNow:O} — Verdict: {safety.Verdict}, Risk: {riskScore}/100"
         };
+
+        var quality = AssessExtractionQuality(response);
+        response.ExtractionQuality = quality;
+
+        if (response.ExtractionQuality.RequiresManualReview)
+        {
+            foreach (var reason in response.ExtractionQuality.Reasons)
+                response.SecurityFlags.Add($"⚠️ {reason}");
+            if (response.Status == "PRE_APPROVED")
+                response.Status = "FLAGGED";
+        }
+        else
+        {
+            // Warnings are INFO-only, never blocking
+            foreach (var warning in response.ExtractionQuality.Warnings)
+                response.SecurityFlags.Add($"INFO: {warning}");
+        }
+
+        return response;
+    }
+
+    private static ExtractionQuality AssessExtractionQuality(
+        AIPpVerificationResponse response)
+    {
+        var quality = new ExtractionQuality();
+
+        double conf = response.ExtractionConfidence;
+        bool hasMedicines = response.Medicines != null 
+            && response.Medicines.Count > 0;
+        bool hasPatientName = !string.IsNullOrWhiteSpace(
+            response.Patient?.Name);
+
+        // ═══════════════════════════════════════════════════
+        // RULE 1 — If nothing was extracted, we cannot trust
+        // anything. This is LOW quality.
+        // ═══════════════════════════════════════════════════
+        if (conf < 0.5 || !hasMedicines)
+        {
+            quality.Tier = "LOW";
+            quality.RequiresManualReview = true;
+            if (!hasMedicines)
+                quality.Reasons.Add(
+                    "No medicines detected on prescription");
+            if (conf < 0.5)
+                quality.Reasons.Add(
+                    $"Extraction confidence too low ({conf:F2})");
+            return quality;
+        }
+
+        // ═══════════════════════════════════════════════════
+        // RULE 2 — Patient name missing means we cannot verify
+        // the prescription belongs to the ordering customer.
+        // This is MEDIUM quality — flag for review.
+        // ═══════════════════════════════════════════════════
+        if (!hasPatientName)
+        {
+            quality.Tier = "MEDIUM";
+            quality.RequiresManualReview = true;
+            quality.Reasons.Add(
+                "Patient name missing — cannot verify prescription " +
+                "belongs to order customer");
+            return quality;
+        }
+
+        // ═══════════════════════════════════════════════════
+        // RULE 3 — Patient name + medicines + reasonable
+        // confidence = HIGH quality. Everything else is
+        // optional. Do NOT flag for missing gender, phone,
+        // email, address, age, diagnosis, doctor specialty,
+        // registration number.
+        // ═══════════════════════════════════════════════════
+        if (conf >= 0.7)
+        {
+            quality.Tier = "HIGH";
+            quality.RequiresManualReview = false;
+        }
+        else
+        {
+            // Confidence between 0.5 and 0.7 = medium concern
+            quality.Tier = "MEDIUM";
+            quality.RequiresManualReview = true;
+            quality.Reasons.Add(
+                $"Moderate extraction confidence ({conf:F2})");
+        }
+
+        // ═══════════════════════════════════════════════════
+        // OPTIONAL: Info-level warnings — do NOT block, just
+        // inform the pharmacist in the audit trail.
+        // ═══════════════════════════════════════════════════
+        
+        int medsMissingDosage = response.Medicines
+            .Count(m => string.IsNullOrWhiteSpace(m.Dosage));
+        if (medsMissingDosage > 0)
+        {
+            quality.Warnings.Add(
+                $"{medsMissingDosage} medicine(s) missing dosage info — " +
+                "pharmacist should verify");
+        }
+
+        int medsMissingFrequency = response.Medicines
+            .Count(m => string.IsNullOrWhiteSpace(m.Frequency));
+        if (medsMissingFrequency > 0)
+        {
+            quality.Warnings.Add(
+                $"{medsMissingFrequency} medicine(s) missing frequency info");
+        }
+
+        // Info about missing optional fields — informational only
+        if (string.IsNullOrWhiteSpace(response.Hospital?.Name))
+            quality.Warnings.Add("Hospital/clinic name not detected");
+
+        if (string.IsNullOrWhiteSpace(response.Doctor?.Name))
+            quality.Warnings.Add("Doctor name not detected");
+
+        if (string.IsNullOrWhiteSpace(response.PrescriptionMeta?.DateWritten))
+            quality.Warnings.Add("Prescription date not detected");
+
+        return quality;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -752,69 +913,91 @@ REQUESTED ITEM: ""{requestedTestName}""";
         Stopwatch sw)
     {
         var apiKey = _config["Gemini:ApiKey"];
-        var model = _config["Gemini:Model"] ?? ModelName;
-
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             _logger.LogError("[{Stage}] Gemini API key is missing.", stage);
             return null;
         }
 
-        var endpoint = $"{GeminiBaseUrl}/{model}:generateContent?key={apiKey}";
         var json = JsonSerializer.Serialize(requestBody);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        string responseBody = "";
-
-        try
+        foreach (var model in ModelFallbackCascade)
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-            var response = await _httpClient.PostAsync(endpoint, content, cts.Token);
-            responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+            var endpoint = $"{GeminiBaseUrl}/{model}:generateContent?key={apiKey}";
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            string responseBody = "";
 
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                _logger.LogError(
-                    "[{Stage}] Gemini API error ({Status}): {Body}",
-                    stage, response.StatusCode, responseBody);
-                return null;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                var response = await _httpClient.PostAsync(endpoint, content, cts.Token);
+                responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+
+                // Retryable failures — try next model
+                if (response.StatusCode == HttpStatusCode.ServiceUnavailable ||
+                    response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    _logger.LogWarning(
+                        "[{Stage}] Model {Model} returned {Status}, trying next model",
+                        stage, model, (int)response.StatusCode);
+                    continue;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning(
+                        "[{Stage}] Model {Model} returned {Status}: {Body}",
+                        stage, model, response.StatusCode,
+                        responseBody.Length > 200
+                            ? responseBody.Substring(0, 200) : responseBody);
+                    continue;
+                }
+
+                // Success — parse
+                var geminiResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
+                var textContent = geminiResponse
+                    .GetProperty("candidates")[0]
+                    .GetProperty("content")
+                    .GetProperty("parts")[0]
+                    .GetProperty("text")
+                    .GetString() ?? "";
+
+                var cleaned = CleanJsonText(textContent);
+                if (string.IsNullOrWhiteSpace(cleaned))
+                {
+                    _logger.LogWarning(
+                        "[{Stage}] Model {Model} returned empty text, trying next",
+                        stage, model);
+                    continue;
+                }
+
+                using var doc = JsonDocument.Parse(cleaned);
+                _logger.LogInformation(
+                    "[{Stage}] Model {Model} succeeded in {ElapsedMs}ms",
+                    stage, model, sw.ElapsedMilliseconds);
+                return doc.RootElement.Clone();
             }
-
-            var geminiResponse = JsonSerializer.Deserialize<JsonElement>(responseBody);
-            var textContent = geminiResponse
-                .GetProperty("candidates")[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString() ?? "";
-
-            var cleaned = CleanJsonText(textContent);
-
-            if (string.IsNullOrWhiteSpace(cleaned))
+            catch (JsonException jex)
             {
-                _logger.LogWarning("[{Stage}] Gemini returned empty response.", stage);
-                return null;
+                var preview = responseBody.Length > 500
+                    ? responseBody.Substring(0, 500) + "..." : responseBody;
+                _logger.LogError(jex,
+                    "[{Stage}] Model {Model} JSON parsing exception. Preview: {Preview}",
+                    stage, model, preview);
+                continue;
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[{Stage}] Model {Model} failed: {Message}, trying next",
+                    stage, model, ex.Message);
+                continue;
+            }
+        }
 
-            using var doc = JsonDocument.Parse(cleaned);
-            _logger.LogInformation(
-                "[{Stage}] Completed in {ElapsedMs}ms",
-                stage, sw.ElapsedMilliseconds);
-
-            return doc.RootElement.Clone();
-        }
-        catch (JsonException jex)
-        {
-            var preview = responseBody.Length > 500 ? responseBody.Substring(0, 500) + "..." : responseBody;
-            _logger.LogError(jex, "[{Stage}] JSON parsing exception calling Gemini. Response preview (first 500 chars): {Preview}", stage, preview);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            var preview = responseBody.Length > 500 ? responseBody.Substring(0, 500) + "..." : responseBody;
-            _logger.LogError(ex, "[{Stage}] Exception calling Gemini. Response preview (first 500 chars): {Preview}", stage, preview);
-            return null;
-        }
+        _logger.LogError(
+            "[{Stage}] All fallback models failed. Manual review required.", stage);
+        return null;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -949,7 +1132,7 @@ REQUESTED ITEM: ""{requestedTestName}""";
             Notes = notes,
             ProcessingStage = "fallback",
             ProcessingTimeMs = elapsedMs,
-            AiModelUsed = ModelName,
+            AiModelUsed = ModelFallbackCascade[0],
             AuditLog = $"Fallback at {DateTime.UtcNow:O} by PrescriptionValidatorAgent"
         };
     }

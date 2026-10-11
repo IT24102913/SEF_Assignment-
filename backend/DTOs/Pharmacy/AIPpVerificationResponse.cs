@@ -173,9 +173,63 @@ public class AIPpVerificationResponse
     /// </summary>
     public string AiModelUsed { get; set; } = string.Empty;
 
-    // ─────────────────────────────────────────────
     // Developer-facing
-    // ─────────────────────────────────────────────
     public string Notes { get; set; } = string.Empty;
     public string AuditLog { get; set; } = string.Empty;
+
+    // ─────────────────────────────────────────────
+    // Extraction Quality Properties
+    // ─────────────────────────────────────────────
+    public double ExtractionConfidence
+    {
+        get => Confidence;
+        set => Confidence = value;
+    }
+
+    public List<ExtractedMedicineInfoDto> Medicines { get; set; } = new();
+
+    public PatientInfoDto? Patient => !string.IsNullOrWhiteSpace(PatientName) ? new PatientInfoDto { Name = PatientName } : null;
+    public HospitalInfoDto? Hospital => !string.IsNullOrWhiteSpace(ClinicName) ? new HospitalInfoDto { Name = ClinicName } : null;
+    public DoctorInfoDto? Doctor => !string.IsNullOrWhiteSpace(DoctorName) ? new DoctorInfoDto { Name = DoctorName } : null;
+    public PrescriptionMetaInfoDto? PrescriptionMeta => !string.IsNullOrWhiteSpace(DateWritten) ? new PrescriptionMetaInfoDto { DateWritten = DateWritten } : null;
+
+    public ExtractionQuality ExtractionQuality { get; set; } = new();
+}
+
+// ─────────────────────────────────────────────
+// Extraction Quality DTO & Helper Types
+// ─────────────────────────────────────────────
+public class ExtractionQuality
+{
+    public string Tier { get; set; } = "HIGH";
+    public bool RequiresManualReview { get; set; } = false;
+    public List<string> Reasons { get; set; } = new();
+    public List<string> Warnings { get; set; } = new();
+}
+
+public class ExtractedMedicineInfoDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? Dosage { get; set; }
+    public string? Frequency { get; set; }
+}
+
+public class PatientInfoDto
+{
+    public string? Name { get; set; }
+}
+
+public class HospitalInfoDto
+{
+    public string? Name { get; set; }
+}
+
+public class DoctorInfoDto
+{
+    public string? Name { get; set; }
+}
+
+public class PrescriptionMetaInfoDto
+{
+    public string? DateWritten { get; set; }
 }

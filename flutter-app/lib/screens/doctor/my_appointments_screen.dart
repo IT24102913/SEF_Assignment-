@@ -176,7 +176,15 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
               DoctorApiService.getDoctorSessions(apt.doctorId).then((sessions) {
                 if (ctx.mounted) {
                   setModalState(() {
-                    availableSessions = sessions.where((s) => s.id != apt.doctorSessionId && s.isAvailable && !s.isExpired && s.slotsLeft > 0).toList();
+                    final valid = sessions.where((s) => s.id != apt.doctorSessionId && s.isAvailable && !s.isExpired && s.slotsLeft > 0).toList();
+                    final Map<String, DoctorSession> dedup = {};
+                    for (final s in valid) {
+                      final key = '${s.sessionDate}_${s.sessionType.toLowerCase()}';
+                      if (!dedup.containsKey(key) || s.maxCapacity > dedup[key]!.maxCapacity) {
+                        dedup[key] = s;
+                      }
+                    }
+                    availableSessions = dedup.values.toList();
                     loadingSessions = false;
                   });
                 }
@@ -229,7 +237,6 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
                             final session = availableSessions[index];
                             final isMorning = session.sessionType.toLowerCase() == 'morning';
                             final isEvening = session.sessionType.toLowerCase() == 'evening';
-                            final emoji = isMorning ? '🌅' : isEvening ? '🌇' : '🌙';
 
                             return InkWell(
                               onTap: () async {
@@ -262,7 +269,19 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
                                 ),
                                 child: Row(
                                   children: [
-                                    Text(emoji, style: const TextStyle(fontSize: 22)),
+                                    Icon(
+                                      isMorning
+                                          ? Icons.wb_sunny_rounded
+                                          : isEvening
+                                              ? Icons.wb_twilight_rounded
+                                              : Icons.nightlight_round,
+                                      color: isMorning
+                                          ? const Color(0xFFD97706)
+                                          : isEvening
+                                              ? const Color(0xFF7C3AED)
+                                              : const Color(0xFF4F46E5),
+                                      size: 20,
+                                    ),
                                     const SizedBox(width: 10),
                                     Expanded(
                                       child: Column(

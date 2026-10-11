@@ -33,5 +33,17 @@ public class RecommendationWorkflow
 
     public long DurationMs { get; set; }
 
+    public string ApprovalStatus { get; set; } = "NOT_REQUIRED";
+
+    public DateTime? ApprovedAt { get; set; }
+
+    public int? SelectedDoctorId { get; set; }
+
+    public int? AppointmentId { get; set; }
+
+    public DateTime? CompletedAt { get; set; }
+
+    public string? MatchedDoctorsJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

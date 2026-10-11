@@ -1,5 +1,6 @@
 using HealthBridge.Api.Data;
 using HealthBridge.Api.DTOs.EMR;
+using HealthBridge.Api.Models;
 using HealthBridge.Api.Models.EMR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -40,39 +41,46 @@ public class EMRService : IEMRService
     public async Task<PatientDto?> GetPatientByIdAsync(Guid id)
     {
         var patient = await _db.Patients.FindAsync(id);
-        return patient == null ? null : MapPatientToDto(patient);
+        if (patient == null) return null;
+        var user = patient.UserId.HasValue
+            ? await _db.Users.FirstOrDefaultAsync(u => u.Id == patient.UserId.Value)
+            : await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == patient.Email.ToLower());
+        var profile = user != null ? await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == user.Id) : null;
+        var nic = profile?.NicNumber ?? user?.NicNumber ?? "";
+        return MapPatientToDto(patient, nic);
     }
 
     public async Task<PatientDto?> GetPatientByUserIdAsync(int userId)
     {
-        var patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId);
-        if (patient == null)
-        {
-            var user = await _db.Users.FindAsync(userId);
-            if (user != null)
-            {
-                // Try linking if matched by email
-                var existingByEmail = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == user.Email.ToLower());
-                if (existingByEmail != null)
-                {
-                    existingByEmail.UserId = user.Id;
-                    await _db.SaveChangesAsync();
-                    return MapPatientToDto(existingByEmail);
-                }
+        var currentUser = await _db.Users.FindAsync(userId);
+        var currentProfile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
 
+        var patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (patient == null && currentUser != null)
+        {
+            // Try linking if matched by email
+            var existingByEmail = await _db.Patients.FirstOrDefaultAsync(p => p.Email.ToLower() == currentUser.Email.ToLower());
+            if (existingByEmail != null)
+            {
+                existingByEmail.UserId = currentUser.Id;
+                await _db.SaveChangesAsync();
+                patient = existingByEmail;
+            }
+            else
+            {
                 // Auto-create EMR patient for this registered user
-                var profile = await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == userId);
                 var newCode = await GenerateNextPatientCodeAsync();
                 patient = new Patient
                 {
                     Id = Guid.NewGuid(),
-                    UserId = user.Id,
+                    UserId = currentUser.Id,
                     PatientCode = newCode,
-                    FullName = user.FullName,
-                    Email = user.Email,
-                    ContactPhone = profile?.PhoneNumber ?? "",
-                    Gender = profile?.Gender ?? "Other",
-                    DateOfBirth = profile?.DateOfBirth, // null until customer chooses
+                    FullName = currentUser.FullName,
+                    Email = currentUser.Email,
+                    ContactPhone = currentProfile?.PhoneNumber ?? "",
+                    Address = currentProfile?.Address ?? "",
+                    Gender = currentProfile?.Gender ?? "Other",
+                    DateOfBirth = currentProfile?.DateOfBirth, // null until customer chooses
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow
                 };
@@ -84,18 +92,81 @@ public class EMRService : IEMRService
                 catch (Microsoft.EntityFrameworkCore.DbUpdateException)
                 {
                     // Concurrent insert collision — try fetching the record that was just created
-                    patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == user.Email.ToLower());
+                    patient = await _db.Patients.FirstOrDefaultAsync(p => p.UserId == userId || p.Email.ToLower() == currentUser.Email.ToLower());
                 }
-
             }
         }
-        return patient == null ? null : MapPatientToDto(patient);
+
+        // Two-way sync: merge between Patient and PatientProfile
+        if (patient != null && currentProfile != null)
+        {
+            bool patientChanged = false;
+            bool profileChanged = false;
+
+            // Sync from profile to patient if patient fields are empty
+            if (string.IsNullOrWhiteSpace(patient.ContactPhone) && !string.IsNullOrWhiteSpace(currentProfile.PhoneNumber))
+            {
+                patient.ContactPhone = currentProfile.PhoneNumber.Trim();
+                patientChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(patient.Address) && !string.IsNullOrWhiteSpace(currentProfile.Address))
+            {
+                patient.Address = currentProfile.Address.Trim();
+                patientChanged = true;
+            }
+            if ((string.IsNullOrWhiteSpace(patient.Gender) || patient.Gender == "Other") && !string.IsNullOrWhiteSpace(currentProfile.Gender) && currentProfile.Gender != "Other")
+            {
+                patient.Gender = currentProfile.Gender.Trim();
+                patientChanged = true;
+            }
+            if (patient.DateOfBirth == null && currentProfile.DateOfBirth != null)
+            {
+                patient.DateOfBirth = currentProfile.DateOfBirth;
+                patientChanged = true;
+            }
+
+            // Sync from patient to profile if profile fields are empty
+            if (string.IsNullOrWhiteSpace(currentProfile.PhoneNumber) && !string.IsNullOrWhiteSpace(patient.ContactPhone))
+            {
+                currentProfile.PhoneNumber = patient.ContactPhone.Trim();
+                profileChanged = true;
+            }
+            if (string.IsNullOrWhiteSpace(currentProfile.Address) && !string.IsNullOrWhiteSpace(patient.Address))
+            {
+                currentProfile.Address = patient.Address.Trim();
+                profileChanged = true;
+            }
+            if ((string.IsNullOrWhiteSpace(currentProfile.Gender) || currentProfile.Gender == "Other") && !string.IsNullOrWhiteSpace(patient.Gender) && patient.Gender != "Other")
+            {
+                currentProfile.Gender = patient.Gender.Trim();
+                profileChanged = true;
+            }
+            if (currentProfile.DateOfBirth == null && patient.DateOfBirth != null)
+            {
+                currentProfile.DateOfBirth = patient.DateOfBirth;
+                profileChanged = true;
+            }
+
+            if (patientChanged) patient.UpdatedAt = DateTime.UtcNow;
+            if (profileChanged) currentProfile.UpdatedAt = DateTime.UtcNow;
+            if (patientChanged || profileChanged) await _db.SaveChangesAsync();
+        }
+
+        if (patient == null) return null;
+        var nic = currentProfile?.NicNumber ?? currentUser?.NicNumber ?? "";
+        return MapPatientToDto(patient, nic);
     }
 
     public async Task<PatientDto?> GetPatientByCodeAsync(string code)
     {
         var patient = await _db.Patients.FirstOrDefaultAsync(p => p.PatientCode.ToUpper() == code.Trim().ToUpper());
-        return patient == null ? null : MapPatientToDto(patient);
+        if (patient == null) return null;
+        var user = patient.UserId.HasValue
+            ? await _db.Users.FirstOrDefaultAsync(u => u.Id == patient.UserId.Value)
+            : await _db.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == patient.Email.ToLower());
+        var profile = user != null ? await _db.PatientProfiles.FirstOrDefaultAsync(pr => pr.UserId == user.Id) : null;
+        var nic = profile?.NicNumber ?? user?.NicNumber ?? "";
+        return MapPatientToDto(patient, nic);
     }
 
     public async Task<PatientDto> CreatePatientAsync(CreatePatientDto dto)
@@ -136,6 +207,7 @@ public class EMRService : IEMRService
         if (patient == null) return null;
 
         ApplyPatientUpdates(patient, dto);
+        await SyncToPatientProfileAsync(patient);
         await _db.SaveChangesAsync();
         return MapPatientToDto(patient);
     }
@@ -146,8 +218,47 @@ public class EMRService : IEMRService
         if (patient == null) return null;
 
         ApplyPatientUpdates(patient, dto);
+        await SyncToPatientProfileAsync(patient);
         await _db.SaveChangesAsync();
         return MapPatientToDto(patient);
+    }
+
+    private async Task SyncToPatientProfileAsync(Patient patient)
+    {
+        int? userId = patient.UserId;
+        if (!userId.HasValue && !string.IsNullOrWhiteSpace(patient.Email))
+        {
+            var u = await _db.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == patient.Email.ToLower());
+            if (u != null)
+            {
+                userId = u.Id;
+                patient.UserId = u.Id;
+            }
+        }
+
+        if (userId.HasValue)
+        {
+            var profile = await _db.PatientProfiles.FirstOrDefaultAsync(p => p.UserId == userId.Value);
+            if (profile == null)
+            {
+                profile = new PatientProfile { UserId = userId.Value, CreatedAt = DateTime.UtcNow };
+                _db.PatientProfiles.Add(profile);
+            }
+
+            if (!string.IsNullOrWhiteSpace(patient.ContactPhone)) profile.PhoneNumber = patient.ContactPhone.Trim();
+            if (!string.IsNullOrWhiteSpace(patient.Address)) profile.Address = patient.Address.Trim();
+            if (!string.IsNullOrWhiteSpace(patient.Gender) && patient.Gender != "Other") profile.Gender = patient.Gender.Trim();
+            if (patient.DateOfBirth.HasValue) profile.DateOfBirth = patient.DateOfBirth.Value;
+            var emg = !string.IsNullOrWhiteSpace(patient.EmergencyContactPhone) ? patient.EmergencyContactPhone : patient.EmergencyContactName;
+            if (!string.IsNullOrWhiteSpace(emg)) profile.EmergencyContact = emg.Trim();
+            profile.UpdatedAt = DateTime.UtcNow;
+
+            var user = await _db.Users.FindAsync(userId.Value);
+            if (user != null && !string.IsNullOrWhiteSpace(patient.FullName) && user.FullName != patient.FullName)
+            {
+                user.FullName = patient.FullName.Trim();
+            }
+        }
     }
 
     private static void ApplyPatientUpdates(Patient patient, UpdatePatientDto dto)
@@ -822,7 +933,9 @@ public class EMRService : IEMRService
     }
 
 
-    private static PatientDto MapPatientToDto(Patient p) => new()
+    private static PatientDto MapPatientToDto(Patient p) => MapPatientToDto(p, null);
+
+    private static PatientDto MapPatientToDto(Patient p, string? nicNumber) => new()
     {
         Id = p.Id,
         PatientCode = p.PatientCode,
@@ -832,6 +945,7 @@ public class EMRService : IEMRService
         BloodGroup = p.BloodGroup,
         ContactPhone = p.ContactPhone,
         Email = p.Email,
+        NicNumber = nicNumber ?? "",
         Address = p.Address,
         EmergencyContactName = p.EmergencyContactName,
         EmergencyContactPhone = p.EmergencyContactPhone,

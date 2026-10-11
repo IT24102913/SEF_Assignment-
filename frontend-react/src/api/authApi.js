@@ -6,8 +6,36 @@ const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
-    timeout: 15000,
+    timeout: 45000,
 });
+
+// Auto-retry once on cold-start timeouts / network errors
+api.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+        const config = error.config || {};
+
+        const isTimeout =
+            error.code === 'ECONNABORTED' ||
+            error.message?.toLowerCase().includes('timeout');
+        const isNetworkError = !error.response;
+
+        // Only retry once
+        if ((isTimeout || isNetworkError) && !config._retried) {
+            config._retried = true;
+            config.timeout = 60000;
+
+            // Short delay to let backend finish waking up
+            await new Promise((resolve) =>
+                setTimeout(resolve, 1500)
+            );
+
+            return api.request(config);
+        }
+
+        return Promise.reject(error);
+    }
+);
 
 // Add token to all requests
 api.interceptors.request.use(

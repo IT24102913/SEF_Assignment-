@@ -80,15 +80,15 @@ public class DoctorSessionsController : ControllerBase
             DateTime parsedDateTime = DateTime.UtcNow.AddMinutes(30);
             if (!string.IsNullOrWhiteSpace(request?.ExpectedStartTime))
             {
-                var input = request.ExpectedStartTime.Trim();
-                if (DateTime.TryParse(input, out var dt))
+                var input = request.ExpectedStartTime.Trim().Replace('.', ':');
+                if (DateTime.TryParse(input, System.Globalization.CultureInfo.InvariantCulture, out var dtInv) || DateTime.TryParse(input, out dtInv))
                 {
-                    parsedDateTime = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                    parsedDateTime = DateTime.SpecifyKind(dtInv, DateTimeKind.Utc);
                 }
-                else if (TimeOnly.TryParse(input, out var t))
+                else if (TimeOnly.TryParse(input, System.Globalization.CultureInfo.InvariantCulture, out var tInv) || TimeOnly.TryParse(input, out tInv))
                 {
                     var today = DateTime.UtcNow.Date;
-                    parsedDateTime = DateTime.SpecifyKind(today.Add(t.ToTimeSpan()), DateTimeKind.Utc);
+                    parsedDateTime = DateTime.SpecifyKind(today.Add(tInv.ToTimeSpan()), DateTimeKind.Utc);
                 }
             }
 
@@ -105,8 +105,8 @@ public class DoctorSessionsController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to delay session {Id}", id);
-            return StatusCode(500, new { message = "Failed to delay session." });
+            _logger.LogError(ex, "Failed to delay session {Id}: {Message}", id, ex.Message);
+            return StatusCode(500, new { message = ex.InnerException?.Message ?? ex.Message });
         }
     }
 
@@ -159,6 +159,32 @@ public class DoctorSessionsController : ControllerBase
         {
             _logger.LogError(ex, "Failed to cancel session {Id}", id);
             return StatusCode(500, new { message = "Failed to cancel session." });
+        }
+    }
+
+    /// <summary>
+    /// Concludes and completes a doctor consultation session.
+    /// </summary>
+    [HttpPost("{id}/complete")]
+    public async Task<IActionResult> CompleteSession(int id)
+    {
+        try
+        {
+            var session = await _appointmentService.CompleteSessionAsync(id);
+            return Ok(session);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to complete session {Id}", id);
+            return StatusCode(500, new { message = "Failed to complete session." });
         }
     }
 }

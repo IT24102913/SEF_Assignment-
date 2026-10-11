@@ -63,7 +63,8 @@ import {
     RotateCcw,
     Camera,
     AlertOctagon,
-    Mail
+    Mail,
+    QrCode
 } from 'lucide-react';
 
 const Orders = () => {
@@ -580,11 +581,11 @@ const Orders = () => {
 
     const handleToggleBlockUser = async (patientEmail) => {
         if (!patientEmail) return;
-        const isCurrentlyBlocked = blockedUsers.includes(patientEmail);
+        const isCurrentlyBlocked = blockedUsers.some(e => e.toLowerCase() === patientEmail.toLowerCase());
         const shouldBlock = !isCurrentlyBlocked;
         let updated;
         if (isCurrentlyBlocked) {
-            updated = blockedUsers.filter(e => e !== patientEmail);
+            updated = blockedUsers.filter(e => e.toLowerCase() !== patientEmail.toLowerCase());
         } else {
             updated = [...blockedUsers, patientEmail];
         }
@@ -599,10 +600,10 @@ const Orders = () => {
                 block: shouldBlock,
                 reason: "Prescription anti-abuse violation"
             });
-            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
         } catch (e) {
             console.warn('Failed to update block state on backend:', e);
-            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED 🚫' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
+            showToastMessage(`Patient account ${patientEmail} ${shouldBlock ? 'BLOCKED' : 'UNBLOCKED'}.`, shouldBlock ? 'error' : 'success');
         }
     };
 
@@ -835,7 +836,22 @@ const Orders = () => {
                                     }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                                             <div>
-                                                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>{p.customerName || 'Anonymous'}</h4>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0F172A' }}>{p.customerName || 'Anonymous'}</h4>
+                                                    {blockedUsers.some(b => b.toLowerCase() === p.customerEmail?.toLowerCase()) && (
+                                                        <span style={{
+                                                            backgroundColor: '#DC2626',
+                                                            color: '#FFFFFF',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '12px',
+                                                            fontSize: '11px',
+                                                            fontWeight: 800,
+                                                            letterSpacing: '0.3px'
+                                                        }}>
+                                                            Blocked User
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <div style={{ fontSize: '12.5px', color: '#64748B' }}>{p.customerEmail}</div>
                                             </div>
                                             <span style={{
@@ -894,6 +910,10 @@ const Orders = () => {
                     ) : (
                         filteredOrders.filter(Boolean).map(order => {
                             if (!order) return null;
+                            const isCustomerBlocked = Boolean(
+                                order.customerEmail &&
+                                blockedUsers.some(b => b.toLowerCase() === order.customerEmail.toLowerCase())
+                            );
                             const badge = getStatusBadgeStyle(order.status);
                             const StatusIcon = badge.icon;
                             return (
@@ -905,7 +925,21 @@ const Orders = () => {
                                                 <Calendar size={13} /> {new Date(order.createdAt).toLocaleString()}
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                            {isCustomerBlocked && (
+                                                <div style={{
+                                                    backgroundColor: '#DC2626',
+                                                    color: '#FFFFFF',
+                                                    padding: '4px 10px',
+                                                    borderRadius: '20px',
+                                                    fontSize: '12px',
+                                                    fontWeight: 800,
+                                                    display: 'flex',
+                                                    alignItems: 'center'
+                                                }}>
+                                                    Blocked User
+                                                </div>
+                                            )}
                                             {(order.status !== 'PendingVerification' && order.status !== 'Pending' && (order.patientConfirmed || order.status === 'Confirmed' || order.status === 'Dispatched' || order.status === 'Delivered')) ? (
                                                 <div style={{
                                                     backgroundColor: '#ECFDF5',
@@ -953,6 +987,19 @@ const Orders = () => {
                                     <div style={styles.patientInfoBox}>
                                         <div style={styles.infoLine}>
                                             <User size={14} color="#059669" /> <strong>{order.customerName}</strong> ({order.customerEmail})
+                                            {isCustomerBlocked && (
+                                                <span style={{
+                                                    marginLeft: '6px',
+                                                    backgroundColor: '#DC2626',
+                                                    color: '#FFFFFF',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '6px',
+                                                    fontSize: '11px',
+                                                    fontWeight: 800
+                                                }}>
+                                                    Blocked User
+                                                </span>
+                                            )}
                                         </div>
                                         <div style={styles.infoLine}>
                                             <Phone size={14} color="#059669" /> {order.customerPhone || 'N/A'}
@@ -1133,6 +1180,38 @@ const Orders = () => {
                                 {selectedOrder.deliveryAddress && <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>Address: {selectedOrder.deliveryAddress}</div>}
                             </div>
 
+                            {/* Counter Pickup Digital QR Ticket for Staff Verification */}
+                            {(selectedOrder.deliveryMethod === 'Pickup' || selectedOrder.paymentMethod === 'PayAtCounter') && (
+                                <div style={{
+                                    background: '#ECFDF5',
+                                    border: '1px solid #A7F3D0',
+                                    borderRadius: '12px',
+                                    padding: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '14px'
+                                }}>
+                                    <div style={{ background: '#FFFFFF', padding: '6px', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
+                                        <img
+                                            src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(`PHARMACY_ORDER|${selectedOrder.orderNumber || selectedOrder.id}|${selectedOrder.customerName || 'Patient'}|${selectedOrder.totalAmount || 0}`)}`}
+                                            alt="Staff QR Verification"
+                                            style={{ width: '70px', height: '70px', display: 'block' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#D1FAE5', color: '#065F46', fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', marginBottom: '4px' }}>
+                                            <QrCode size={12} /> Counter Pickup QR Ticket
+                                        </div>
+                                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#0F172A' }}>
+                                            Ticket Order #{selectedOrder.orderNumber}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#047857' }}>
+                                            Patient Counter Express Scan Validated
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {selectedOrder.prescriptionImageUrl && (
                                 <div style={{ background: '#FFFBEB', padding: '12px', borderRadius: '8px', border: '1px solid #FDE68A' }}>
                                     <div style={{ fontWeight: 700, color: '#B45309', marginBottom: '6px', fontSize: '13px' }}>
@@ -1242,11 +1321,11 @@ const Orders = () => {
                                                     fontSize: '11px',
                                                     padding: '2px 8px',
                                                     borderRadius: '12px',
-                                                    backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#EF4444' : '#10B981',
+                                                    backgroundColor: blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? '#EF4444' : '#10B981',
                                                     color: '#FFFFFF',
                                                     fontWeight: 800
                                                 }}>
-                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
+                                                    {blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? 'ACCOUNT BLOCKED' : 'ACCOUNT ACTIVE'}
                                                 </span>
                                             </div>
 
@@ -1379,7 +1458,7 @@ const Orders = () => {
                                                     type="button"
                                                     onClick={() => handleToggleBlockUser(selectedOrder.customerEmail)}
                                                     style={{
-                                                        backgroundColor: blockedUsers.includes(selectedOrder.customerEmail) ? '#166534' : '#DC2626',
+                                                        backgroundColor: blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? '#166534' : '#DC2626',
                                                         color: '#FFFFFF',
                                                         border: 'none',
                                                         padding: '8px 12px',
@@ -1393,7 +1472,7 @@ const Orders = () => {
                                                     }}
                                                 >
                                                     <UserX size={14} />
-                                                    {blockedUsers.includes(selectedOrder.customerEmail) ? 'Unblock User' : 'Block User'}
+                                                    {blockedUsers.some(b => b.toLowerCase() === selectedOrder.customerEmail?.toLowerCase()) ? 'Unblock User' : 'Block User'}
                                                 </button>
                                             </div>
                                         </div>
@@ -1439,25 +1518,74 @@ const Orders = () => {
                                 />
                             </div>
 
+                            {selectedOrder.status === 'Cancelled' && (
+                                <div style={{
+                                    background: '#FEF2F2',
+                                    border: '1px solid #FECACA',
+                                    borderRadius: '10px',
+                                    padding: '10px 14px',
+                                    marginBottom: '14px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    fontSize: '12.5px',
+                                    fontWeight: 700,
+                                    color: '#991B1B'
+                                }}>
+                                    <AlertCircle size={16} color="#DC2626" />
+                                    This order has been cancelled by the patient. Approval and dispatch actions are disabled.
+                                </div>
+                            )}
+
                             <div style={styles.modalActionsGrid}>
                                 <button
                                     onClick={() => handleUpdateStatus(selectedOrder.id, 'Approved')}
-                                    disabled={actionLoading}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#0284C7' }}
+                                    disabled={actionLoading || selectedOrder.status === 'Cancelled'}
+                                    style={{
+                                        ...styles.actionBtnPrimary,
+                                        backgroundColor: '#0284C7',
+                                        ...(selectedOrder.status === 'Cancelled' ? {
+                                            opacity: 0.38,
+                                            cursor: 'not-allowed',
+                                            filter: 'grayscale(0.85) blur(0.5px)',
+                                            pointerEvents: 'none'
+                                        } : {})
+                                    }}
+                                    title={selectedOrder.status === 'Cancelled' ? "Cannot approve a cancelled order" : undefined}
                                 >
                                     <CheckCircle2 size={16} /> Approve &amp; Send Quote
                                 </button>
                                 <button
                                     onClick={() => handleUpdateStatus(selectedOrder.id, 'Dispatched')}
-                                    disabled={actionLoading}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#0D9488' }}
+                                    disabled={actionLoading || selectedOrder.status === 'Cancelled'}
+                                    style={{
+                                        ...styles.actionBtnPrimary,
+                                        backgroundColor: '#0D9488',
+                                        ...(selectedOrder.status === 'Cancelled' ? {
+                                            opacity: 0.38,
+                                            cursor: 'not-allowed',
+                                            filter: 'grayscale(0.85) blur(0.5px)',
+                                            pointerEvents: 'none'
+                                        } : {})
+                                    }}
+                                    title={selectedOrder.status === 'Cancelled' ? "Cannot dispatch a cancelled order" : undefined}
                                 >
                                     <Truck size={16} /> Dispatch Order
                                 </button>
                                 <button
                                     onClick={() => handleUpdateStatus(selectedOrder.id, 'Cancelled')}
-                                    disabled={actionLoading}
-                                    style={{ ...styles.actionBtnPrimary, backgroundColor: '#DC2626' }}
+                                    disabled={actionLoading || selectedOrder.status === 'Cancelled'}
+                                    style={{
+                                        ...styles.actionBtnPrimary,
+                                        backgroundColor: '#DC2626',
+                                        ...(selectedOrder.status === 'Cancelled' ? {
+                                            opacity: 0.38,
+                                            cursor: 'not-allowed',
+                                            filter: 'grayscale(0.85) blur(0.5px)',
+                                            pointerEvents: 'none'
+                                        } : {})
+                                    }}
+                                    title={selectedOrder.status === 'Cancelled' ? "Order is already cancelled" : undefined}
                                 >
                                     <XCircle size={16} /> Reject Order
                                 </button>

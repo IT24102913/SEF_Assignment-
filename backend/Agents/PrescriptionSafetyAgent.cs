@@ -61,6 +61,80 @@ public class PrescriptionSafetyAgent
         }
     }
 
+    private static List<string> BuildExtractionInfoFlags(AIPpVerificationResponse ai)
+    {
+        var flags = new List<string>();
+        if (ai == null) return flags;
+
+        // 1. Extraction quality
+        if (ai.ExtractionQuality != null && !string.IsNullOrWhiteSpace(ai.ExtractionQuality.Tier))
+        {
+            var tier = ai.ExtractionQuality.Tier;
+            var icon = tier switch
+            {
+                "HIGH" => "✅",
+                "MEDIUM" => "🟡",
+                "LOW" => "🔴",
+                _ => "ℹ️"
+            };
+            flags.Add($"{icon} Extraction Quality: {tier}");
+        }
+
+        // 2. Patient
+        var patientName = ai.Patient?.Name ?? ai.PatientName;
+        if (!string.IsNullOrWhiteSpace(patientName))
+        {
+            flags.Add($"👤 Patient: {patientName}");
+        }
+
+        // 3. Hospital / Clinic
+        var clinicName = ai.Hospital?.Name ?? ai.ClinicName;
+        if (!string.IsNullOrWhiteSpace(clinicName))
+        {
+            flags.Add($"🏥 Hospital: {clinicName}");
+        }
+
+        // 4. Doctor
+        var doctorName = ai.Doctor?.Name ?? ai.DoctorName;
+        if (!string.IsNullOrWhiteSpace(doctorName))
+        {
+            var lic = !string.IsNullOrWhiteSpace(ai.DoctorLicenseNumber)
+                ? $" ({ai.DoctorLicenseNumber})" : "";
+            flags.Add($"👨‍⚕️ Doctor: {doctorName}{lic}");
+        }
+
+        // 5. Prescription date range
+        var dateInfo = ai.PrescriptionMeta?.DateWritten ?? ai.DateWritten ?? ai.PrescriptionDate;
+        if (!string.IsNullOrWhiteSpace(dateInfo))
+        {
+            flags.Add($"📅 Prescription Date: {dateInfo}");
+        }
+
+        // 6. Medicines with dosages
+        if (ai.Medicines != null && ai.Medicines.Count > 0)
+        {
+            flags.Add($"💊 Extracted Medicines ({ai.Medicines.Count}):");
+            foreach (var med in ai.Medicines)
+            {
+                var medName = string.IsNullOrWhiteSpace(med.Name)
+                    ? "Unknown" : med.Name;
+
+                var details = new List<string>();
+                if (!string.IsNullOrWhiteSpace(med.Dosage))
+                    details.Add(med.Dosage);
+                if (!string.IsNullOrWhiteSpace(med.Frequency))
+                    details.Add(med.Frequency);
+
+                var detailStr = details.Count > 0
+                    ? " — " + string.Join(" | ", details) : "";
+
+                flags.Add($"   • {medName}{detailStr}");
+            }
+        }
+
+        return flags;
+    }
+
     /// <summary>
     /// Validates an order for prescription safety & anti-abuse concerns.
     /// </summary>
@@ -131,6 +205,13 @@ public class PrescriptionSafetyAgent
                         var visionValidation = _validatorAgent.ValidatePrescriptionAsync(currentRx, "Order Safety Analysis").GetAwaiter().GetResult();
                         if (visionValidation != null)
                         {
+                            // Enrich with extracted prescription data
+                            var extractionInfoFlags = BuildExtractionInfoFlags(visionValidation);
+                            foreach (var flag in extractionInfoFlags)
+                            {
+                                if (!verifiedSignals.Contains(flag))
+                                    verifiedSignals.Add(flag);
+                            }
                             // ─────────────────────────────────────────────
                             // SYSTEM FLAGS: Stage 1 failure detection
                             // ─────────────────────────────────────────────
@@ -178,6 +259,14 @@ public class PrescriptionSafetyAgent
                             {
                                 foreach (var flag in visionValidation.SecurityFlags)
                                 {
+                                    // INFO flags never count as violations
+                                    if (flag.StartsWith("INFO:"))
+                                    {
+                                        if (!verifiedSignals.Contains(flag))
+                                            verifiedSignals.Add(flag);
+                                        continue;
+                                    }
+
                                     // Skip the generic "Stage 1 extraction failed" (already handled above)
                                     if (flag.Contains("Stage 1 extraction failed")) continue;
 

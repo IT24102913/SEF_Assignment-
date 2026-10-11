@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { getDisplayConfig } from '../../../utils/getDisplayConfig';
 import { api } from '../../../api/authApi';
+import { API_BASE_URL } from '../../../api/config';
+import { resolveImageUrl, getImageUrl } from '../../../utils/imageUrl';
 import PrescriptionViolationModal from '../../../components/modals/PrescriptionViolationModal';
+import WellnessChatModal from '../../../components/pharmacy/WellnessChatModal';
 import {
     Search,
     ShoppingBag,
@@ -40,6 +43,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     const [isDirectRxMode, setIsDirectRxMode] = useState(false);
     const [orderSuccessData, setOrderSuccessData] = useState(null);
     const [rxModalMedicine, setRxModalMedicine] = useState(null);
+    const [wellnessChatOpen, setWellnessChatOpen] = useState(false);
 
     // Advanced UI & Detailed Daraz Modal State
     const [viewMode, setViewMode] = useState('web'); // 'web' | 'mobile'
@@ -186,23 +190,59 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
         }
     };
 
+    // SmartImg: renders both base64 data URIs and regular network URLs
+    const SmartImg = ({ src, alt, style, onError }) => {
+        if (!src) return null;
+        const resolved = resolveImageUrl(src);
+        return (
+            <img
+                src={resolved}
+                alt={alt}
+                style={style}
+                onError={(e) => {
+                    if (onError) onError(e);
+                    if (!e.target.src.includes('unsplash.com')) {
+                        e.target.src = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                    }
+                }}
+            />
+        );
+    };
+
     const getGalleryImages = (med) => {
         if (!med) return [];
-        const mainImg = med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop';
-        const list = [mainImg];
+        const list = [];
+
+        // 1. Main imageUrl always comes FIRST (as admin intended)
+        if (med.imageUrl && typeof med.imageUrl === 'string' && med.imageUrl.trim()) {
+            const resolvedMain = resolveImageUrl(med.imageUrl);
+            if (resolvedMain) list.push(resolvedMain);
+        }
+
+        // 2. Additional uploaded angle images come after
         if (med.additionalImagesJson) {
             try {
-                const parsed = JSON.parse(med.additionalImagesJson);
+                const parsed = typeof med.additionalImagesJson === 'string'
+                    ? JSON.parse(med.additionalImagesJson)
+                    : med.additionalImagesJson;
                 if (Array.isArray(parsed)) {
                     parsed.forEach(url => {
-                        if (url && !list.includes(url)) list.push(url);
+                        const resolved = resolveImageUrl(url);
+                        if (resolved && !list.includes(resolved)) {
+                            list.push(resolved);
+                        }
                     });
                 }
             } catch (e) { }
         }
-        if (list.length === 1) {
-            list.push('https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=500&auto=format&fit=crop');
+
+        // 3. Fallbacks only if no images at all
+        if (list.length === 0) {
             list.push('https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop');
+        }
+        if (list.length === 1) {
+            list.push('https://images.unsplash.com/photo-1576602976047-174e57a47881?w=500&auto=format&fit=crop');
+            list.push('https://images.unsplash.com/photo-1550572017-edd951baa74c?w=500&auto=format&fit=crop');
         }
         return list;
     };
@@ -210,6 +250,31 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
     useEffect(() => {
         fetchCatalog();
     }, []);
+
+    // Auto-open product detail if ?medicine=ID is in the URL
+    useEffect(() => {
+        if (loading) return;
+        if (!medicines || medicines.length === 0) return;
+
+        const params = new URLSearchParams(window.location.search);
+        const medicineId = params.get('medicine');
+        if (!medicineId) return;
+
+        const med = medicines.find(
+            m => String(m.id) === String(medicineId)
+        );
+
+        if (med && med.stockQuantity > 0) {
+            setSelectedDetailMed(med);
+            setActiveDetailImageIndex(0);
+            setDetailQty(1);
+
+            // Clean the URL so refresh doesn't re-open
+            const url = new URL(window.location.href);
+            url.searchParams.delete('medicine');
+            window.history.replaceState({}, '', url.toString());
+        }
+    }, [loading, medicines]);
 
     const showToastMessage = (message, type = 'success') => {
         setToast({ show: true, message, type });
@@ -572,7 +637,9 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             setPrescriptionPreview(null);
             setPrescriptionFile(null);
 
-            if (isRx) {
+            const isPickupOrCounter = (deliveryMethod === 'Pickup' || paymentMethod === 'PayAtCounter');
+
+            if (isRx || isPickupOrCounter) {
                 setOrderSuccessData(createdOrder);
             } else {
                 showToastMessage('Order placed successfully!', 'success');
@@ -781,6 +848,115 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                 </div>
             )}
 
+            {/* Wellness Assistant Banner (Light Blue Theme) */}
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '20px',
+                padding: '20px 24px',
+                background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
+                border: '2px solid #BFDBFE',
+                borderRadius: '16px',
+                marginBottom: '20px',
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 8px 20px -4px rgba(37, 99, 235, 0.15)'
+            }}>
+                {/* Left: Icon + Text */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                    <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
+                    }}>
+                        <Sparkles size={28} color="white" />
+                    </div>
+                    <div>
+                        <div style={{
+                            fontSize: '16px',
+                            fontWeight: 800,
+                            color: '#1E40AF',
+                            marginBottom: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            flexWrap: 'wrap'
+                        }}>
+                            Wellness Assistant
+                            <span style={{
+                                fontSize: '10px',
+                                padding: '2px 8px',
+                                background: '#2563EB',
+                                color: 'white',
+                                borderRadius: '10px',
+                                fontWeight: 700,
+                                letterSpacing: '0.5px'
+                            }}>
+                                AI POWERED
+                            </span>
+                        </div>
+                        <div style={{
+                            fontSize: '13px',
+                            color: '#1E40AF',
+                            opacity: 0.85,
+                            lineHeight: 1.5
+                        }}>
+                            Feeling unwell? Get instant home remedies and friendly wellness guidance from our AI.
+                        </div>
+                    </div>
+                </div>
+
+                {/* Center/Right: Chat Now Button */}
+                <button
+                    onClick={() => setWellnessChatOpen(true)}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 20px',
+                        background: 'linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        fontWeight: 700,
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
+                        flexShrink: 0
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 18px rgba(37, 99, 235, 0.45)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.35)';
+                    }}
+                >
+                    <MessageSquare size={18} />
+                    Chat Now
+                </button>
+
+                {/* Right: 🤖 Robot Emoji Placeholder */}
+                <div style={{
+                    fontSize: '44px',
+                    lineHeight: 1,
+                    userSelect: 'none',
+                    filter: 'drop-shadow(0 4px 8px rgba(37, 99, 235, 0.2))',
+                    marginLeft: '8px'
+                }}>
+                    🤖
+                </div>
+            </div>
+
             {/* Toolbar & Categories */}
             <div style={ps.toolbar}>
                 <div style={ps.searchBox}>
@@ -868,10 +1044,17 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                 }}
                             >
                                 <div style={ps.imgWrapper}>
-                                    <img
-                                        src={med.imageUrl || 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&auto=format&fit=crop'}
+                                    <SmartImg
+                                        src={getGalleryImages(med)[0] || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop'}
                                         alt={med.name}
                                         style={ps.cardImg}
+                                        onError={(e) => {
+                                            const gallery = getGalleryImages(med);
+                                            // Try next image in gallery on failure
+                                            const nextImg = gallery.find(u => u && e.target.src !== u);
+                                            const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) e.target.src = fallback;
+                                        }}
                                     />
                                     {isRx && (
                                         <span style={ps.rxRequiredBadge} onClick={(e) => { e.stopPropagation(); setRxModalMedicine(med); }}>
@@ -1556,10 +1739,10 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                 </div>
             )}
 
-            {/* Prescription Order Submission Confirmation Modal */}
+            {/* Prescription Order & Pickup QR Pass Submission Confirmation Modal */}
             {orderSuccessData && (
                 <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(5px)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                    <div style={{ backgroundColor: '#FFFFFF', padding: '32px', borderRadius: '24px', maxWidth: '480px', width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #E2E8F0' }}>
+                    <div style={{ backgroundColor: '#FFFFFF', padding: '32px', borderRadius: '24px', maxWidth: '490px', width: '100%', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', border: '1px solid #E2E8F0', maxHeight: '90vh', overflowY: 'auto' }}>
                         <div style={{ width: '64px', height: '64px', borderRadius: '50%', backgroundColor: '#ECFDF5', border: '2px solid #A7F3D0', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                             <CheckCircle2 size={36} color="#059669" />
                         </div>
@@ -1568,32 +1751,136 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             Order #{orderSuccessData.orderNumber || 'Submitted'}
                         </span>
 
-                        <h3 style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', margin: '12px 0 8px' }}>
-                            Prescription Order Submitted!
+                        <h3 style={{ fontSize: '20px', fontWeight: 900, color: '#0F172A', margin: '12px 0 6px' }}>
+                            {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter')
+                                ? 'Counter Pickup QR Ticket Pass Generated!'
+                                : 'Prescription Order Submitted!'}
                         </h3>
 
-                        <p style={{ fontSize: '13.5px', color: '#475569', lineHeight: 1.55, margin: '0 0 20px' }}>
-                            Your doctor prescription photo &amp; details have been sent to our registered pharmacists for verification.
+                        <p style={{ fontSize: '13.5px', color: '#475569', lineHeight: 1.55, margin: '0 0 16px' }}>
+                            {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter')
+                                ? 'Your pharmacy order has been placed for Counter Pickup. Present the QR code below at the hospital counter.'
+                                : 'Your doctor prescription photo & details have been sent to our registered pharmacists for verification.'}
                         </p>
+
+                        {/* Generated QR Code Digital Pass for Pickup & Counter Orders */}
+                        {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter') && (
+                            <div style={{
+                                backgroundColor: '#F8FAFC',
+                                border: '2px dashed #059669',
+                                borderRadius: '18px',
+                                padding: '20px 16px',
+                                margin: '0 0 20px 0',
+                                textAlign: 'center'
+                            }}>
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    backgroundColor: '#ECFDF5',
+                                    color: '#047857',
+                                    border: '1px solid #A7F3D0',
+                                    fontSize: '11px',
+                                    fontWeight: 800,
+                                    padding: '4px 12px',
+                                    borderRadius: '20px',
+                                    marginBottom: '12px',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    <QrCode size={14} /> Hospital Pharmacy Counter QR Pass
+                                </div>
+
+                                <div style={{
+                                    backgroundColor: '#FFFFFF',
+                                    padding: '12px',
+                                    borderRadius: '16px',
+                                    display: 'inline-block',
+                                    boxShadow: '0 4px 14px rgba(0,0,0,0.06)',
+                                    marginBottom: '10px',
+                                    border: '1px solid #CBD5E1'
+                                }}>
+                                    <img
+                                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`PHARMACY_ORDER|${orderSuccessData.orderNumber || orderSuccessData.id}|${orderSuccessData.customerName || 'Patient'}|${orderSuccessData.totalAmount || 0}`)}`}
+                                        alt="Pharmacy Counter Pickup QR Code Ticket"
+                                        style={{ width: '160px', height: '160px', display: 'block' }}
+                                    />
+                                </div>
+
+                                <div style={{ fontSize: '14px', fontWeight: 800, color: '#0F172A', marginBottom: '2px' }}>
+                                    Ticket #{orderSuccessData.orderNumber || 'ORD-PICKUP'}
+                                </div>
+                                <p style={{ fontSize: '11.5px', color: '#64748B', margin: '0 0 10px', lineHeight: 1.45 }}>
+                                    Show this QR Digital Ticket at the Hospital Pharmacy Counter for instant order collection &amp; counter payment.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`PHARMACY_ORDER|${orderSuccessData.orderNumber || orderSuccessData.id}|${orderSuccessData.customerName || 'Patient'}|${orderSuccessData.totalAmount || 0}`)}`;
+                                        const a = document.createElement('a');
+                                        a.href = qrUrl;
+                                        a.download = `Pharmacy_QR_Ticket_${orderSuccessData.orderNumber || 'Pass'}.png`;
+                                        a.target = '_blank';
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                    }}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '8px 16px',
+                                        backgroundColor: '#059669',
+                                        color: '#FFFFFF',
+                                        borderRadius: '8px',
+                                        fontSize: '12px',
+                                        fontWeight: 700,
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        boxShadow: '0 2px 6px rgba(5,150,105,0.2)'
+                                    }}
+                                >
+                                    📥 Save / Download QR Code
+                                </button>
+                            </div>
+                        )}
 
                         <div style={{ textAlign: 'left', backgroundColor: '#F8FAFC', padding: '16px', borderRadius: '14px', border: '1px solid #E2E8F0', fontSize: '12.5px', color: '#334155', display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
                             <div style={{ fontWeight: 700, color: '#0F172A', marginBottom: '2px' }}>📋 Next Steps for your Order:</div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>1.</span>
-                                <span>Licensed pharmacist reviews your doctor prescription receipt.</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
-                                <span>Pharmacist calculates total cost for medicines and home delivery charges (payable on delivery &lt; Rs. 500).</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
-                                <span>An updated quote will be posted under <strong>My Orders</strong> tab.</span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                <span style={{ color: '#059669', fontWeight: 800 }}>4.</span>
-                                <span>You can review the approved price and click <strong>Confirm &amp; Pay</strong>.</span>
-                            </div>
+                            {(orderSuccessData.deliveryMethod === 'Pickup' || orderSuccessData.paymentMethod === 'PayAtCounter') ? (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>1.</span>
+                                        <span>Visit the HealthBridge Main Hospital Pharmacy Counter.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
+                                        <span>Show this QR Digital Ticket or Order #{orderSuccessData.orderNumber} to the pharmacist.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
+                                        <span>Pay cash or card at counter &amp; collect your medicine package instantly!</span>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>1.</span>
+                                        <span>Licensed pharmacist reviews your doctor prescription receipt.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>2.</span>
+                                        <span>Pharmacist calculates total cost for medicines and home delivery charges (payable on delivery &lt; Rs. 500).</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>3.</span>
+                                        <span>An updated quote will be posted under <strong>My Orders</strong> tab.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                        <span style={{ color: '#059669', fontWeight: 800 }}>4.</span>
+                                        <span>You can review the approved price and click <strong>Confirm &amp; Pay</strong>.</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', gap: '12px' }}>
@@ -1735,10 +2022,16 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             {/* Left Column: Multi-Angle Gallery */}
                             <div style={ps.darazGallerySection}>
                                 <div style={ps.darazMainImgContainer}>
-                                    <img
+                                    <SmartImg
                                         src={getGalleryImages(selectedDetailMed)[activeDetailImageIndex] || selectedDetailMed.imageUrl}
                                         alt={selectedDetailMed.name}
                                         style={ps.darazMainImg}
+                                        onError={(e) => {
+                                            const gallery = getGalleryImages(selectedDetailMed);
+                                            const nextImg = gallery.find(u => u && !u.startsWith('data:') && e.target.src !== u);
+                                            const fallback = nextImg || 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop';
+                                            if (e.target.src !== fallback) e.target.src = fallback;
+                                        }}
                                     />
                                     <div style={ps.genuineSeal}>
                                         <Sparkles size={12} color="#059669" /> 100% Genuine Medicine
@@ -1758,7 +2051,11 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                                 transform: activeDetailImageIndex === idx ? 'scale(1.05)' : 'scale(1)'
                                             }}
                                         >
-                                            <img src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg} />
+                                            <SmartImg src={url} alt={`Angle ${idx + 1}`} style={ps.darazThumbImg}
+                                                onError={(e) => {
+                                                    if (!e.target.src.includes('unsplash')) e.target.src = 'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=60&auto=format&fit=crop';
+                                                }}
+                                            />
                                         </button>
                                     ))}
                                 </div>
@@ -1783,27 +2080,73 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                                     </p>
                                 </div>
 
-                                {/* Price & Pill Spec Card */}
-                                <div style={ps.darazPriceBox}>
-                                    <div style={ps.darazPriceItem}>
-                                        <span style={ps.darazPriceLabel}>UNIT PRICE (PER PILL):</span>
-                                        <span style={ps.darazPriceValue}>Rs. {selectedDetailMed.price?.toFixed(2)}</span>
-                                    </div>
-                                    <div style={ps.darazPriceItem}>
-                                        <span style={ps.darazPriceLabel}>ONE CARD PRICE:</span>
-                                        <span style={ps.darazCardPriceValue}>Rs. {(selectedDetailMed.cardPrice || selectedDetailMed.price * (selectedDetailMed.pillsPerCard || 10))?.toFixed(2)}</span>
-                                    </div>
-                                    <div style={ps.darazPriceItem}>
-                                        <span style={ps.darazPriceLabel}>PILLS IN ONE CARD:</span>
-                                        <span style={ps.darazPillsPill}>{selectedDetailMed.pillsPerCard || 10} pills in one card</span>
-                                    </div>
-                                    <div style={{ fontSize: '12px', color: selectedDetailMed.stockQuantity > 0 ? '#059669' : '#DC2626', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        {selectedDetailMed.stockQuantity > 0
-                                            ? <><CheckCircle2 size={14} /> In Stock • Express Dispatch Ready</>
-                                            : <><AlertCircle size={14} /> Out of Stock — Currently Unavailable</>
-                                        }
-                                    </div>
-                                </div>
+                                {/* Price & Spec Card — Dynamic Selling Unit */}
+                                {(() => {
+                                    const detailConfig = getDisplayConfig(selectedDetailMed);
+                                    const sUnit = (selectedDetailMed.sellingUnit || selectedDetailMed.SellingUnit || 'PILLS').toUpperCase();
+
+                                    let unitLabel = `UNIT PRICE (PER ${sUnit === 'PILLS' ? 'PILL' : sUnit}):`;
+                                    let packPriceLabel = 'ONE CARD PRICE:';
+                                    let packQtyLabel = 'PILLS IN ONE CARD:';
+                                    let packQtyText = `${selectedDetailMed.pillsPerCard || 10} pills in one card`;
+
+                                    if (sUnit === 'SACHET') {
+                                        packPriceLabel = 'ONE BOX PRICE:';
+                                        packQtyLabel = 'SACHETS IN ONE BOX:';
+                                        packQtyText = `${selectedDetailMed.sachetsPerBox || 10} sachets in one box`;
+                                    } else if (sUnit === 'VIAL') {
+                                        packPriceLabel = 'ONE BOX PRICE:';
+                                        packQtyLabel = 'VIALS IN ONE BOX:';
+                                        packQtyText = `${selectedDetailMed.vialsPerBox || 5} vials in one box`;
+                                    } else if (sUnit === 'BOTTLE') {
+                                        packPriceLabel = 'BOTTLE SIZE:';
+                                        packQtyLabel = 'VOLUME:';
+                                        packQtyText = `${selectedDetailMed.bottleSize || 100} ml bottle`;
+                                    } else if (sUnit === 'TUBE') {
+                                        packPriceLabel = 'TUBE WEIGHT:';
+                                        packQtyLabel = 'NET WEIGHT:';
+                                        packQtyText = `${selectedDetailMed.tubeWeight || 20} g tube`;
+                                    } else if (sUnit === 'INHALER') {
+                                        packPriceLabel = 'INHALER SPEC:';
+                                        packQtyLabel = 'PUFFS PER INHALER:';
+                                        packQtyText = `${selectedDetailMed.puffsPerInhaler || 200} puffs`;
+                                    }
+
+                                    const uPrice = detailConfig.unitPrice || selectedDetailMed.price || 0;
+                                    const pPrice = detailConfig.packPrice || selectedDetailMed.cardPrice || (uPrice * (selectedDetailMed.pillsPerCard || 10));
+
+                                    return (
+                                        <div style={ps.darazPriceBox}>
+                                            <div style={ps.darazPriceItem}>
+                                                <span style={ps.darazPriceLabel}>{unitLabel}</span>
+                                                <span style={ps.darazPriceValue}>Rs. {uPrice.toFixed(2)}</span>
+                                            </div>
+                                            {sUnit === 'BOTTLE' || sUnit === 'TUBE' || sUnit === 'INHALER' ? (
+                                                <div style={ps.darazPriceItem}>
+                                                    <span style={ps.darazPriceLabel}>{packQtyLabel}</span>
+                                                    <span style={ps.darazPillsPill}>{packQtyText}</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div style={ps.darazPriceItem}>
+                                                        <span style={ps.darazPriceLabel}>{packPriceLabel}</span>
+                                                        <span style={ps.darazCardPriceValue}>Rs. {pPrice.toFixed(2)}</span>
+                                                    </div>
+                                                    <div style={ps.darazPriceItem}>
+                                                        <span style={ps.darazPriceLabel}>{packQtyLabel}</span>
+                                                        <span style={ps.darazPillsPill}>{packQtyText}</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                            <div style={{ fontSize: '12px', color: selectedDetailMed.stockQuantity > 0 ? '#059669' : '#DC2626', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                {selectedDetailMed.stockQuantity > 0
+                                                    ? <><CheckCircle2 size={14} /> In Stock • Express Dispatch Ready</>
+                                                    : <><AlertCircle size={14} /> Out of Stock — Currently Unavailable</>
+                                                }
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
 
                                 {/* Storage Requirement — Visual Chips */}
                                 <div style={{ marginBottom: '16px' }}>
@@ -1937,6 +2280,14 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                     </div>
                 </div>
             )}
+
+            {/* Wellness AI Chat Assistant Modal */}
+            <WellnessChatModal
+                isOpen={wellnessChatOpen}
+                onClose={() => setWellnessChatOpen(false)}
+                user={user}
+                onAddToCart={addToCart}
+            />
         </div>
     );
 };

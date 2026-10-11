@@ -2,17 +2,123 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../services/emr_api_service.dart';
+import '../../services/auth_service.dart';
+import '../../services/doctor_api_service.dart';
+import '../../services/lab_api_service.dart';
+import '../../services/pharmacy_service.dart';
+import '../../main.dart';
+import '../../my_pharmacy_orders_page.dart';
+import '../doctor/my_appointments_screen.dart';
 import 'customer_health_passport_dialog.dart';
 import '../../widgets/health_bridge_footer.dart';
 import 'ai_clinical_advisor_screen.dart';
 
-class CustomerOverviewScreen extends StatelessWidget {
+class CustomerOverviewScreen extends StatefulWidget {
   final Function(int targetIndex) onNavigateTab;
 
   const CustomerOverviewScreen({
     super.key,
     required this.onNavigateTab,
   });
+
+  @override
+  State<CustomerOverviewScreen> createState() => _CustomerOverviewScreenState();
+}
+
+class _CustomerOverviewScreenState extends State<CustomerOverviewScreen> {
+  int _activePrescriptionsCount = 0;
+  int _labTestsCount = 0;
+  int _pendingOrdersCount = 0;
+  int _appointmentsCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final user = await AuthService.getUser();
+      final userEmail = (user?.email ?? AppSession.loggedInUserEmail ?? AuthState.email ?? '').trim();
+      final patientId = user != null ? int.tryParse(user.userId) : null;
+      final patientCode = user?.patientCode ?? EmrApiService.activePatientCode;
+
+      int rxCount = 0;
+      int labCount = 0;
+      int ordersCount = 0;
+      int aptCount = 0;
+
+      // 1. Fetch Orders (Pending orders & Prescription orders)
+      try {
+        final orders = await PharmacyService.getPatientOrders(userEmail);
+        ordersCount = orders.where((o) =>
+          o.status.toLowerCase() != 'delivered' &&
+          o.status.toLowerCase() != 'cancelled' &&
+          o.status.toLowerCase() != 'rejected'
+        ).length;
+
+        final rxOrders = orders.where((o) =>
+          (o.prescriptionImageUrl != null && o.prescriptionImageUrl!.isNotEmpty) &&
+          o.status.toLowerCase() != 'cancelled' &&
+          o.status.toLowerCase() != 'rejected'
+        ).length;
+        rxCount = rxOrders;
+      } catch (e) {
+        debugPrint('Error fetching pharmacy orders for stats: $e');
+      }
+
+      // 2. Fetch EMR Clinical Summary for Active Prescriptions
+      try {
+        final summary = await EmrApiService.getClinicalSummary(patientCode);
+        if (summary.activePrescriptionsCount > 0) {
+          rxCount = max(rxCount, summary.activePrescriptionsCount);
+        }
+      } catch (e) {
+        debugPrint('Error fetching EMR summary for stats: $e');
+      }
+
+      // 3. Fetch Lab Bookings
+      try {
+        final labBookings = await LabApiService.getMyBookings(
+          patientId?.toString() ?? '1',
+          email: userEmail,
+        );
+        labCount = labBookings.where((b) =>
+          b.status.toLowerCase() != 'cancelled' &&
+          b.status.toLowerCase() != 'rejected'
+        ).length;
+      } catch (e) {
+        debugPrint('Error fetching lab bookings for stats: $e');
+      }
+
+      // 4. Fetch Doctor Appointments
+      try {
+        final appointments = await DoctorApiService.getMyAppointments(
+          patientId: patientId,
+          email: userEmail,
+        );
+        aptCount = appointments.where((a) =>
+          a.status.toLowerCase() != 'cancelled' &&
+          a.status.toLowerCase() != 'completed' &&
+          a.status.toLowerCase() != 'rejected'
+        ).length;
+      } catch (e) {
+        debugPrint('Error fetching appointments for stats: $e');
+      }
+
+      if (mounted) {
+        setState(() {
+          _activePrescriptionsCount = rxCount;
+          _labTestsCount = labCount;
+          _pendingOrdersCount = ordersCount;
+          _appointmentsCount = aptCount;
+        });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +129,7 @@ class CustomerOverviewScreen extends StatelessWidget {
       body: RefreshIndicator(
         color: const Color(0xFF0D9488),
         onRefresh: () async {
-          await Future.delayed(const Duration(milliseconds: 600));
+          await _loadStats();
         },
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -210,7 +316,7 @@ class CustomerOverviewScreen extends StatelessWidget {
                         Row(
                           children: [
                             ElevatedButton.icon(
-                              onPressed: () => onNavigateTab(4),
+                              onPressed: () => widget.onNavigateTab(4),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF0D9488),
                                 foregroundColor: Colors.white,
@@ -260,27 +366,37 @@ class CustomerOverviewScreen extends StatelessWidget {
               children: [
                 _buildStatCard(
                   icon: Icons.medication_outlined,
-                  count: '2',
+                  count: '$_activePrescriptionsCount',
                   label: 'Active Prescriptions',
                   iconColor: const Color(0xFFA78BFA),
+                  onTap: () => widget.onNavigateTab(3),
                 ),
                 _buildStatCard(
                   icon: Icons.science_outlined,
-                  count: '1',
+                  count: '$_labTestsCount',
                   label: 'Lab Tests Booked',
                   iconColor: const Color(0xFFFBBF24),
+                  onTap: () => widget.onNavigateTab(2),
                 ),
                 _buildStatCard(
                   icon: Icons.assignment_outlined,
-                  count: '1',
+                  count: '$_pendingOrdersCount',
                   label: 'Pending Orders',
                   iconColor: const Color(0xFF34D399),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyPharmacyOrdersPage()),
+                  ).then((_) => _loadStats()),
                 ),
                 _buildStatCard(
                   icon: Icons.calendar_today_outlined,
-                  count: '0',
+                  count: '$_appointmentsCount',
                   label: 'Appointments',
                   iconColor: const Color(0xFF60A5FA),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MyAppointmentsScreen()),
+                  ).then((_) => _loadStats()),
                 ),
               ],
             ),
@@ -310,7 +426,7 @@ class CustomerOverviewScreen extends StatelessWidget {
               title: 'Doctor Appointments',
               description: 'Consult top-rated specialists with real-time slot booking.',
               assetImage: 'assets/images/doctor.jpg',
-              onTap: () => onNavigateTab(4),
+              onTap: () => widget.onNavigateTab(4),
             ),
             const SizedBox(height: 14),
 
@@ -318,7 +434,7 @@ class CustomerOverviewScreen extends StatelessWidget {
               title: 'Prescriptions & Pharmacy',
               description: 'Order medicines, upload prescriptions, fast home delivery.',
               assetImage: 'assets/images/medi.jpg',
-              onTap: () => onNavigateTab(3),
+              onTap: () => widget.onNavigateTab(3),
             ),
             const SizedBox(height: 14),
 
@@ -326,7 +442,7 @@ class CustomerOverviewScreen extends StatelessWidget {
               title: 'Medical Records',
               description: 'Complete medical history, doctor notes & prescriptions.',
               assetImage: 'assets/images/re.avif',
-              onTap: () => onNavigateTab(1),
+              onTap: () => widget.onNavigateTab(1),
             ),
             const SizedBox(height: 14),
 
@@ -334,7 +450,7 @@ class CustomerOverviewScreen extends StatelessWidget {
               title: 'Lab Tests & Reports',
               description: 'Book pathology tests and download certified lab reports.',
               assetImage: 'assets/images/test.jpeg',
-              onTap: () => onNavigateTab(2),
+              onTap: () => widget.onNavigateTab(2),
             ),
 
             const SizedBox(height: 28),
@@ -523,60 +639,68 @@ class CustomerOverviewScreen extends StatelessWidget {
     required String count,
     required String label,
     required Color iconColor,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF1E293B)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF1E293B)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 20, color: iconColor),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  count,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                  ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Icon(icon, size: 20, color: iconColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      count,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

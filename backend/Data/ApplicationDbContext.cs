@@ -19,6 +19,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<PrescriptionSubmission> PrescriptionSubmissions => Set<PrescriptionSubmission>();
     public DbSet<PharmacyOrder> PharmacyOrders => Set<PharmacyOrder>();
     public DbSet<PharmacyOrderItem> PharmacyOrderItems => Set<PharmacyOrderItem>();
+    public DbSet<HealthBridge.Api.Models.Pharmacy.SymptomAdviceHistory> SymptomAdviceHistory => Set<HealthBridge.Api.Models.Pharmacy.SymptomAdviceHistory>();
     public DbSet<LabTest> LabTests => Set<LabTest>();
     public DbSet<LabBooking> LabBookings => Set<LabBooking>();
     public DbSet<LabTimeSlot> LabTimeSlots => Set<LabTimeSlot>();

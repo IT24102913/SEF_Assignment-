@@ -30,6 +30,8 @@ public class UpdateMedicineRequest
 
     public string? ImageUrl { get; set; }
 
+    public bool ClearImage { get; set; } = false;
+
     public string? BrandName { get; set; }
 
     public string? StorageCondition { get; set; }

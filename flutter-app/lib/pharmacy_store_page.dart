@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -102,6 +103,14 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   List<CategoryModel> _categories = [];
   bool _isLoading = true;
 
+  int? _pendingHighlightMedicineId;
+  int? _highlightedMedicineId;
+  final ScrollController _gridScrollController = ScrollController();
+
+  static List<MedicineModel>? _cachedMedicines;
+  static List<CategoryModel>? _cachedCategories;
+  static DateTime? _cacheTime;
+
   String _searchQuery = '';
   String _selectedCategoryName = 'ALL';
 
@@ -119,14 +128,109 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   void initState() {
     super.initState();
     _loadPharmacyData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map && args['medicineId'] != null) {
+        _pendingHighlightMedicineId = args['medicineId'] as int;
+        _highlightMedicine(_pendingHighlightMedicineId!);
+      }
+    });
+  }
+
+  void _highlightMedicine(int medicineId) {
+    if (_allMedicines.isEmpty) return;
+    final index = _allMedicines
+        .indexWhere((m) => m.id == medicineId);
+    if (index == -1) return;
+
+    _pendingHighlightMedicineId = null;
+
+    setState(() {
+      _highlightedMedicineId = medicineId;
+    });
+
+    // Scroll to the target product
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (!mounted || !_gridScrollController.hasClients) return;
+      final filteredIndex = _filteredMedicines
+          .indexWhere((m) => m.id == medicineId);
+      if (filteredIndex < 0) return;
+      // Approximate: each grid row ~ 340px height
+      const rowHeight = 340.0;
+      final rowIndex = filteredIndex ~/ 2; // 2 columns
+      final targetOffset = 500.0 + (rowIndex * rowHeight);
+      _gridScrollController.animateTo(
+        targetOffset.clamp(
+          0.0,
+          _gridScrollController.position.maxScrollExtent,
+        ),
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle,
+                color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Found: ${_allMedicines[index].name}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+        backgroundColor: const Color(0xFF00897B),
+      ),
+    );
+
+    // Auto-clear after 4 seconds
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted && _highlightedMedicineId == medicineId) {
+        setState(() {
+          _highlightedMedicineId = null;
+        });
+      }
+    });
   }
 
   Future<void> _loadPharmacyData() async {
+    // ─── Try cache first ───
+    if (_cachedMedicines != null &&
+        _cachedCategories != null &&
+        _cacheTime != null &&
+        DateTime.now().difference(_cacheTime!).inMinutes < 5) {
+      setState(() {
+        _allMedicines = _cachedMedicines!;
+        _categories = _cachedCategories!;
+        _isLoading = false;
+        _applyFilters();
+      });
+
+      if (_pendingHighlightMedicineId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pendingHighlightMedicineId != null) {
+            _highlightMedicine(_pendingHighlightMedicineId!);
+          }
+        });
+      }
+      return;
+    }
+
+    // ─── Cache miss → fetch from API ───
     setState(() => _isLoading = true);
     final medicines = await PharmacyService.getMedicines();
     final categories = await PharmacyService.getCategories();
-    final userEmail = AuthState.email ?? AppSession.loggedInUserEmail ?? '';
-    final blocked = await PharmacyService.isUserBlocked(userEmail);
+    final userEmail =
+        AuthState.email ?? AppSession.loggedInUserEmail ?? '';
+    final blocked =
+        await PharmacyService.isUserBlocked(userEmail);
 
     if (mounted) {
       setState(() {
@@ -136,6 +240,20 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
         _applyFilters();
         _isLoading = false;
       });
+
+      // Save to cache
+      _cachedMedicines = medicines;
+      _cachedCategories = categories;
+      _cacheTime = DateTime.now();
+
+      // Trigger pending highlight if any
+      if (_pendingHighlightMedicineId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pendingHighlightMedicineId != null) {
+            _highlightMedicine(_pendingHighlightMedicineId!);
+          }
+        });
+      }
     }
   }
 
@@ -709,86 +827,222 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   void _showOrderSuccessDialog(Map<String, dynamic> orderData) {
+    final isPickupOrCounter = (orderData['deliveryMethod'] == 'Pickup' ||
+        orderData['paymentMethod'] == 'PayAtCounter' ||
+        orderData['deliveryAddress'] == 'Pickup' ||
+        orderData['paymentMethod'] == 'Pay at Counter');
+
+    final qrDataStr = 'PHARMACY_ORDER|${orderData['orderNumber'] ?? orderData['id'] ?? 'SUBMITTED'}|${orderData['customerName'] ?? 'Patient'}|${orderData['totalAmount'] ?? 0}';
+    final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${Uri.encodeComponent(qrDataStr)}';
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        contentPadding: const EdgeInsets.all(24),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: const BoxDecoration(
-                color: Color(0xFFECFDF5),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check_circle, color: Color(0xFF059669), size: 36),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD1FAE5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                'ORDER #${orderData['orderNumber'] ?? 'SUBMITTED'}',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Prescription Order Submitted!',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Your doctor prescription photo & details have been sent to our registered pharmacists for verification.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.4),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('📋 Next Steps for your Order:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
-                  SizedBox(height: 6),
-                  Text('1. Licensed pharmacist reviews your prescription receipt.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                  SizedBox(height: 4),
-                  Text('2. Pharmacist calculates total cost for medicines & delivery.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                  SizedBox(height: 4),
-                  Text('3. Quote will be posted under My Orders tab.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                  SizedBox(height: 4),
-                  Text('4. You can review the price and click Confirm & Pay.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF059669),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFECFDF5),
+                  shape: BoxShape.circle,
                 ),
-                child: const Text('BACK TO STORE', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Icon(Icons.check_circle, color: Color(0xFF059669), size: 36),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD1FAE5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  'ORDER #${orderData['orderNumber'] ?? 'SUBMITTED'}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isPickupOrCounter
+                    ? 'Counter Pickup QR Pass Generated!'
+                    : 'Prescription Order Submitted!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isPickupOrCounter
+                    ? 'Your order has been placed for Counter Pickup. Present the QR ticket pass below at the hospital pharmacy counter.'
+                    : 'Your doctor prescription photo & details have been sent to our registered pharmacists for verification.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF475569), height: 1.4),
+              ),
+              const SizedBox(height: 16),
+
+              if (isPickupOrCounter) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF059669), width: 1.5),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.qr_code_2, size: 14, color: Color(0xFF047857)),
+                            SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                'HOSPITAL COUNTER QR PASS',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF047857)),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Image.network(
+                          qrUrl,
+                          width: 150,
+                          height: 150,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return const SizedBox(
+                              width: 150,
+                              height: 150,
+                              child: Center(child: CircularProgressIndicator(color: Color(0xFF059669))),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) => const SizedBox(
+                            width: 150,
+                            height: 150,
+                            child: Icon(Icons.qr_code, size: 80, color: Color(0xFF059669)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Ticket #${orderData['orderNumber'] ?? 'ORD-PICKUP'}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Show this QR Pass at the hospital counter for fast collection.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          final uri = Uri.parse(qrUrl);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('📥 Opening QR Code image pass to save to device!'),
+                                backgroundColor: Color(0xFF059669),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.download, size: 16),
+                        label: const Text('Save / Download QR Code', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF059669),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: isPickupOrCounter
+                      ? const [
+                          Text('📋 Pickup Instructions:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
+                          SizedBox(height: 6),
+                          Text('1. Visit HealthBridge Main Hospital Pharmacy Counter.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('2. Show this QR Ticket Pass or Order Number to staff.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('3. Pay at counter & receive your medicine package.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                        ]
+                      : const [
+                          Text('📋 Next Steps for your Order:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0F172A))),
+                          SizedBox(height: 6),
+                          Text('1. Licensed pharmacist reviews your prescription receipt.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('2. Pharmacist calculates total cost for medicines & delivery.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('3. Quote will be posted under My Orders tab.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                          SizedBox(height: 4),
+                          Text('4. You can review the price and click Confirm & Pay.', style: TextStyle(fontSize: 11, color: Color(0xFF334155))),
+                        ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF059669),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('BACK TO STORE', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -805,6 +1059,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
               onRefresh: _loadPharmacyData,
               color: const Color(0xFF059669),
               child: CustomScrollView(
+                controller: _gridScrollController,
                 slivers: [
                   // App Bar / Top Navigation
                   SliverToBoxAdapter(
@@ -1100,6 +1355,124 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                         ),
                       ),
                     ),
+                  // ─────────────────────────────────────────────
+                  // Wellness AI Assistant Banner
+                  // ─────────────────────────────────────────────
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pushNamed(context, '/pharmacy-wellness');
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFFEFF6FF), Color(0xFFDBEAFE)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.auto_awesome,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Flexible(
+                                          child: Text(
+                                            'Wellness Assistant',
+                                            style: TextStyle(
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF1E40AF),
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF2563EB),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'AI',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                              letterSpacing: 0.3,
+                                            ),
+                                            maxLines: 1,
+                                            softWrap: false,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 3),
+                                    const Text(
+                                      'Describe your symptoms — get home remedies, medicines & warnings.',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF1E40AF),
+                                        height: 1.35,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2563EB),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.arrow_forward_ios,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // ─────────────────────────────────────────────
+                  // End Wellness AI Assistant Banner
+                  // ─────────────────────────────────────────────
 
                   // Search Bar
                   SliverToBoxAdapter(
@@ -1222,14 +1595,41 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                                 delegate: SliverChildBuilderDelegate(
                                   (context, index) {
                                     final med = _filteredMedicines[index];
-                                    return Opacity(
-                                      opacity: _isBlocked ? 0.45 : 1.0,
-                                      child: AbsorbPointer(
-                                        absorbing: _isBlocked,
-                                        child: ProductCard(
-                                          medicine: med,
-                                          onAddToCart: (unit) => _addToCart(med, defaultUnitType: unit),
-                                          onOpenDetail: () => _openMedicineDetailModal(med),
+                                    final isHighlighted = _highlightedMedicineId == med.id;
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 350),
+                                      curve: Curves.easeInOut,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: isHighlighted
+                                            ? Border.all(
+                                                color: const Color(0xFFFFC107),
+                                                width: 3.0,
+                                              )
+                                            : Border.all(
+                                                color: Colors.transparent,
+                                                width: 3.0,
+                                              ),
+                                        boxShadow: isHighlighted
+                                            ? [
+                                                BoxShadow(
+                                                  color: const Color(0xFFFFC107).withOpacity(0.45),
+                                                  blurRadius: 16,
+                                                  spreadRadius: 3,
+                                                ),
+                                              ]
+                                            : null,
+                                      ),
+                                      child: Opacity(
+                                        opacity: _isBlocked ? 0.45 : 1.0,
+                                        child: AbsorbPointer(
+                                          absorbing: _isBlocked,
+                                          child: ProductCard(
+                                            medicine: med,
+                                            onAddToCart: (unit) =>
+                                                _addToCart(med, defaultUnitType: unit),
+                                            onOpenDetail: () => _openMedicineDetailModal(med),
+                                          ),
                                         ),
                                       ),
                                     );
@@ -1610,15 +2010,12 @@ class ProductCard extends StatelessWidget {
                   opacity: isOutOfStock ? 0.6 : 1.0,
                   child: ClipRRect(
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                    child: medicine.imageUrl != null && medicine.imageUrl!.startsWith('http')
-                        ? Image.network(
-                            medicine.imageUrl!,
-                            height: 120,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _buildImagePlaceholder(),
-                          )
-                        : _buildImagePlaceholder(),
+                    child: _buildSmartImage(
+                      medicine.galleryImages.isNotEmpty
+                          ? medicine.galleryImages.first
+                          : '',
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 // Out-of-stock overlay badge
@@ -1677,23 +2074,21 @@ class ProductCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Brand / Category Tag
                     Text(
                       medicine.categoryName.toUpperCase(),
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      medicine.name,
+                      style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFF64748B), letterSpacing: 0.5),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                     ),
                     const SizedBox(height: 2),
+
+                    // Title
                     Text(
-                      medicine.description,
+                      medicine.name,
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), height: 1.2),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                     ),
                     const Spacer(),
 
@@ -1791,6 +2186,41 @@ class ProductCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSmartImage(String rawUrl, {BoxFit fit = BoxFit.cover, double height = 120, double width = double.infinity}) {
+    final cleanUrl = MedicineModel.resolveImageUrl(rawUrl).trim();
+    if (cleanUrl.isEmpty) {
+      return _buildImagePlaceholder();
+    }
+    if (cleanUrl.startsWith('data:image/') && cleanUrl.contains(';base64,')) {
+      try {
+        final base64Str = cleanUrl.split(';base64,').last;
+        final bytes = base64Decode(base64Str);
+        return Image.memory(
+          bytes,
+          height: height,
+          width: width,
+          fit: fit,
+          errorBuilder: (c, e, s) => _buildImagePlaceholder(),
+        );
+      } catch (_) {
+        return _buildImagePlaceholder();
+      }
+    }
+    return Image.network(
+      cleanUrl,
+      height: height,
+      width: width,
+      fit: fit,
+      errorBuilder: (c, e, s) => Image.network(
+        'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop',
+        height: height,
+        width: width,
+        fit: fit,
+        errorBuilder: (c2, e2, s2) => _buildImagePlaceholder(),
       ),
     );
   }
@@ -2411,6 +2841,35 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
     }).toList();
   }
 
+  Widget _buildSmartImage(String rawUrl, {BoxFit fit = BoxFit.cover}) {
+    final cleanUrl = MedicineModel.resolveImageUrl(rawUrl).trim();
+    if (cleanUrl.isEmpty) {
+      return const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8)));
+    }
+    if (cleanUrl.startsWith('data:image/') && cleanUrl.contains(';base64,')) {
+      try {
+        final base64Str = cleanUrl.split(';base64,').last;
+        final bytes = base64Decode(base64Str);
+        return Image.memory(
+          bytes,
+          fit: fit,
+          errorBuilder: (c, e, s) => const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8))),
+        );
+      } catch (_) {
+        return const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8)));
+      }
+    }
+    return Image.network(
+      cleanUrl,
+      fit: fit,
+      errorBuilder: (c, e, s) => Image.network(
+        'https://images.unsplash.com/photo-1585435557343-3b092031a831?w=500&auto=format&fit=crop',
+        fit: fit,
+        errorBuilder: (c2, e2, s2) => const Center(child: Icon(Icons.medication_liquid, size: 40, color: Color(0xFF94A3B8))),
+      ),
+    );
+  }
+
   Future<void> _launchGoogleSearch(String query) async {
     final searchUrl = Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query + " medicine dosage brand details")}');
     if (await canLaunchUrl(searchUrl)) {
@@ -2485,11 +2944,11 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Main Image View with 100% Genuine Medicine Badge
+                  // Main Image View with Genuine Medicine Seal
                   Stack(
                     children: [
                       Container(
-                        height: 220,
+                        height: 260,
                         width: double.infinity,
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFC),
@@ -2498,17 +2957,7 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
-                          child: activeImg.startsWith('http')
-                              ? Image.network(
-                                  activeImg,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (c, e, s) => const Center(
-                                    child: Icon(Icons.medication_liquid, size: 64, color: Color(0xFF94A3B8)),
-                                  ),
-                                )
-                              : const Center(
-                                  child: Icon(Icons.medication_liquid, size: 64, color: Color(0xFF94A3B8)),
-                                ),
+                          child: _buildSmartImage(activeImg, fit: BoxFit.contain),
                         ),
                       ),
                       Positioned(
@@ -2564,11 +3013,7 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  imgUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (c, e, s) => const Icon(Icons.image, color: Colors.grey),
-                                ),
+                                child: _buildSmartImage(imgUrl, fit: BoxFit.cover),
                               ),
                             ),
                           );
@@ -2634,66 +3079,98 @@ class _MedicineDetailBottomSheetState extends State<MedicineDetailBottomSheet> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                    child: Builder(
+                      builder: (context) {
+                        final sUnit = (med.sellingUnit).toUpperCase();
+                        String unitLabel = 'UNIT PRICE (PER ${sUnit == 'PILLS' ? 'PILL' : sUnit}): ';
+                        String packPriceLabel = 'ONE CARD PRICE: ';
+                        String packQtyText = 'PILLS IN ONE CARD: ${med.pillsPerCard} pills in one card';
+
+                        if (sUnit == 'SACHET') {
+                          packPriceLabel = 'ONE BOX PRICE: ';
+                          packQtyText = 'SACHETS IN ONE BOX: ${med.sachetsPerBox ?? 10} sachets in one box';
+                        } else if (sUnit == 'VIAL') {
+                          packPriceLabel = 'ONE BOX PRICE: ';
+                          packQtyText = 'VIALS IN ONE BOX: ${med.vialsPerBox ?? 5} vials in one box';
+                        } else if (sUnit == 'BOTTLE') {
+                          packPriceLabel = 'BOTTLE SIZE: ';
+                          packQtyText = 'VOLUME: ${med.bottleSize ?? 100} ml bottle';
+                        } else if (sUnit == 'TUBE') {
+                          packPriceLabel = 'TUBE WEIGHT: ';
+                          packQtyText = 'NET WEIGHT: ${med.tubeWeight ?? 20} g tube';
+                        } else if (sUnit == 'INHALER') {
+                          packPriceLabel = 'INHALER SPEC: ';
+                          packQtyText = 'PUFFS PER INHALER: ${med.puffsPerInhaler ?? 200} puffs';
+                        }
+
+                        final double pPrice = (sUnit == 'SACHET' || sUnit == 'VIAL')
+                            ? (med.boxPrice ?? med.cardPrice)
+                            : med.cardPrice;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('UNIT PRICE (PER PILL): ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                            Text(
-                              'Rs. ${med.price.toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                            Row(
+                              children: [
+                                Text(unitLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                                Text(
+                                  'Rs. ${med.price.toStringAsFixed(2)}',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Text('ONE CARD PRICE: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
-                            Text(
-                              'Rs. ${med.cardPrice.toStringAsFixed(2)}',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF1F5F9),
-                                borderRadius: BorderRadius.circular(8),
+                            if (sUnit != 'BOTTLE' && sUnit != 'TUBE' && sUnit != 'INHALER') ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Text(packPriceLabel, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF64748B))),
+                                  Text(
+                                    'Rs. ${pPrice.toStringAsFixed(2)}',
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                  ),
+                                ],
                               ),
-                              child: Text(
-                                'PILLS IN ONE CARD: ${med.pillsPerCard} pills in one card',
-                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    packQtyText,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Icon(
+                                  med.stockQuantity > 0 ? Icons.check_circle : Icons.cancel,
+                                  color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  med.stockQuantity > 0
+                                      ? 'In Stock \u2022 Express Dispatch Ready'
+                                      : 'Out of Stock \u2014 Currently Unavailable',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Icon(
-                              med.stockQuantity > 0 ? Icons.check_circle : Icons.cancel,
-                              color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                              size: 16,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              med.stockQuantity > 0
-                                  ? 'In Stock \u2022 Express Dispatch Ready'
-                                  : 'Out of Stock \u2014 Currently Unavailable',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: med.stockQuantity > 0 ? const Color(0xFF059669) : const Color(0xFFDC2626),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
 

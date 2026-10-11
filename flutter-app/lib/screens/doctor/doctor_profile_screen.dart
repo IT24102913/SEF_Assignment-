@@ -60,7 +60,7 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
           _sessions = upcomingSessions;
           _loadingSessions = false;
           if (upcomingSessions.isNotEmpty) {
-            final dates = upcomingSessions.map((s) => s.sessionDate).toSet().toList();
+            final dates = _uniqueDates;
             if (dates.isNotEmpty) {
               _selectedDate = dates.first;
               final firstDateSessions = _getFilteredSessionsForDate(_selectedDate);
@@ -79,19 +79,114 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
     }
   }
 
-  List<String> get _uniqueDates => _sessions.where((s) => !_isSessionExpired(s)).map((s) => s.sessionDate).toSet().toList();
+  List<int> _parseAllowedDays(String? daysStr) {
+    if (daysStr == null || daysStr.trim().isEmpty) {
+      return [DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday];
+    }
+    final s = daysStr.toLowerCase();
+    final days = <int>{};
+    if (s.contains('mon - fri') || s.contains('mon-fri') || s.contains('weekdays')) {
+      days.addAll([DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday]);
+    }
+    if (s.contains('all') || s.contains('daily') || s.contains('everyday')) {
+      days.addAll([DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday, DateTime.saturday, DateTime.sunday]);
+    }
+    if (s.contains('weekend')) {
+      days.addAll([DateTime.saturday, DateTime.sunday]);
+    }
+    if (s.contains('mon')) days.add(DateTime.monday);
+    if (s.contains('tue')) days.add(DateTime.tuesday);
+    if (s.contains('wed')) days.add(DateTime.wednesday);
+    if (s.contains('thu')) days.add(DateTime.thursday);
+    if (s.contains('fri')) days.add(DateTime.friday);
+    if (s.contains('sat')) days.add(DateTime.saturday);
+    if (s.contains('sun')) days.add(DateTime.sunday);
+    return days.isNotEmpty ? days.toList() : [DateTime.monday, DateTime.wednesday, DateTime.friday];
+  }
 
-  /// Specialty-correct visibility: Night option (19:30–21:30) is restricted to General Medicine
+  List<String> _parseAllowedSessionTypes(String? timeStr, bool isGenMed) {
+    if (timeStr == null || timeStr.trim().isEmpty) {
+      return isGenMed ? ['morning', 'evening', 'night'] : ['morning', 'evening'];
+    }
+    final s = timeStr.toLowerCase();
+    final types = <String>{};
+    if (s.contains('morning') || s.contains('am') || s.contains('08:') || s.contains('09:') || s.contains('10:') || s.contains('11:')) {
+      types.add('morning');
+    }
+    if (s.contains('evening') || s.contains('pm') || s.contains('16:') || s.contains('17:') || s.contains('04:') || s.contains('05:') || s.contains('06:') || s.contains('07:')) {
+      types.add('evening');
+    }
+    if ((s.contains('night') || s.contains('20:') || s.contains('21:') || s.contains('22:')) && isGenMed) {
+      types.add('night');
+    }
+    return types.isNotEmpty ? types.toList() : ['morning', 'evening'];
+  }
+
+  List<String> get _uniqueDates {
+    final spec = widget.doctor.specialization.trim().toLowerCase();
+    final isGeneralMedicine = spec == 'general medicine' || spec.contains('physician');
+    final allowedDays = _parseAllowedDays(widget.doctor.availableDays);
+    final allowedTypes = _parseAllowedSessionTypes(widget.doctor.availableTime, isGeneralMedicine);
+
+    final validDates = _sessions
+        .where((s) {
+          if (_isSessionExpired(s)) return false;
+          final type = s.sessionType.toLowerCase();
+          if (type == 'night' && !isGeneralMedicine) return false;
+          if (!allowedTypes.contains(type)) return false;
+          try {
+            final dt = DateTime.parse(s.sessionDate);
+            if (!allowedDays.contains(dt.weekday)) return false;
+          } catch (_) {}
+          return true;
+        })
+        .map((s) => s.sessionDate)
+        .toSet()
+        .toList();
+
+    validDates.sort();
+    return validDates;
+  }
+
+  /// Specialty-correct visibility: Night option is restricted to General Medicine
+  /// Deduplicated: Exactly ONE session per sessionType (Morning, Evening, Night) on each date
   List<DoctorSession> _getFilteredSessionsForDate(String date) {
-    final isGeneralMedicine = widget.doctor.specialization.trim().toLowerCase() == 'general medicine';
-    return _sessions.where((s) {
+    final spec = widget.doctor.specialization.trim().toLowerCase();
+    final isGeneralMedicine = spec == 'general medicine' || spec.contains('physician');
+    final allowedDays = _parseAllowedDays(widget.doctor.availableDays);
+    final allowedTypes = _parseAllowedSessionTypes(widget.doctor.availableTime, isGeneralMedicine);
+
+    try {
+      final dt = DateTime.parse(date);
+      if (!allowedDays.contains(dt.weekday)) return [];
+    } catch (_) {}
+
+    final matching = _sessions.where((s) {
       if (s.sessionDate != date) return false;
       if (_isSessionExpired(s)) return false;
-      if (s.sessionType.toLowerCase() == 'night' && !isGeneralMedicine) {
+      final type = s.sessionType.toLowerCase();
+      if (type == 'night' && !isGeneralMedicine) {
+        return false;
+      }
+      if (!allowedTypes.contains(type)) {
         return false;
       }
       return true;
     }).toList();
+
+    // Deduplicate by sessionType, keeping the session with the highest maxCapacity
+    final Map<String, DoctorSession> deduplicated = {};
+    for (final session in matching) {
+      final key = session.sessionType.toLowerCase();
+      if (!deduplicated.containsKey(key) || session.maxCapacity > deduplicated[key]!.maxCapacity) {
+        deduplicated[key] = session;
+      }
+    }
+
+    final order = {'morning': 1, 'evening': 2, 'night': 3};
+    final list = deduplicated.values.toList();
+    list.sort((a, b) => (order[a.sessionType.toLowerCase()] ?? 99).compareTo(order[b.sessionType.toLowerCase()] ?? 99));
+    return list;
   }
 
   void _onSelectSession(DoctorSession session) {
@@ -594,7 +689,6 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
 
                   final isMorning = session.sessionType.toLowerCase() == 'morning';
                   final isEvening = session.sessionType.toLowerCase() == 'evening';
-                  final iconEmoji = isMorning ? '🌅' : isEvening ? '🌇' : '🌙';
                   final sessionTitle = '${session.sessionType} OPD Session';
                   final timeDisplay = session.timeRange.isNotEmpty ? session.timeRange : session.timeFormatted;
 
@@ -623,7 +717,7 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                       ),
                       child: Row(
                         children: [
-                          // Emoji / Time of Day Indicator
+                          // Time of Day Indicator
                           Container(
                             width: 44,
                             height: 44,
@@ -636,7 +730,19 @@ class _DoctorProfileScreenState extends State<DoctorProfileScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             alignment: Alignment.center,
-                            child: Text(iconEmoji, style: const TextStyle(fontSize: 22)),
+                            child: Icon(
+                              isMorning
+                                  ? Icons.wb_sunny_rounded
+                                  : isEvening
+                                      ? Icons.wb_twilight_rounded
+                                      : Icons.nightlight_round,
+                              color: isMorning
+                                  ? const Color(0xFFD97706)
+                                  : isEvening
+                                      ? const Color(0xFF7C3AED)
+                                      : const Color(0xFF4F46E5),
+                              size: 22,
+                            ),
                           ),
                           const SizedBox(width: 12),
 

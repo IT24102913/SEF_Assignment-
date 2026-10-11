@@ -121,6 +121,7 @@ public class LabBookingsController : ControllerBase
             try
             {
                 await _agentOrchestrator.ProcessBookingWorkflowAsync(_db, booking.Id);
+                await _db.Entry(booking).ReloadAsync();
             }
             catch (Exception ex)
             {
@@ -128,16 +129,30 @@ public class LabBookingsController : ControllerBase
             }
         }
 
-        // Send immediate "booking received" acknowledgement email (background / resilient)
+        // Send immediate email acknowledgement: Confirmed for non-restricted, Received/Upload required for restricted
         try
         {
-            await _emailService.SendBookingReceivedAsync(
-                dto.PatientEmail,
-                dto.PatientName,
-                test.Name,
-                dto.BookingDate,
-                dto.TimeSlot,
-                test.IsRestricted);
+            if (!test.IsRestricted)
+            {
+                await _emailService.SendBookingConfirmationAsync(
+                    dto.PatientEmail,
+                    dto.PatientName,
+                    test.Name,
+                    dto.BookingDate,
+                    dto.TimeSlot,
+                    booking.AssignedChairNo,
+                    booking.QueueToken);
+            }
+            else
+            {
+                await _emailService.SendBookingReceivedAsync(
+                    dto.PatientEmail,
+                    dto.PatientName,
+                    test.Name,
+                    dto.BookingDate,
+                    dto.TimeSlot,
+                    requiresPrescription: true);
+            }
         }
         catch (Exception ex)
         {

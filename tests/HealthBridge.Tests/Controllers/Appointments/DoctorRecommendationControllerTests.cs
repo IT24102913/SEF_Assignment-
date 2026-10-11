@@ -1,0 +1,506 @@
+using HealthBridge.Api.Agents.Appointments;
+using HealthBridge.Api.Controllers.Appointments;
+using HealthBridge.Api.Data;
+using HealthBridge.Api.DTOs.Appointments;
+using HealthBridge.Api.Models;
+using HealthBridge.Api.Models.Appointments;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
+using System.Security.Claims;
+using Xunit;
+
+namespace HealthBridge.Tests.Controllers.Appointments;
+
+public class DoctorRecommendationControllerTests
+{
+    private ApplicationDbContext CreateInMemoryDbContext()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+        var context = new ApplicationDbContext(options);
+
+        // Seed a verified consultant with open session so recommendation pipeline succeeds
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var doc = new Doctor
+        {
+            Id = 501,
+            FullName = "Dr. Test Ortho Consultant",
+            Specialization = "Orthopaedics",
+            Hospital = "Health Bridge Colombo",
+            HospitalBranch = "Colombo",
+            IsAvailable = true,
+            IsVerifiedConsultant = true,
+            Rating = 4.9,
+            ExperienceYears = 15,
+            ConsultationFee = 3500m
+        };
+        context.Doctors.Add(doc);
+
+        var session = new DoctorSession
+        {
+            Id = 601,
+            DoctorId = doc.Id,
+            SessionDate = today.AddDays(1),
+            SessionTime = new TimeOnly(10, 0),
+            MaxCapacity = 15,
+            CurrentBookings = 1,
+            SessionStatus = SessionStatus.Scheduled
+        };
+        context.DoctorSessions.Add(session);
+        context.SaveChanges();
+
+        return context;
+    }
+
+    private DoctorRecommendationController CreateController(
+        ApplicationDbContext context,
+        ClaimsPrincipal? user = null)
+    {
+        var mockConfig = new Mock<IConfiguration>();
+        mockConfig.Setup(c => c["Gemini:ApiKey"]).Returns(string.Empty);
+        var mockHttpFactory = new Mock<IHttpClientFactory>();
+        mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+
+        var reg = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var safety = new ClinicalSafetyAgent(NullLogger<ClinicalSafetyAgent>.Instance);
+        var triage = new ClinicalTriageAgent(mockConfig.Object, NullLogger<ClinicalTriageAgent>.Instance, mockHttpFactory.Object);
+        var slotTool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(slotTool, reg, NullLogger<DoctorSlotAllocationAgent>.Instance);
+        var valAgent = new RecommendationValidationAgent();
+
+        var agent = new DoctorRecommendationAgent(
+            context,
+            safety,
+            triage,
+            slotAgent,
+            valAgent,
+            reg,
+            NullLogger<DoctorRecommendationAgent>.Instance);
+
+        var controller = new DoctorRecommendationController(
+            agent,
+            NullLogger<DoctorRecommendationController>.Instance);
+
+        var httpContext = new DefaultHttpContext();
+        if (user != null)
+        {
+            httpContext.User = user;
+        }
+
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = httpContext
+        };
+
+        return controller;
+    }
+
+    private static ClaimsPrincipal CreateUserPrincipal(int userId, string role, bool isAuthenticated = true)
+    {
+        if (!isAuthenticated)
+        {
+            return new ClaimsPrincipal(new ClaimsIdentity());
+        }
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+            new Claim(ClaimTypes.Role, role)
+        };
+
+        var identity = new ClaimsIdentity(claims, "TestAuth");
+        return new ClaimsPrincipal(identity);
+    }
+
+    // ─── 1. RecommendDoctor Authorization Tests ───────────────────────────────
+
+    [Fact]
+    public async Task RecommendDoctor_WhenAnonymous_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var controller = CreateController(context, user: null);
+        var request = new DoctorRecommendationRequestDto { Symptoms = "persistent knee ache" };
+
+        // Act
+        var result = await controller.RecommendDoctor(request);
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task RecommendDoctor_WhenUserNotInPatientRole_ReturnsForbid()
+    {
+        // Arrange: Doctor or Admin attempting to call patient recommendation endpoint
+        using var context = CreateInMemoryDbContext();
+        var doctorUser = CreateUserPrincipal(userId: 42, role: UserRole.Doctor);
+        var controller = CreateController(context, user: doctorUser);
+        var request = new DoctorRecommendationRequestDto { Symptoms = "persistent knee ache" };
+
+        // Act
+        var result = await controller.RecommendDoctor(request);
+
+        // Assert
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task RecommendDoctor_WhenPatientRole_ReturnsOkWithRecommendation()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var patientUser = CreateUserPrincipal(userId: 7, role: UserRole.Patient);
+        var controller = CreateController(context, user: patientUser);
+        var request = new DoctorRecommendationRequestDto { Symptoms = "persistent knee ache after jogging" };
+
+        // Act
+        var result = await controller.RecommendDoctor(request);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<DoctorRecommendationResponseDto>(okResult.Value);
+        Assert.Equal("RECOMMENDATION_READY", response.Status);
+    }
+
+    // ─── 2. Approve Recommendation Authorization & Ownership Tests ────────────
+
+    [Fact]
+    public async Task ApproveRecommendation_WhenAnonymous_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var controller = CreateController(context, user: null);
+
+        // Act
+        var result = await controller.ApproveRecommendation(Guid.NewGuid(), new ApproveRecommendationRequestDto());
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task ApproveRecommendation_WhenWorkflowNotFound_ReturnsNotFound()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var patientUser = CreateUserPrincipal(userId: 10, role: UserRole.Patient);
+        var controller = CreateController(context, user: patientUser);
+
+        // Act
+        var result = await controller.ApproveRecommendation(Guid.NewGuid(), new ApproveRecommendationRequestDto());
+
+        // Assert
+        Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task ApproveRecommendation_WhenOtherPatientWorkflow_ReturnsForbid()
+    {
+        // Arrange: Workflow belongs to Patient 10, but Patient 99 tries to approve it
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 10,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var attacker = CreateUserPrincipal(userId: 99, role: UserRole.Patient);
+        var controller = CreateController(context, user: attacker);
+
+        // Act
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+
+        // Assert
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task ApproveRecommendation_WhenOwnerPatient_ReturnsOk()
+    {
+        // Arrange: Workflow belongs to Patient 10, and Patient 10 approves it
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 10,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var owner = CreateUserPrincipal(userId: 10, role: UserRole.Patient);
+        var controller = CreateController(context, user: owner);
+
+        // Act
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<DoctorRecommendationResponseDto>(okResult.Value);
+        Assert.Equal("APPROVED", response.ApprovalStatus);
+    }
+
+    [Fact]
+    public async Task ApproveRecommendation_WhenNotPending_ReturnsConflict()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 10,
+            ApprovalStatus = "APPROVED", // Already approved!
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var owner = CreateUserPrincipal(userId: 10, role: UserRole.Patient);
+        var controller = CreateController(context, user: owner);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(StatusCodes.Status409Conflict, conflict.StatusCode);
+    }
+
+    // ─── 3. Reject Recommendation Authorization & Ownership Tests ────────────
+
+    [Fact]
+    public async Task RejectRecommendation_WhenAnonymous_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var controller = CreateController(context, user: null);
+
+        // Act
+        var result = await controller.RejectRecommendation(Guid.NewGuid(), new RejectRecommendationRequestDto());
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task RejectRecommendation_WhenOtherPatientWorkflow_ReturnsForbid()
+    {
+        // Arrange: Workflow belongs to Patient 15, Patient 88 tries to reject it
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 15,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var attacker = CreateUserPrincipal(userId: 88, role: UserRole.Patient);
+        var controller = CreateController(context, user: attacker);
+
+        // Act
+        var result = await controller.RejectRecommendation(workflowId, new RejectRecommendationRequestDto());
+
+        // Assert
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task RejectRecommendation_WhenOwnerPatient_ReturnsOk()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 15,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var owner = CreateUserPrincipal(userId: 15, role: UserRole.Patient);
+        var controller = CreateController(context, user: owner);
+
+        // Act
+        var result = await controller.RejectRecommendation(workflowId, new RejectRecommendationRequestDto());
+
+        // Assert
+        Assert.IsType<OkObjectResult>(result);
+    }
+
+    // ─── 4. Fail-Closed Ownership Edge-Case Tests (Part A.2) ──────────────────
+
+    [Fact]
+    public async Task ValidateWorkflowAccess_WhenMissingNameIdentifierClaim_ReturnsUnauthorized()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 15,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        // Identity is authenticated, but has NO ClaimTypes.NameIdentifier
+        var identity = new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, UserRole.Patient) }, "TestAuth");
+        var user = new ClaimsPrincipal(identity);
+        var controller = CreateController(context, user);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task ValidateWorkflowAccess_WhenNonNumericNameIdentifierClaim_ReturnsForbid()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 15,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        // NameIdentifier is non-numeric string (e.g. "not-a-number")
+        var identity = new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "invalid-alphanumeric-id"),
+            new Claim(ClaimTypes.Role, UserRole.Patient)
+        }, "TestAuth");
+        var user = new ClaimsPrincipal(identity);
+        var controller = CreateController(context, user);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task ValidateWorkflowAccess_WhenWorkflowPatientIdIsNull_NonAdminReturnsForbid()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = null, // Ownerless workflow
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var patient = CreateUserPrincipal(userId: 10, role: UserRole.Patient);
+        var controller = CreateController(context, user: patient);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task ValidateWorkflowAccess_WhenWorkflowPatientIdIsNull_AdminReturnsOk()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = null, // Ownerless workflow
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var admin = CreateUserPrincipal(userId: 1, role: UserRole.Admin);
+        var controller = CreateController(context, user: admin);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+        Assert.IsType<OkObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task ValidateWorkflowAccess_WhenDoctorTriesToApprovePatientWorkflow_ReturnsForbid()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 15,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        // Even if Doctor's UserId happens to match 15, Doctor role is NOT allowed to approve patient workflow
+        var doctor = CreateUserPrincipal(userId: 15, role: UserRole.Doctor);
+        var controller = CreateController(context, user: doctor);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task ValidateWorkflowAccess_WhenAdminTriesToApprovePatientWorkflowDirectly_ReturnsForbid()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 15,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        // Patient workflow requires Patient approval prior to Phase 4 staff review endpoint deployment
+        var admin = CreateUserPrincipal(userId: 1, role: UserRole.Admin);
+        var controller = CreateController(context, user: admin);
+
+        var result = await controller.ApproveRecommendation(workflowId, new ApproveRecommendationRequestDto());
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task GetRecommendationWorkflow_EnforcesFailClosedOwnership()
+    {
+        using var context = CreateInMemoryDbContext();
+        var workflowId = Guid.NewGuid();
+        context.RecommendationWorkflows.Add(new RecommendationWorkflow
+        {
+            Id = workflowId,
+            PatientId = 25,
+            ApprovalStatus = "PENDING_APPROVAL",
+            FinalStatus = "RECOMMENDATION_READY"
+        });
+        await context.SaveChangesAsync();
+
+        var otherUser = CreateUserPrincipal(userId: 26, role: UserRole.Patient);
+        var controller = CreateController(context, user: otherUser);
+
+        var result = await controller.GetRecommendationWorkflow(workflowId);
+        Assert.IsType<ForbidResult>(result);
+
+        var owner = CreateUserPrincipal(userId: 25, role: UserRole.Patient);
+        var ownerController = CreateController(context, user: owner);
+        var ownerResult = await ownerController.GetRecommendationWorkflow(workflowId);
+        Assert.IsType<OkObjectResult>(ownerResult);
+    }
+}

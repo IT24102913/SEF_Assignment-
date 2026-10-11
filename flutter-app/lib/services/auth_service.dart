@@ -9,6 +9,9 @@ class AuthService {
   static const _keyRole = 'auth_role';
   static const _keyPicture = 'auth_picture';
   static const _keyPatientCode = 'auth_patientCode';
+  static const _keyNic = 'auth_nic';
+  static const _keyPhone = 'auth_phone';
+  static const _keyAddress = 'auth_address';
 
   // In-memory fallback storage if native SharedPreferences channel fails
   static final Map<String, String> _memStorage = {};
@@ -37,6 +40,15 @@ class AuthService {
     if (user.patientCode != null) {
       _memStorage[_keyPatientCode] = user.patientCode!;
     }
+    if (user.nicNumber != null && user.nicNumber!.isNotEmpty) {
+      _memStorage[_keyNic] = user.nicNumber!;
+    }
+    if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
+      _memStorage[_keyPhone] = user.phoneNumber!;
+    }
+    if (user.address != null && user.address!.isNotEmpty) {
+      _memStorage[_keyAddress] = user.address!;
+    }
 
     try {
       final prefs = await _getPrefs();
@@ -51,6 +63,15 @@ class AuthService {
         }
         if (user.patientCode != null) {
           await prefs.setString(_keyPatientCode, user.patientCode!);
+        }
+        if (user.nicNumber != null && user.nicNumber!.isNotEmpty) {
+          await prefs.setString(_keyNic, user.nicNumber!);
+        }
+        if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
+          await prefs.setString(_keyPhone, user.phoneNumber!);
+        }
+        if (user.address != null && user.address!.isNotEmpty) {
+          await prefs.setString(_keyAddress, user.address!);
         }
       }
     } on Object catch (_) {
@@ -67,6 +88,9 @@ class AuthService {
     String role = _memStorage[_keyRole] ?? 'Patient';
     String? picture = _memStorage[_keyPicture];
     String? patientCode = _memStorage[_keyPatientCode];
+    String? nic = _memStorage[_keyNic];
+    String? phone = _memStorage[_keyPhone];
+    String? address = _memStorage[_keyAddress];
 
     try {
       final prefs = await _getPrefs();
@@ -78,6 +102,9 @@ class AuthService {
         if (role == 'Patient') role = prefs.getString(_keyRole) ?? 'Patient';
         picture ??= prefs.getString(_keyPicture);
         patientCode ??= prefs.getString(_keyPatientCode);
+        nic ??= prefs.getString(_keyNic);
+        phone ??= prefs.getString(_keyPhone);
+        address ??= prefs.getString(_keyAddress);
       }
     } catch (_) {}
 
@@ -90,6 +117,9 @@ class AuthService {
       role: role,
       profilePicture: picture,
       patientCode: patientCode,
+      nicNumber: nic,
+      phoneNumber: phone,
+      address: address,
     );
   }
 
@@ -119,6 +149,9 @@ class AuthService {
         await prefs.remove(_keyRole);
         await prefs.remove(_keyPicture);
         await prefs.remove(_keyPatientCode);
+        await prefs.remove(_keyNic);
+        await prefs.remove(_keyPhone);
+        await prefs.remove(_keyAddress);
       }
     } catch (_) {}
   }
@@ -138,6 +171,9 @@ class AuthUser {
   final String role;
   final String? profilePicture;
   final String? patientCode;
+  final String? nicNumber;
+  final String? phoneNumber;
+  final String? address;
 
   AuthUser({
     required this.token,
@@ -147,6 +183,9 @@ class AuthUser {
     required this.role,
     this.profilePicture,
     this.patientCode,
+    this.nicNumber,
+    this.phoneNumber,
+    this.address,
   });
 
   factory AuthUser.fromJson(Map<String, dynamic> j) {
@@ -166,6 +205,20 @@ class AuthUser {
       }
     }
 
+    final nic = userObj?['nicNumber']?.toString() ??
+        userObj?['nic']?.toString() ??
+        j['nicNumber']?.toString() ??
+        j['nic']?.toString();
+
+    final phone = userObj?['phoneNumber']?.toString() ??
+        userObj?['contactPhone']?.toString() ??
+        userObj?['phone']?.toString() ??
+        j['phoneNumber']?.toString() ??
+        j['contactPhone']?.toString() ??
+        j['phone']?.toString();
+
+    final addr = userObj?['address']?.toString() ?? j['address']?.toString();
+
     return AuthUser(
       // Backend LoginResponse has top-level computed props: Token, UserId, Name, Email, Role
       token: j['token']?.toString() ?? j['Token']?.toString() ?? '',
@@ -175,6 +228,9 @@ class AuthUser {
       role: parseRole(j['role'] ?? j['Role'] ?? userObj?['role']),
       profilePicture: j['profilePicture']?.toString() ?? userObj?['profilePicture']?.toString(),
       patientCode: userObj?['patientCode']?.toString() ?? j['patientCode']?.toString(),
+      nicNumber: (nic != null && nic.isNotEmpty) ? nic : null,
+      phoneNumber: (phone != null && phone.isNotEmpty) ? phone : null,
+      address: (addr != null && addr.isNotEmpty) ? addr : null,
     );
   }
 }

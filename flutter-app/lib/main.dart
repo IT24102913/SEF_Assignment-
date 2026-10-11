@@ -10,6 +10,7 @@ import 'screens/lab/my_bookings_screen.dart';
 import 'screens/emr/customer_main_container.dart';
 import 'screens/doctor/doctor_search_screen.dart';
 import 'screens/doctor/my_appointments_screen.dart';
+import 'screens/pharmacy/pharmacy_wellness_chat_screen.dart';
 import 'utils/config.dart';
 
 void main() async {
@@ -50,6 +51,8 @@ class HealthBridgeApp extends StatelessWidget {
         '/emr': (context) => const CustomerMainContainer(),
         '/doctors': (context) => const DoctorSearchScreen(),
         '/my-appointments': (context) => const MyAppointmentsScreen(),
+        '/pharmacy-wellness': (context) =>
+            const PharmacyWellnessChatScreen(),
       },
     );
   }

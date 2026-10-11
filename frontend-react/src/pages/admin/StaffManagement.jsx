@@ -27,8 +27,483 @@ import {
     ShieldCheck,
     Building2,
     Check,
-    RefreshCw
+    RefreshCw,
+    Sun,
+    Sunset,
+    Moon
 } from 'lucide-react';
+
+const DAYS_OF_WEEK = [
+    { key: 'Mon', label: 'Mon', full: 'Monday' },
+    { key: 'Tue', label: 'Tue', full: 'Tuesday' },
+    { key: 'Wed', label: 'Wed', full: 'Wednesday' },
+    { key: 'Thu', label: 'Thu', full: 'Thursday' },
+    { key: 'Fri', label: 'Fri', full: 'Friday' },
+    { key: 'Sat', label: 'Sat', full: 'Saturday' },
+    { key: 'Sun', label: 'Sun', full: 'Sunday' }
+];
+
+const OPD_SESSION_BLOCKS = [
+    {
+        id: 'Morning',
+        title: 'Morning OPD Session',
+        timeText: '08:30 AM - 12:30 PM',
+        capacityText: 'Tokens #01 - #25',
+        icon: Sun,
+        color: '#d97706',
+        bg: '#fffbeb',
+        border: '#f59e0b'
+    },
+    {
+        id: 'Evening',
+        title: 'Evening OPD Session',
+        timeText: '04:30 PM - 08:00 PM',
+        capacityText: 'Tokens #01 - #25',
+        icon: Sunset,
+        color: '#ea580c',
+        bg: '#fff7ed',
+        border: '#f97316'
+    },
+    {
+        id: 'Night',
+        title: 'Night Clinic Session',
+        timeText: '08:00 PM - 10:30 PM',
+        capacityText: 'Tokens #01 - #15 (Emergency/Gen Med)',
+        icon: Moon,
+        color: '#6366f1',
+        bg: '#eef2ff',
+        border: '#6366f1'
+    }
+];
+
+const NON_DOCTOR_SHIFTS = [
+    { label: 'Morning Shift', time: '07:00 AM - 03:00 PM' },
+    { label: 'Day Shift', time: '08:00 AM - 04:00 PM' },
+    { label: 'Evening Shift', time: '01:00 PM - 09:00 PM' },
+    { label: 'Night Shift', time: '09:00 PM - 07:00 AM' }
+];
+
+const RosterScheduleSection = ({ formData, setFormData }) => {
+    const isDoctor = formData.role === 'Doctor';
+    const isGenMed = isDoctor && (
+        (formData.specialization || '').toLowerCase().includes('general') ||
+        (formData.department || '').toLowerCase().includes('general') ||
+        (formData.specialization || '').toLowerCase().includes('physician')
+    );
+
+    // 1. Available Days Parsing & Toggle
+    const activeDays = useMemo(() => {
+        if (!formData.availableDays) return [];
+        const lower = formData.availableDays.toLowerCase();
+        return DAYS_OF_WEEK.filter(d => lower.includes(d.key.toLowerCase())).map(d => d.key);
+    }, [formData.availableDays]);
+
+    const toggleDay = (key) => {
+        let updated;
+        if (activeDays.includes(key)) {
+            updated = activeDays.filter(d => d !== key);
+        } else {
+            updated = [...activeDays, key];
+            updated.sort((a, b) => {
+                const idxA = DAYS_OF_WEEK.findIndex(d => d.key === a);
+                const idxB = DAYS_OF_WEEK.findIndex(d => d.key === b);
+                return idxA - idxB;
+            });
+        }
+        setFormData(prev => ({ ...prev, availableDays: updated.join(', ') }));
+    };
+
+    const applyDaysPreset = (keys) => {
+        setFormData(prev => ({ ...prev, availableDays: keys.join(', ') }));
+    };
+
+    // 2. Doctor OPD Session Parsing & Toggle
+    const activeSessions = useMemo(() => {
+        if (!isDoctor) return [];
+        const str = (formData.availableTime || '').toLowerCase();
+        const res = [];
+        if (str.includes('morning') || str.includes('08:30') || str.includes('08:00 am') || str.includes('09:00') || str.includes('10:00') || str.includes('11:00') || str.includes('12:30')) {
+            res.push('Morning');
+        }
+        if (str.includes('evening') || str.includes('04:30') || str.includes('16:30') || str.includes('04:00 pm') || str.includes('05:00 pm') || str.includes('06:00') || str.includes('07:00') || str.includes('08:00 pm')) {
+            res.push('Evening');
+        }
+        if (str.includes('night') || str.includes('20:00') || str.includes('10:30 pm')) {
+            res.push('Night');
+        }
+        return res.length > 0 ? res : ['Morning', 'Evening'];
+    }, [formData.availableTime, isDoctor]);
+
+    const buildTimeSlotString = (sessions) => {
+        const parts = [];
+        if (sessions.includes('Morning')) parts.push('Morning OPD (08:30 AM - 12:30 PM)');
+        if (sessions.includes('Evening')) parts.push('Evening OPD (04:30 PM - 08:00 PM)');
+        if (sessions.includes('Night')) parts.push('Night Clinic (08:00 PM - 10:30 PM)');
+        return parts.join(', ');
+    };
+
+    const toggleSession = (sessionId) => {
+        let updated;
+        if (activeSessions.includes(sessionId)) {
+            updated = activeSessions.filter(s => s !== sessionId);
+        } else {
+            updated = [...activeSessions, sessionId];
+        }
+        setFormData(prev => ({ ...prev, availableTime: buildTimeSlotString(updated) }));
+    };
+
+    const applySessionPreset = (sessionList) => {
+        setFormData(prev => ({ ...prev, availableTime: buildTimeSlotString(sessionList) }));
+    };
+
+    return (
+        <div style={{
+            backgroundColor: '#f8fafc',
+            padding: '16px 18px',
+            borderRadius: '14px',
+            border: '1.5px solid #e2e8f0',
+            marginBottom: '20px'
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Calendar size={18} color="#2563eb" />
+                    <span style={{ fontSize: '0.92rem', fontWeight: 800, color: '#0f172a' }}>
+                        Roster Schedule & OPD Session Management
+                    </span>
+                </div>
+            </div>
+
+            {/* 1. AVAILABLE DAYS SELECTOR */}
+            <div style={{ marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                        Available Days *
+                    </label>
+                    {/* Quick Presets */}
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        <button
+                            type="button"
+                            onClick={() => applyDaysPreset(['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])}
+                            style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#475569',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            Mon-Fri
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => applyDaysPreset(['Mon', 'Wed', 'Fri'])}
+                            style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#475569',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            Mon/Wed/Fri
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => applyDaysPreset(['Tue', 'Thu', 'Sat'])}
+                            style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#475569',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            Tue/Thu/Sat
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => applyDaysPreset(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])}
+                            style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                color: '#475569',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            All 7 Days
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => applyDaysPreset([])}
+                            style={{
+                                fontSize: '0.72rem',
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #fecaca',
+                                background: '#fef2f2',
+                                color: '#dc2626',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            Clear
+                        </button>
+                    </div>
+                </div>
+
+                {/* Day Chips */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '6px', marginBottom: '8px' }}>
+                    {DAYS_OF_WEEK.map(d => {
+                        const isSelected = activeDays.includes(d.key);
+                        return (
+                            <button
+                                key={d.key}
+                                type="button"
+                                onClick={() => toggleDay(d.key)}
+                                style={{
+                                    padding: '8px 2px',
+                                    borderRadius: '8px',
+                                    border: isSelected ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+                                    backgroundColor: isSelected ? '#2563eb' : '#ffffff',
+                                    color: isSelected ? '#ffffff' : '#334155',
+                                    fontWeight: isSelected ? 800 : 600,
+                                    fontSize: '0.82rem',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '2px',
+                                    transition: 'all 0.15s ease',
+                                    boxShadow: isSelected ? '0 2px 4px rgba(37,99,235,0.25)' : 'none'
+                                }}
+                            >
+                                <span>{d.label}</span>
+                                {isSelected ? (
+                                    <Check size={12} strokeWidth={3} />
+                                ) : (
+                                    <span style={{ fontSize: '10px', color: '#94a3b8' }}>-</span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Preview / edit input */}
+                <div>
+                    <input
+                        type="text"
+                        value={formData.availableDays}
+                        onChange={(e) => setFormData({ ...formData, availableDays: e.target.value })}
+                        placeholder="e.g. Mon, Wed, Fri"
+                        style={{
+                            width: '100%',
+                            padding: '7px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '0.82rem',
+                            backgroundColor: '#ffffff',
+                            color: '#334155'
+                        }}
+                    />
+                </div>
+            </div>
+
+            {/* 2. TIME SLOTS / SESSIONS SELECTOR */}
+            <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>
+                        {isDoctor ? 'Hospital OPD Session Slots *' : 'Shift Working Hours *'}
+                    </label>
+
+                    {/* Presets */}
+                    {isDoctor ? (
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                onClick={() => applySessionPreset(['Morning', 'Evening'])}
+                                style={{
+                                    fontSize: '0.72rem',
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#475569',
+                                    cursor: 'pointer',
+                                    fontWeight: 600
+                                }}
+                            >
+                                Morning & Evening
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => applySessionPreset(['Morning'])}
+                                style={{
+                                    fontSize: '0.72rem',
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#475569',
+                                    cursor: 'pointer',
+                                    fontWeight: 600
+                                }}
+                            >
+                                Morning Only
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => applySessionPreset(['Evening'])}
+                                style={{
+                                    fontSize: '0.72rem',
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    border: '1px solid #cbd5e1',
+                                    background: '#ffffff',
+                                    color: '#475569',
+                                    cursor: 'pointer',
+                                    fontWeight: 600
+                                }}
+                            >
+                                Evening Only
+                            </button>
+                            {isGenMed && (
+                                <button
+                                    type="button"
+                                    onClick={() => applySessionPreset(['Morning', 'Evening', 'Night'])}
+                                    style={{
+                                        fontSize: '0.72rem',
+                                        padding: '3px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                        background: '#ffffff',
+                                        color: '#4f46e5',
+                                        cursor: 'pointer',
+                                        fontWeight: 600
+                                    }}
+                                >
+                                    + Night Clinic
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                            {NON_DOCTOR_SHIFTS.map(s => (
+                                <button
+                                    key={s.label}
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, availableTime: s.time })}
+                                    style={{
+                                        fontSize: '0.72rem',
+                                        padding: '3px 8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                        background: '#ffffff',
+                                        color: '#475569',
+                                        cursor: 'pointer',
+                                        fontWeight: 600
+                                    }}
+                                >
+                                    {s.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Doctor Session Cards */}
+                {isDoctor ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: isGenMed ? '1fr 1fr 1fr' : '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                        {OPD_SESSION_BLOCKS.filter(b => b.id !== 'Night' || isGenMed).map(b => {
+                            const isSelected = activeSessions.includes(b.id);
+                            const IconComp = b.icon;
+                            return (
+                                <div
+                                    key={b.id}
+                                    onClick={() => toggleSession(b.id)}
+                                    style={{
+                                        padding: '10px 12px',
+                                        borderRadius: '10px',
+                                        border: isSelected ? `2px solid ${b.color}` : '1.5px solid #e2e8f0',
+                                        backgroundColor: isSelected ? b.bg : '#ffffff',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '4px',
+                                        boxShadow: isSelected ? `0 2px 8px ${b.color}22` : 'none'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <IconComp size={16} color={b.color} />
+                                            <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#0f172a' }}>
+                                                {b.id} OPD
+                                            </span>
+                                        </div>
+                                        {isSelected && (
+                                            <div style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                borderRadius: '50%',
+                                                backgroundColor: b.color,
+                                                color: '#ffffff',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}>
+                                                <Check size={12} strokeWidth={3} />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#334155' }}>
+                                        {b.timeText}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                        {b.capacityText}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : null}
+
+                {/* Editable string input */}
+                <div>
+                    <input
+                        type="text"
+                        value={formData.availableTime}
+                        onChange={(e) => setFormData({ ...formData, availableTime: e.target.value })}
+                        placeholder="e.g. Morning OPD (08:30 AM - 12:30 PM), Evening OPD (04:30 PM - 08:00 PM)"
+                        style={{
+                            width: '100%',
+                            padding: '7px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid #cbd5e1',
+                            fontSize: '0.82rem',
+                            backgroundColor: '#ffffff',
+                            color: '#334155'
+                        }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const StaffManagement = () => {
     const { user, logout } = useAuth();
@@ -154,7 +629,7 @@ const StaffManagement = () => {
             department: '',
             specialization: 'Cardiology',
             availableDays: 'Mon, Wed, Fri',
-            availableTime: '08:00 AM - 04:00 PM',
+            availableTime: 'Morning OPD (08:30 AM - 12:30 PM), Evening OPD (04:30 PM - 08:00 PM)',
             phoneNumber: '+94 77 '
         });
         setShowAddModal(true);
@@ -752,7 +1227,7 @@ const StaffManagement = () => {
                         backgroundColor: '#ffffff',
                         borderRadius: '20px',
                         width: '100%',
-                        maxWidth: '560px',
+                        maxWidth: '640px',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
                         overflow: 'hidden'
                     }}>
@@ -858,35 +1333,7 @@ const StaffManagement = () => {
                             </div>
 
                             {/* Roster & Schedule Section */}
-                            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
-                                    Roster Schedule & Availability
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                                    <div>
-                                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Available Days</label>
-                                        <input
-                                            type="text"
-                                            value={formData.availableDays}
-                                            onChange={(e) => setFormData({ ...formData, availableDays: e.target.value })}
-                                            placeholder="e.g. Mon, Wed, Fri"
-                                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Shift Time Slots</label>
-                                        <input
-                                            type="text"
-                                            value={formData.availableTime}
-                                            onChange={(e) => setFormData({ ...formData, availableTime: e.target.value })}
-                                            placeholder="e.g. 08:00 AM - 04:00 PM"
-                                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                            <RosterScheduleSection formData={formData} setFormData={setFormData} />
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                                 <button
@@ -937,7 +1384,7 @@ const StaffManagement = () => {
                         backgroundColor: '#ffffff',
                         borderRadius: '20px',
                         width: '100%',
-                        maxWidth: '560px',
+                        maxWidth: '640px',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
                         overflow: 'hidden'
                     }}>
@@ -1018,35 +1465,7 @@ const StaffManagement = () => {
                             </div>
 
                             {/* Roster & Schedule Section */}
-                            <div style={{ backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                                <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>
-                                    Roster Schedule & Availability
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                                    <div>
-                                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Available Days</label>
-                                        <input
-                                            type="text"
-                                            value={formData.availableDays}
-                                            onChange={(e) => setFormData({ ...formData, availableDays: e.target.value })}
-                                            placeholder="e.g. Mon, Wed, Fri"
-                                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', display: 'block', marginBottom: '4px' }}>Shift Time Slots</label>
-                                        <input
-                                            type="text"
-                                            value={formData.availableTime}
-                                            onChange={(e) => setFormData({ ...formData, availableTime: e.target.value })}
-                                            placeholder="e.g. 08:00 AM - 04:00 PM"
-                                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+                            <RosterScheduleSection formData={formData} setFormData={setFormData} />
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                                 <button

@@ -13,6 +13,7 @@ class AuthState {
   static String? patientCode;
   static int? age;
   static String? phoneNumber;
+  static String? nic;
 
   static bool get isLoggedIn => token != null && token!.isNotEmpty;
 
@@ -27,10 +28,11 @@ class AuthState {
         ? data['age'] as int
         : (data['age'] != null ? int.tryParse(data['age'].toString()) : null);
     phoneNumber = data['phoneNumber'] as String?;
+    nic = data['nicNumber'] as String? ?? data['nic'] as String?;
   }
 
   static void clear() {
-    token = userId = name = email = patientCode = phoneNumber = null;
+    token = userId = name = email = patientCode = phoneNumber = nic = null;
     role = 'Patient';
     age = null;
   }

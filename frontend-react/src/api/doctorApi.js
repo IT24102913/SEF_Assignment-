@@ -46,6 +46,16 @@ export const getDoctorSessions = (id, date = '') => {
 export const recommendSpecialty = (symptoms) =>
   api.post('/appointments/recommend-doctor', { symptoms });
 
+export const approveRecommendation = (workflowId, selectedDoctorId = null, selectedSessionId = null, notes = '') =>
+  api.post(`/appointments/recommendations/${workflowId}/approve`, {
+    selectedDoctorId,
+    selectedSessionId,
+    notes
+  });
+
+export const rejectRecommendation = (workflowId, notes = '') =>
+  api.post(`/appointments/recommendations/${workflowId}/reject`, { notes });
+
 // ─── Appointments Management ─────────────────────────────────────────────────
 
 export const bookAppointment = (data) =>
@@ -120,5 +130,8 @@ export const callNextPatient = (sessionId) =>
 
 export const cancelSession = (sessionId, reason = '') =>
   api.post(`/doctorsessions/${sessionId}/cancel`, { reason });
+
+export const completeSession = (sessionId) =>
+  api.post(`/doctorsessions/${sessionId}/complete`);
 
 export default api;

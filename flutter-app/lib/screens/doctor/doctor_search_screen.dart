@@ -242,35 +242,60 @@ class _DoctorSearchScreenState extends State<DoctorSearchScreen> with SingleTick
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Channeling Desk Banner
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF004D40), Color(0xFF00796B)]),
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                onTap: () async {
+                  HapticFeedback.lightImpact();
+                  final uri = Uri(scheme: 'tel', path: '+94764477999');
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } catch (_) {
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                    }
+                  }
+                },
                 borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    backgroundColor: Color(0xFF80CBC4),
-                    child: Icon(Icons.phone_in_talk, color: Color(0xFF004D40), size: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFF004D40), Color(0xFF00796B)]),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF004D40).withValues(alpha: 0.22),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          '24/7 Channeling Desk Assistance',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        backgroundColor: Color(0xFF80CBC4),
+                        child: Icon(Icons.phone_in_talk, color: Color(0xFF004D40), size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              '24/7 Channeling Desk Assistance',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            Text(
+                              '+94 76 447 7999 • Colombo & Kandy',
+                              style: TextStyle(color: Color(0xFFB2DFDB), fontSize: 11),
+                            ),
+                          ],
                         ),
-                        Text(
-                          '+94 76 447 7999 • Colombo & Kandy',
-                          style: TextStyle(color: Color(0xFFB2DFDB), fontSize: 11),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
             const SizedBox(height: 16),

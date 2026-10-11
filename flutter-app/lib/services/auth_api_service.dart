@@ -170,6 +170,53 @@ class AuthApiService {
 
 
 
+  // ─── Change Password ──────────────────────────────────────────────────────
+  static Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    Object? lastException;
+    final payload = {
+      'email': email.trim().toLowerCase(),
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    };
+
+    for (final host in ApiConfig.candidateHosts) {
+      try {
+        final response = await http.post(
+          Uri.parse('$host/api/auth/change-password'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(payload),
+        ).timeout(const Duration(seconds: 6));
+
+        if (response.statusCode == 200) {
+          return;
+        } else {
+          String errMsg = 'Failed to change password.';
+          try {
+            final body = jsonDecode(response.body);
+            if (body is Map && body['message'] != null) {
+              errMsg = body['message'].toString();
+            }
+          } catch (_) {}
+          throw Exception(errMsg);
+        }
+      } catch (e) {
+        lastException = e;
+        final msg = e.toString();
+        if (!msg.contains('TimeoutException') &&
+            !msg.contains('SocketException') &&
+            !msg.contains('Connection refused') &&
+            !msg.contains('Failed host lookup')) {
+          rethrow;
+        }
+      }
+    }
+    throw Exception(lastException?.toString().replaceAll('Exception: ', '') ?? 'Unable to connect to server. Please check your internet connection.');
+  }
+
   // ─── Sign Out ─────────────────────────────────────────────────────────────
   static Future<void> signOut() async {
     await _googleSignIn.signOut();
