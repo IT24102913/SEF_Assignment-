@@ -327,16 +327,13 @@ const DoctorChannelingSection = ({ user, showToast }) => {
   const handleAiSymptomTriage = async () => {
     const trimmed = symptomInput.trim();
     if (!trimmed) {
+      setAiRecommendations(null);
       notify('Please describe your symptoms first.', 'error');
       return;
     }
-    const words = trimmed.split(/\s+/).filter(Boolean);
-    if (words.length < 2) {
-      notify('Please describe your symptoms in 2 or more words (e.g., "throbbing headache" or "chest discomfort").', 'warning');
-      return;
-    }
-    setAiLoading(true);
+    // Instantly wipe prior recommendation so the screen refreshes cleanly
     setAiRecommendations(null);
+    setAiLoading(true);
     try {
       const res = await recommendSpecialty(trimmed);
       const data = res.data;
@@ -1532,7 +1529,12 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                       type="text"
                       placeholder="Describe in 2+ words (e.g. severe chest pressure, knee pain when walking)..."
                       value={symptomInput}
-                      onChange={(e) => setSymptomInput(e.target.value)}
+                      onChange={(e) => {
+                        setSymptomInput(e.target.value);
+                        if (aiRecommendations) {
+                          setAiRecommendations(null);
+                        }
+                      }}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleAiSymptomTriage(); }}
                       disabled={aiLoading}
                       style={{
@@ -1557,6 +1559,35 @@ const DoctorChannelingSection = ({ user, showToast }) => {
                         e.target.style.boxShadow = 'inset 0 1px 3px rgba(0,0,0,0.05)';
                       }}
                     />
+                    {aiRecommendations && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiRecommendations(null);
+                          setSymptomInput('');
+                        }}
+                        style={{
+                          padding: '10px 14px',
+                          borderRadius: '10px',
+                          border: '1.5px solid #CBD5E1',
+                          backgroundColor: '#F8FAFC',
+                          color: '#475569',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          transition: 'all 0.2s',
+                          whiteSpace: 'nowrap'
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#E2E8F0'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#F8FAFC'; }}
+                        title="Clear previous recommendation"
+                      >
+                        <X size={14} /> Clear
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={handleAiSymptomTriage}
