@@ -322,11 +322,29 @@ class _MyAppointmentsScreenState extends State<MyAppointmentsScreen> with Single
     );
   }
 
+  bool _isPastAppointment(DoctorAppointment a) {
+    if (a.isToday) return false;
+    try {
+      final now = DateTime.now();
+      final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final aptDate = a.appointmentDate.length >= 10 ? a.appointmentDate.substring(0, 10) : a.appointmentDate;
+      return aptDate.isNotEmpty && aptDate.compareTo(todayStr) < 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   List<DoctorAppointment> get _upcomingAppointments =>
-      _appointments.where((a) => a.status == 'Confirmed' || a.status == 'InProgress' || a.status == 'PendingPayment' || a.status == 'Reserved').toList();
+      _appointments.where((a) {
+        if (_isPastAppointment(a)) return false;
+        return a.status == 'Confirmed' || a.status == 'InProgress' || a.status == 'PendingPayment' || a.status == 'Reserved';
+      }).toList();
 
   List<DoctorAppointment> get _completedAppointments =>
-      _appointments.where((a) => a.status == 'Completed').toList();
+      _appointments.where((a) {
+        final isPast = _isPastAppointment(a);
+        return a.status == 'Completed' || (isPast && a.status != 'Cancelled' && a.status != 'NoShow');
+      }).toList();
 
   List<DoctorAppointment> get _cancelledAppointments =>
       _appointments.where((a) => a.status == 'Cancelled' || a.status == 'NoShow').toList();

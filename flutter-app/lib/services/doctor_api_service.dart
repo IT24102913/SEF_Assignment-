@@ -317,6 +317,57 @@ class SpecialtyRecommendation {
   );
 }
 
+class MatchedDoctor {
+  final int doctorId;
+  final String fullName;
+  final String specialization;
+  final String qualifications;
+  final String hospitalBranch;
+  final String roomNumber;
+  final double consultationFee;
+  final double rating;
+  final int experienceYears;
+  final int nextDoctorSessionId;
+  final String? nextSessionDate;
+  final String? nextSessionTime;
+  final int availableSlots;
+  final String? matchReason;
+
+  MatchedDoctor({
+    required this.doctorId,
+    required this.fullName,
+    required this.specialization,
+    required this.qualifications,
+    required this.hospitalBranch,
+    required this.roomNumber,
+    required this.consultationFee,
+    required this.rating,
+    required this.experienceYears,
+    required this.nextDoctorSessionId,
+    this.nextSessionDate,
+    this.nextSessionTime,
+    required this.availableSlots,
+    this.matchReason,
+  });
+
+  factory MatchedDoctor.fromJson(Map<String, dynamic> json) => MatchedDoctor(
+    doctorId: (json['doctorId'] as num?)?.toInt() ?? 0,
+    fullName: json['fullName']?.toString() ?? '',
+    specialization: json['specialization']?.toString() ?? '',
+    qualifications: json['qualifications']?.toString() ?? '',
+    hospitalBranch: json['hospitalBranch']?.toString() ?? '',
+    roomNumber: json['roomNumber']?.toString() ?? '',
+    consultationFee: (json['consultationFee'] as num?)?.toDouble() ?? 0.0,
+    rating: (json['rating'] as num?)?.toDouble() ?? 4.8,
+    experienceYears: (json['experienceYears'] as num?)?.toInt() ?? 0,
+    nextDoctorSessionId: (json['nextDoctorSessionId'] as num?)?.toInt() ?? 0,
+    nextSessionDate: json['nextSessionDate']?.toString(),
+    nextSessionTime: json['nextSessionTime']?.toString(),
+    availableSlots: (json['availableSlots'] as num?)?.toInt() ?? 0,
+    matchReason: json['matchReason']?.toString(),
+  );
+}
+
 class DoctorRecommendationResult {
   final String status;
   final String? specialty;
@@ -324,6 +375,11 @@ class DoctorRecommendationResult {
   final String? reason;
   final List<String> followUpQuestions;
   final String? safetyMessage;
+  final String? redFlagCode;
+  final List<String> executionPlan;
+  final List<MatchedDoctor> matchedDoctors;
+  final String approvalStatus;
+  final int totalDurationMs;
 
   DoctorRecommendationResult({
     required this.status,
@@ -332,6 +388,11 @@ class DoctorRecommendationResult {
     this.reason,
     this.followUpQuestions = const [],
     this.safetyMessage,
+    this.redFlagCode,
+    this.executionPlan = const [],
+    this.matchedDoctors = const [],
+    this.approvalStatus = 'NOT_REQUIRED',
+    this.totalDurationMs = 0,
   });
 
   factory DoctorRecommendationResult.fromJson(Map<String, dynamic> json) => DoctorRecommendationResult(
@@ -341,6 +402,14 @@ class DoctorRecommendationResult {
     reason: json['reason']?.toString(),
     followUpQuestions: (json['followUpQuestions'] as List?)?.map((e) => e.toString()).toList() ?? [],
     safetyMessage: json['safetyMessage']?.toString(),
+    redFlagCode: json['redFlagCode']?.toString(),
+    executionPlan: (json['executionPlan'] as List?)?.map((e) => e.toString()).toList() ?? [],
+    matchedDoctors: (json['matchedDoctors'] as List?)
+            ?.map((e) => MatchedDoctor.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        [],
+    approvalStatus: json['approvalStatus']?.toString() ?? 'NOT_REQUIRED',
+    totalDurationMs: (json['totalDurationMs'] as num?)?.toInt() ?? 0,
   );
 }
 

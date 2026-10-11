@@ -680,7 +680,15 @@ class _DoctorSearchScreenState extends State<DoctorSearchScreen> with SingleTick
                 child: TextField(
                   controller: _symptomCtrl,
                   focusNode: _symptomFocusNode,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) {
+                    if (_aiResult != null) {
+                      setState(() {
+                        _aiResult = null;
+                      });
+                    } else {
+                      setState(() {});
+                    }
+                  },
                   decoration: InputDecoration(
                     hintText: 'e.g. sharp abdominal pain, eye redness...',
                     hintStyle: TextStyle(fontSize: 12.5, color: Colors.grey.shade500),
@@ -996,8 +1004,165 @@ class _DoctorSearchScreenState extends State<DoctorSearchScreen> with SingleTick
             ),
             if (res.reason != null && res.reason!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text(res.reason!, style: const TextStyle(fontSize: 12.5, color: Color(0xFF334155), height: 1.45)),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFBBF7D0)),
+                ),
+                child: Text(
+                  'Clinical Assessment: ${res.reason!}',
+                  style: const TextStyle(fontSize: 12.5, color: Color(0xFF166534), height: 1.45),
+                ),
+              ),
             ],
+
+            // Top Consultant Candidates Allocated via Agent Tool
+            if (res.matchedDoctors.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.psychology_rounded, size: 16, color: Color(0xFF059669)),
+                      SizedBox(width: 6),
+                      Text(
+                        'Available Consultants (Allocated)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF065F46),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '${res.matchedDoctors.length} matched',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF047857), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...res.matchedDoctors.map((doc) => Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAFAFA),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFA7F3D0), width: 1.2),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                doc.fullName,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF064E3B),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${doc.specialization} • ${doc.qualifications}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF059669),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.star, size: 11, color: Color(0xFFF59E0B)),
+                              const SizedBox(width: 2),
+                              Text(
+                                doc.rating.toStringAsFixed(1),
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '📍 ${doc.hospitalBranch} (${doc.roomNumber})',
+                      style: const TextStyle(fontSize: 11, color: Color(0xFF4B5563)),
+                    ),
+                    if (doc.nextSessionDate != null && doc.nextSessionDate!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFBBF7D0)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '📅 ${doc.nextSessionDate} at ${doc.nextSessionTime ?? "Session"}',
+                              style: const TextStyle(fontSize: 10.5, color: Color(0xFF166534)),
+                            ),
+                            Text(
+                              '${doc.availableSlots} slots left',
+                              style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF15803D)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Fee: Rs. ${doc.consultationFee.toStringAsFixed(0)}',
+                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                        ),
+                        SizedBox(
+                          height: 32,
+                          child: ElevatedButton(
+                            onPressed: () => _navigateToSpecialists(specialty: doc.specialization, search: doc.fullName),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF059669),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              elevation: 0,
+                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                            child: const Text('Book Consultant'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              )),
+            ],
+
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -1005,7 +1170,7 @@ class _DoctorSearchScreenState extends State<DoctorSearchScreen> with SingleTick
               child: ElevatedButton.icon(
                 onPressed: () => _navigateToSpecialists(specialty: res.specialty),
                 icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-                label: Text('Browse ${res.specialty} Specialists', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                label: Text('Browse All ${res.specialty} Specialists', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF16A34A),
                   foregroundColor: Colors.white,
