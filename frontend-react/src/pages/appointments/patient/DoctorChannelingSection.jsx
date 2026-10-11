@@ -941,11 +941,18 @@ const DoctorChannelingSection = ({ user, showToast }) => {
 
   // Filter My Appointments by active tab
   const filteredMyAppointments = myAppointments.filter(apt => {
+    const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+    const aptDate = (apt.appointmentDate || '').slice(0, 10);
+    const isPast = Boolean(aptDate && aptDate < todayStr);
+
     if (appointmentsTab === 'Upcoming') {
+      // Upcoming must be today or future date, and in an active status
+      if (isPast) return false;
       return apt.status === 'Confirmed' || apt.status === 'InProgress' || apt.status === 'PendingPayment' || apt.status === 'Reserved';
     }
     if (appointmentsTab === 'Completed') {
-      return apt.status === 'Completed';
+      // Completed includes completed status, or past unattended sessions
+      return apt.status === 'Completed' || (isPast && apt.status !== 'Cancelled' && apt.status !== 'NoShow');
     }
     if (appointmentsTab === 'Cancelled') {
       return apt.status === 'Cancelled' || apt.status === 'NoShow';
