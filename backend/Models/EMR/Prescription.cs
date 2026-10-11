@@ -11,6 +11,7 @@ public class Prescription
     public DateTime StartDate { get; set; } = DateTime.UtcNow;
     public DateTime EndDate { get; set; } = DateTime.UtcNow.AddDays(7);
     public decimal UnitPrice { get; set; } = 0.0m;
+    public string Currency { get; set; } = "LKR";
     public string PrescribedDoctor { get; set; } = string.Empty;
     public string Status { get; set; } = "Active"; // Active, Completed, Cancelled
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -363,11 +363,11 @@ public class EMRClinicalInsightAgent
     private static (string PlainEnglish, string Significance) ExplainLabTest(string testTitle, string category, string summary)
     {
         var tLower = testTitle.ToLowerInvariant();
-        if (tLower.Contains("blood") || tLower.Contains("cbc") || tLower.Contains("fbc") || tLower.Contains("hematology"))
+        if (tLower.Contains("glucose") || tLower.Contains("sugar") || tLower.Contains("hba1c"))
         {
             return (
-                "A Complete Blood Count evaluates your red blood cells (which deliver oxygen), white blood cells (which fight infections), and platelets (which stop bleeding).",
-                "Helps identify anemia, immune strength, and ensures your bone marrow and circulatory system are functioning properly."
+                "This diagnostic tests the concentration of sugar in your blood, either at a fasting state or averaged over the past 3 months (HbA1c).",
+                "Essential for monitoring metabolic balance, insulin sensitivity, and guiding diabetic or pre-diabetic lifestyle modifications."
             );
         }
         if (tLower.Contains("lipid") || tLower.Contains("cholesterol"))
@@ -377,11 +377,11 @@ public class EMRClinicalInsightAgent
                 "Assesses arterial health and cardiovascular risk. Healthy levels prevent plaque buildup in blood vessels."
             );
         }
-        if (tLower.Contains("glucose") || tLower.Contains("sugar") || tLower.Contains("hba1c"))
+        if (tLower.Contains("blood count") || tLower.Contains("cbc") || tLower.Contains("fbc") || tLower.Contains("hematology"))
         {
             return (
-                "This diagnostic tests the concentration of sugar in your blood, either at a fasting state or averaged over the past 3 months (HbA1c).",
-                "Essential for monitoring metabolic balance, insulin sensitivity, and guiding diabetic or pre-diabetic lifestyle modifications."
+                "A Complete Blood Count evaluates your red blood cells (which deliver oxygen), white blood cells (which fight infections), and platelets (which stop bleeding).",
+                "Helps identify anemia, immune strength, and ensures your bone marrow and circulatory system are functioning properly."
             );
         }
         if (tLower.Contains("liver") || tLower.Contains("lft") || tLower.Contains("alt") || tLower.Contains("ast"))

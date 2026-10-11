@@ -26,6 +26,8 @@ public static class DbInitializer
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationAction\" text NOT NULL DEFAULT '';");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AdminNote\" text NOT NULL DEFAULT '';");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"AuthorizationRequestedAt\" timestamp with time zone;");
+            await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Prescriptions\" ADD COLUMN IF NOT EXISTS \"Currency\" text NOT NULL DEFAULT 'LKR';");
+            await context.Database.ExecuteSqlRawAsync("UPDATE \"Prescriptions\" SET \"Currency\" = 'LKR' WHERE \"Currency\" IS NULL OR \"Currency\" = '';");
             // Users table access control columns
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"IsPharmacyBlocked\" boolean DEFAULT false;");
             await context.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"BlockReason\" text;");

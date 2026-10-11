@@ -11,6 +11,7 @@ public class PrescriptionDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public decimal UnitPrice { get; set; }
+    public string Currency { get; set; } = "LKR";
     public string PrescribedDoctor { get; set; } = string.Empty;
     public string Status { get; set; } = "Active";
     public DateTime CreatedAt { get; set; }
@@ -35,6 +36,7 @@ public class CreatePrescriptionDto
     public DateTime? StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public decimal UnitPrice { get; set; } = 0.0m;
+    public string Currency { get; set; } = "LKR";
     public string PrescribedDoctor { get; set; } = string.Empty;
     public string Status { get; set; } = "Active";
 }
@@ -57,6 +59,7 @@ public class CreatePrescriptionItemDto
     public string Dosage { get; set; } = string.Empty;
     public string Duration { get; set; } = "7 Days";
     public decimal UnitPrice { get; set; } = 0.0m;
+    public string Currency { get; set; } = "LKR";
     public string Status { get; set; } = "Active";
 }
 

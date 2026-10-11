@@ -102,6 +102,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   List<MedicineModel> _filteredMedicines = [];
   List<CategoryModel> _categories = [];
   bool _isLoading = true;
+  bool _hasError = false;
 
   int? _pendingHighlightMedicineId;
   int? _highlightedMedicineId;
@@ -201,6 +202,10 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
   }
 
   Future<void> _loadPharmacyData() async {
+    setState(() {
+      _hasError = false;
+    });
+
     // ─── Try cache first ───
     if (_cachedMedicines != null &&
         _cachedCategories != null &&
@@ -210,6 +215,7 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
         _allMedicines = _cachedMedicines!;
         _categories = _cachedCategories!;
         _isLoading = false;
+        _hasError = false;
         _applyFilters();
       });
 
@@ -224,34 +230,50 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
     }
 
     // ─── Cache miss → fetch from API ───
-    setState(() => _isLoading = true);
-    final medicines = await PharmacyService.getMedicines();
-    final categories = await PharmacyService.getCategories();
-    final userEmail =
-        AuthState.email ?? AppSession.loggedInUserEmail ?? '';
-    final blocked =
-        await PharmacyService.isUserBlocked(userEmail);
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+    });
 
-    if (mounted) {
-      setState(() {
-        _allMedicines = medicines;
-        _categories = categories;
-        _isBlocked = blocked;
-        _applyFilters();
-        _isLoading = false;
-      });
+    try {
+      final medicines = await PharmacyService.getMedicines();
+      final categories = await PharmacyService.getCategories();
+      final userEmail =
+          AuthState.email ?? AppSession.loggedInUserEmail ?? '';
+      final blocked =
+          await PharmacyService.isUserBlocked(userEmail);
 
-      // Save to cache
-      _cachedMedicines = medicines;
-      _cachedCategories = categories;
-      _cacheTime = DateTime.now();
+      if (mounted) {
+        setState(() {
+          _allMedicines = medicines;
+          _categories = categories;
+          _isBlocked = blocked;
+          _applyFilters();
+          _isLoading = false;
+          _hasError = false;
+        });
 
-      // Trigger pending highlight if any
-      if (_pendingHighlightMedicineId != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _pendingHighlightMedicineId != null) {
-            _highlightMedicine(_pendingHighlightMedicineId!);
-          }
+        // Save to cache only when valid items were returned
+        if (medicines.isNotEmpty) {
+          _cachedMedicines = medicines;
+          _cachedCategories = categories;
+          _cacheTime = DateTime.now();
+        }
+
+        // Trigger pending highlight if any
+        if (_pendingHighlightMedicineId != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _pendingHighlightMedicineId != null) {
+              _highlightMedicine(_pendingHighlightMedicineId!);
+            }
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _isLoading = false;
         });
       }
     }
@@ -1568,7 +1590,38 @@ class _PharmacyStorePageState extends State<PharmacyStorePage> {
                             child: CircularProgressIndicator(color: Color(0xFF059669)),
                           ),
                         )
-                      : _filteredMedicines.isEmpty
+                      : _hasError
+                          ? SliverFillRemaining(
+                              child: Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.cloud_off_outlined, size: 64, color: Color(0xFF94A3B8)),
+                                    const SizedBox(height: 12),
+                                    const Text(
+                                      'Could not load medicines. Check your connection.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton.icon(
+                                      onPressed: _loadPharmacyData,
+                                      icon: const Icon(Icons.refresh, size: 18),
+                                      label: const Text('Retry'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF059669),
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : _filteredMedicines.isEmpty
                           ? SliverFillRemaining(
                               child: Center(
                                 child: Column(
