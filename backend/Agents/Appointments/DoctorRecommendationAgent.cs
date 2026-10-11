@@ -1607,7 +1607,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     StepName = "ClinicalSafetyAudit",
                     AssignedAgent = _safetyAgent.AgentName,
                     Description = "Verify input gating, rule out emergency red-flags (1990/119/1926 escalation)",
-                    ContractSummary = $"Responsibility: {_safetyAgent.Responsibility} | AllowedTools: [{string.Join(", ", _safetyAgent.AllowedTools)}]"
+                    ContractSummary = $"Responsibility: {_safetyAgent.Responsibility} | AllowedTools: [{string.Join(", ", _safetyAgent.AllowedTools ?? Array.Empty<string>())}]"
                 },
                 new()
                 {
@@ -1615,7 +1615,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     StepName = "ClinicalTriageAnalysis",
                     AssignedAgent = _triageAgent.AgentName,
                     Description = "Map patient symptoms to canonical clinical specialty (Gemini LLM / Weighted Engine)",
-                    ContractSummary = $"Responsibility: {_triageAgent.Responsibility} | AllowedTools: [{string.Join(", ", _triageAgent.AllowedTools)}]"
+                    ContractSummary = $"Responsibility: {_triageAgent.Responsibility} | AllowedTools: [{string.Join(", ", _triageAgent.AllowedTools ?? Array.Empty<string>())}]"
                 },
                 new()
                 {
@@ -1623,7 +1623,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     StepName = "DoctorSlotAllocation",
                     AssignedAgent = _slotAllocationAgent.AgentName,
                     Description = "Execute allow-listed DoctorSlotAllocationTool to query verified consultants and open bookable slots",
-                    ContractSummary = $"Responsibility: {_slotAllocationAgent.Responsibility} | AllowedTools: [{string.Join(", ", _slotAllocationAgent.AllowedTools)}]"
+                    ContractSummary = $"Responsibility: {_slotAllocationAgent.Responsibility} | AllowedTools: [{string.Join(", ", _slotAllocationAgent.AllowedTools ?? Array.Empty<string>())}]"
                 },
                 new()
                 {
@@ -1631,7 +1631,7 @@ public class DoctorRecommendationAgent : IWorkflowAgent
                     StepName = "RecommendationValidation",
                     AssignedAgent = _validationAgent.AgentName,
                     Description = "Perform deterministic schema, specialty alignment, and bookable slot validation before proposal",
-                    ContractSummary = $"Responsibility: {_validationAgent.Responsibility} | AllowedTools: [{string.Join(", ", _validationAgent.AllowedTools)}]"
+                    ContractSummary = $"Responsibility: {_validationAgent.Responsibility} | AllowedTools: [{string.Join(", ", _validationAgent.AllowedTools ?? Array.Empty<string>())}]"
                 }
             }
         };

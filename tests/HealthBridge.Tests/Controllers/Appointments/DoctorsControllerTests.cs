@@ -32,19 +32,25 @@ public class DoctorsControllerTests
     {
         var service = mockService ?? new Mock<IAppointmentService>();
 
-        var mockSafetyAgent = new Mock<IClinicalSafetyAgent>();
-        var mockTriageAgent = new Mock<IClinicalTriageAgent>();
-        var mockSlotAgent = new Mock<IDoctorSlotAllocationAgent>();
-        var mockValidationAgent = new Mock<IRecommendationValidationAgent>();
-        var mockToolRegistry = new Mock<IAgentToolRegistry>();
+        var mockConfig = new Mock<IConfiguration>();
+        mockConfig.Setup(c => c["Gemini:ApiKey"]).Returns(string.Empty);
+        var mockHttpFactory = new Mock<IHttpClientFactory>();
+        mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+
+        var reg = new AgentToolRegistry(NullLogger<AgentToolRegistry>.Instance);
+        var safety = new ClinicalSafetyAgent(NullLogger<ClinicalSafetyAgent>.Instance);
+        var triage = new ClinicalTriageAgent(mockConfig.Object, NullLogger<ClinicalTriageAgent>.Instance, mockHttpFactory.Object);
+        var slotTool = new DoctorSlotAllocationTool(context, NullLogger<DoctorSlotAllocationTool>.Instance);
+        var slotAgent = new DoctorSlotAllocationAgent(slotTool, reg, NullLogger<DoctorSlotAllocationAgent>.Instance);
+        var valAgent = new RecommendationValidationAgent();
 
         var agent = new DoctorRecommendationAgent(
             context,
-            mockSafetyAgent.Object,
-            mockTriageAgent.Object,
-            mockSlotAgent.Object,
-            mockValidationAgent.Object,
-            mockToolRegistry.Object,
+            safety,
+            triage,
+            slotAgent,
+            valAgent,
+            reg,
             NullLogger<DoctorRecommendationAgent>.Instance);
 
         var controller = new DoctorsController(
@@ -304,5 +310,57 @@ public class DoctorsControllerTests
         Assert.IsType<OkObjectResult>(result);
         var deleted = await context.Doctors.FindAsync(doc.Id);
         Assert.Null(deleted);
+    }
+
+    // ─── RecommendSpecialty Authorization Tests ───────────────────────────────
+
+    [Fact]
+    public async Task RecommendSpecialty_WhenAnonymous_ReturnsUnauthorized()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var controller = CreateController(context, user: null);
+        var request = new AIRecommendationRequest { Symptoms = "persistent cough" };
+
+        // Act
+        var result = await controller.RecommendSpecialty(request);
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task RecommendSpecialty_WhenWrongRole_ReturnsForbid()
+    {
+        // Arrange: Doctor attempting to call recommendation
+        using var context = CreateInMemoryDbContext();
+        var doctorUser = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, "10"), new Claim(ClaimTypes.Role, UserRole.Doctor) }, "TestAuth"));
+        var controller = CreateController(context, user: doctorUser);
+        var request = new AIRecommendationRequest { Symptoms = "persistent cough" };
+
+        // Act
+        var result = await controller.RecommendSpecialty(request);
+
+        // Assert
+        Assert.IsType<ForbidResult>(result);
+    }
+
+    [Fact]
+    public async Task RecommendSpecialty_WhenPatientRole_ReturnsOk()
+    {
+        // Arrange
+        using var context = CreateInMemoryDbContext();
+        var patientUser = new ClaimsPrincipal(new ClaimsIdentity(
+            new[] { new Claim(ClaimTypes.NameIdentifier, "10"), new Claim(ClaimTypes.Role, UserRole.Patient) }, "TestAuth"));
+        var controller = CreateController(context, user: patientUser);
+        var request = new AIRecommendationRequest { Symptoms = "persistent knee ache after jogging" };
+
+        // Act
+        var result = await controller.RecommendSpecialty(request);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(okResult.Value);
     }
 }
