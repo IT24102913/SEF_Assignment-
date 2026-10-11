@@ -32,15 +32,20 @@ public class DoctorsControllerTests
     {
         var service = mockService ?? new Mock<IAppointmentService>();
 
-        var mockConfig = new Mock<IConfiguration>();
-        var mockHttpFactory = new Mock<IHttpClientFactory>();
-        mockHttpFactory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(new HttpClient());
+        var mockSafetyAgent = new Mock<IClinicalSafetyAgent>();
+        var mockTriageAgent = new Mock<IClinicalTriageAgent>();
+        var mockSlotAgent = new Mock<IDoctorSlotAllocationAgent>();
+        var mockValidationAgent = new Mock<IRecommendationValidationAgent>();
+        var mockToolRegistry = new Mock<IAgentToolRegistry>();
 
         var agent = new DoctorRecommendationAgent(
-            mockConfig.Object,
-            NullLogger<DoctorRecommendationAgent>.Instance,
-            mockHttpFactory.Object,
-            context);
+            context,
+            mockSafetyAgent.Object,
+            mockTriageAgent.Object,
+            mockSlotAgent.Object,
+            mockValidationAgent.Object,
+            mockToolRegistry.Object,
+            NullLogger<DoctorRecommendationAgent>.Instance);
 
         var controller = new DoctorsController(
             service.Object,
