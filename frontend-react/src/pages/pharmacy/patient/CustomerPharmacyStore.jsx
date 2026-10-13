@@ -770,7 +770,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
             <div style={ps.banner}>
                 <div style={ps.bannerContent}>
                     <div style={ps.rxBadgeTop}>
-                        <Pill size={16} color="#60A5FA" />
+                        <Pill size={16} color="#6EE7B7" />
                         <span>HEALTH BRIDGE CUSTOMER PHARMACY STORE</span>
                     </div>
                     <h2 style={ps.bannerTitle}>Genuine Medicines & Express Health Delivery</h2>
@@ -797,7 +797,7 @@ const CustomerPharmacyStore = ({ user, onOrderSubmitted, onNavigate }) => {
                             setShowCheckoutModal(true);
                         }}
                     >
-                        <FileCheck size={20} color="#BFDBFE" />
+                        <FileCheck size={20} color="#A7F3D0" />
                         <span>Upload Prescription Order</span>
                     </button>
                     <button
@@ -2355,7 +2355,7 @@ const ps = {
         alignItems: 'center',
     },
     banner: {
-        background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 50%, #1D4ED8 100%)',
+        background: 'linear-gradient(135deg, #064E3B 0%, #059669 50%, #047857 100%)',
         borderRadius: '16px',
         padding: '24px 32px',
         color: '#FFFFFF',
@@ -2363,7 +2363,7 @@ const ps = {
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '24px',
-        boxShadow: '0 10px 25px -5px rgba(37, 99, 235, 0.3)',
+        boxShadow: '0 10px 25px -5px rgba(5, 150, 105, 0.3)',
     },
     bannerContent: {
         maxWidth: '650px',
@@ -2387,7 +2387,7 @@ const ps = {
     },
     bannerSub: {
         fontSize: '13px',
-        color: '#BFDBFE',
+        color: '#A7F3D0',
         margin: 0,
     },
     cartBtn: {
@@ -2395,7 +2395,7 @@ const ps = {
         alignItems: 'center',
         gap: '10px',
         backgroundColor: '#FFFFFF',
-        color: '#1E40AF',
+        color: '#065F46',
         border: 'none',
         padding: '12px 20px',
         borderRadius: '12px',
@@ -2405,7 +2405,7 @@ const ps = {
         boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
     },
     cartBadgeCount: {
-        backgroundColor: '#2563EB',
+        backgroundColor: '#059669',
         color: '#FFFFFF',
         padding: '2px 8px',
         borderRadius: '8px',
